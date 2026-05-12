@@ -18,9 +18,25 @@ trap cleanup EXIT
 
 export SESAME_PORTAL_STATE_DIR="$STATE_DIR"
 export SESAME_PORTAL_SECRET="test-secret"
+export ROOT
 
 php "$ROOT/bin/portal" migrate >/dev/null
 php "$ROOT/bin/portal" create-admin admin admin123 >/dev/null
+
+TOKEN="$(
+  php <<'PHP'
+<?php
+require getenv('ROOT') . '/app/Portal.php';
+\SesamePortal\DB::migrate();
+$pdo = \SesamePortal\DB::pdo();
+$now = \SesamePortal\Util::now();
+$pdo->prepare('INSERT INTO cameras(name, source_url, server_selection, retention_days, dvr_stream_name, created_at, updated_at) VALUES(?, ?, ?, ?, ?, ?, ?)')
+    ->execute(['Smoke Cam', 'rtsp://example.invalid/smoke', 'manual', '1d', 'smoke-cam', $now, $now]);
+$stmt = $pdo->prepare('SELECT daily_token FROM users WHERE login = ?');
+$stmt->execute(['admin']);
+echo $stmt->fetchColumn();
+PHP
+)"
 
 php -S "127.0.0.1:$PORT" -t "$ROOT/public" >"$SERVER_LOG" 2>&1 &
 SERVER_PID="$!"
@@ -39,11 +55,19 @@ test "$status" = "303"
 
 curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/admin/dashboard" | grep -q "SesameDVR серверы"
 curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/admin/users?q=admin" | grep -q "admin"
+curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/" | grep -q "Открыть плеер"
 
 denied="$(
   curl -sS -o /dev/null -w '%{http_code}' \
     "http://127.0.0.1:$PORT/api/sesamedvr/auth?token=bad&camera=missing"
 )"
 test "$denied" = "403"
+
+qs="$(TOKEN="$TOKEN" php -r 'echo rawurlencode("token=" . getenv("TOKEN"));')"
+allowed="$(
+  curl -sS -o /dev/null -w '%{http_code}' \
+    "http://127.0.0.1:$PORT/api/sesamedvr/auth?token=NonAvailable&qs=$qs&name=smoke-cam"
+)"
+test "$allowed" = "200"
 
 echo "http smoke ok"

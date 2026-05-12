@@ -1101,13 +1101,11 @@ final class App
             $embed = self::embedUrl($camera, $token);
             $preview = self::previewUrl($camera, $token);
             echo '<article class="camera-card">';
-            echo '<a class="preview" href="' . Util::h($embed) . '">';
+            echo '<a class="preview' . ($preview ? '' : ' no-preview') . '" href="' . Util::h($embed) . '">';
             if ($preview) {
-                echo '<img src="' . Util::h($preview) . '" alt="">';
-            } else {
-                echo '<span>Нет preview</span>';
+                echo '<img src="' . Util::h($preview) . '" alt="" onerror="this.hidden=true;this.closest(\'.preview\').classList.add(\'no-preview\')">';
             }
-            echo '</a><div class="camera-meta"><strong>' . Util::h($camera['name']) . '</strong><span>' . Util::h($camera['server_name'] ?? 'Без сервера') . '</span></div>';
+            echo '<span class="preview-label">Открыть плеер</span></a><div class="camera-meta"><strong>' . Util::h($camera['name']) . '</strong><span>' . Util::h($camera['server_name'] ?? 'Без сервера') . '</span></div>';
             self::favoriteButton((int)$camera['id'], isset($favorites[(int)$camera['id']]));
             echo '</article>';
         }
@@ -1159,7 +1157,7 @@ final class App
 
     private static function authBackend(): void
     {
-        $token = (string)($_GET['token'] ?? $_GET['auth_token'] ?? $_GET['playback_token'] ?? '');
+        $token = self::playbackTokenFromAuthRequest();
         $cameraName = self::cameraNameFromAuthRequest();
         $user = TokenService::userByToken($token);
         if (!$user || $cameraName === '') {
@@ -1424,6 +1422,49 @@ final class App
             return '';
         }
         return rtrim($camera['server_url'], '/') . '/' . rawurlencode($camera['dvr_stream_name']) . '/preview.jpg?token=' . rawurlencode($token);
+    }
+
+    private static function playbackTokenFromAuthRequest(): string
+    {
+        foreach (['token', 'auth_token', 'playback_token'] as $key) {
+            $token = self::usableAuthValue($_GET[$key] ?? '');
+            if ($token !== '') {
+                return $token;
+            }
+        }
+
+        $qs = self::usableAuthValue($_GET['qs'] ?? '');
+        if ($qs !== '') {
+            parse_str($qs, $params);
+            foreach (['token', 'auth_token', 'playback_token'] as $key) {
+                $token = self::usableAuthValue($params[$key] ?? '');
+                if ($token !== '') {
+                    return $token;
+                }
+            }
+        }
+
+        foreach (['uri', 'path', 'request_uri'] as $key) {
+            $query = parse_url((string)($_GET[$key] ?? ''), PHP_URL_QUERY);
+            if (!$query) {
+                continue;
+            }
+            parse_str($query, $params);
+            foreach (['token', 'auth_token', 'playback_token'] as $tokenKey) {
+                $token = self::usableAuthValue($params[$tokenKey] ?? '');
+                if ($token !== '') {
+                    return $token;
+                }
+            }
+        }
+
+        return '';
+    }
+
+    private static function usableAuthValue(mixed $value): string
+    {
+        $value = trim((string)$value);
+        return $value === '' || $value === 'NonAvailable' ? '' : $value;
     }
 
     private static function cameraNameFromAuthRequest(): string
