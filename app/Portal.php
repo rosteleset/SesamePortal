@@ -41,6 +41,7 @@ final class Config
             'db_password' => getenv('SESAME_PORTAL_DB_PASSWORD') ?: null,
             'app_secret' => getenv('SESAME_PORTAL_SECRET') ?: 'dev-insecure-change-me',
             'timezone' => getenv('SESAME_PORTAL_TIMEZONE') ?: 'UTC',
+            'locale' => getenv('SESAME_PORTAL_LOCALE') ?: 'ru',
             'base_url' => getenv('SESAME_PORTAL_BASE_URL') ?: '',
             'auth_backend_path' => '/api/sesamedvr/auth',
         ], is_array($loaded) ? $loaded : []);
@@ -118,6 +119,7 @@ final class DB
         self::ensureColumn('cameras', 'last_sync_at', 'TEXT');
         self::ensureColumn('cameras', 'last_sync_ok', 'INTEGER');
         self::ensureColumn('cameras', 'last_sync_message', 'TEXT');
+        self::ensureColumn('cameras', 'dvr_control_mode', self::driver() === 'mysql' ? "VARCHAR(32) NOT NULL DEFAULT 'managed'" : "TEXT NOT NULL DEFAULT 'managed'");
     }
 
     public static function insertIgnoreSql(string $table, array $columns): string
@@ -215,6 +217,7 @@ final class DB
                 direction_deg INTEGER NOT NULL DEFAULT 0,
                 view_angle_deg INTEGER NOT NULL DEFAULT 60,
                 retention_days TEXT NOT NULL DEFAULT "7d",
+                dvr_control_mode TEXT NOT NULL DEFAULT "managed",
                 blocked INTEGER NOT NULL DEFAULT 0,
                 dvr_stream_name TEXT NOT NULL,
                 last_sync_at TEXT,
@@ -295,6 +298,7 @@ final class DB
                 direction_deg INTEGER NOT NULL DEFAULT 0,
                 view_angle_deg INTEGER NOT NULL DEFAULT 60,
                 retention_days TEXT NOT NULL DEFAULT '7d',
+                dvr_control_mode TEXT NOT NULL DEFAULT 'managed',
                 blocked INTEGER NOT NULL DEFAULT 0,
                 dvr_stream_name TEXT NOT NULL,
                 last_sync_at TEXT,
@@ -378,6 +382,7 @@ final class DB
                 direction_deg INTEGER NOT NULL DEFAULT 0,
                 view_angle_deg INTEGER NOT NULL DEFAULT 60,
                 retention_days VARCHAR(64) NOT NULL DEFAULT '7d',
+                dvr_control_mode VARCHAR(32) NOT NULL DEFAULT 'managed',
                 blocked INTEGER NOT NULL DEFAULT 0,
                 dvr_stream_name VARCHAR(255) NOT NULL,
                 last_sync_at VARCHAR(64),
@@ -516,6 +521,171 @@ final class Util
     public static function checkbox(string $key): int
     {
         return isset($_POST[$key]) ? 1 : 0;
+    }
+}
+
+final class I18n
+{
+    private const LOCALES = [
+        'ru' => 'RU',
+        'en' => 'EN',
+    ];
+
+    private static ?string $locale = null;
+
+    public static function bootstrap(): void
+    {
+        Auth::start();
+        $requested = (string)($_GET['lang'] ?? '');
+        if (isset(self::LOCALES[$requested])) {
+            $_SESSION['locale'] = $requested;
+            self::$locale = $requested;
+        }
+    }
+
+    public static function locale(): string
+    {
+        if (self::$locale !== null) {
+            return self::$locale;
+        }
+
+        $session = $_SESSION ?? [];
+        $sessionLocale = (string)($session['locale'] ?? '');
+        if (isset(self::LOCALES[$sessionLocale])) {
+            self::$locale = $sessionLocale;
+            return self::$locale;
+        }
+
+        $configLocale = (string)Config::get('locale', 'ru');
+        self::$locale = isset(self::LOCALES[$configLocale]) ? $configLocale : 'ru';
+        return self::$locale;
+    }
+
+    public static function t(string $key, string $fallback): string
+    {
+        return self::messages()[self::locale()][$key] ?? $fallback;
+    }
+
+    public static function js(): array
+    {
+        return [
+            'openVideo' => self::t('js.openVideo', 'Открыть видео'),
+            'fullscreen' => self::t('player.fullscreen', 'На весь экран'),
+            'collapse' => self::t('player.collapse', 'Свернуть'),
+        ];
+    }
+
+    public static function languageLinks(): string
+    {
+        $current = self::locale();
+        $path = Util::path();
+        $params = $_GET;
+        $html = '<span class="locale-switch">';
+        foreach (self::LOCALES as $locale => $label) {
+            $params['lang'] = $locale;
+            $href = $path . '?' . http_build_query($params);
+            $html .= '<a class="' . ($current === $locale ? 'active' : '') . '" href="' . Util::h($href) . '">' . $label . '</a>';
+        }
+        return $html . '</span>';
+    }
+
+    private static function messages(): array
+    {
+        return [
+            'ru' => [],
+            'en' => [
+                'nav.mosaic' => 'Mosaic',
+                'nav.map' => 'Map',
+                'nav.dashboard' => 'Dashboard',
+                'nav.users' => 'Users',
+                'nav.groups' => 'Groups',
+                'nav.cameras' => 'Cameras',
+                'nav.dvr' => 'DVR',
+                'nav.audit' => 'Audit',
+                'nav.logout' => 'Logout',
+                'login.title' => 'Sign In',
+                'login.subtitle' => 'SesameWare video surveillance portal',
+                'login.invalid' => 'Invalid login or password',
+                'field.login' => 'Login',
+                'field.password' => 'Password',
+                'action.login' => 'Sign in',
+                'action.save' => 'Save',
+                'action.saveSync' => 'Save and sync',
+                'action.find' => 'Find',
+                'action.show' => 'Show',
+                'action.edit' => 'Edit',
+                'action.delete' => 'Delete',
+                'action.check' => 'Check',
+                'action.update' => 'Refresh',
+                'action.updateAll' => 'Refresh all',
+                'action.back' => 'Back',
+                'filter.all' => 'All',
+                'filter.favorites' => 'Favorites',
+                'viewer.openPlayer' => 'Open player',
+                'player.title' => 'Player',
+                'player.fullscreen' => 'Fullscreen',
+                'player.collapse' => 'Exit fullscreen',
+                'js.openVideo' => 'Open video',
+                'dashboard.users' => 'Users',
+                'dashboard.groups' => 'Groups',
+                'dashboard.cameras' => 'Cameras',
+                'dashboard.dvrServers' => 'DVR servers',
+                'dashboard.dvrServersTitle' => 'SesameDVR servers',
+                'dashboard.recentSync' => 'Recent camera sync',
+                'server.version' => 'Version',
+                'server.streams' => 'Streams',
+                'server.check' => 'Check',
+                'users.title' => 'Users',
+                'users.new' => 'New user',
+                'users.edit' => 'Edit user',
+                'users.loginRequired' => 'Login is required',
+                'users.passwordShort' => 'Password must be at least 6 characters',
+                'users.passwordPlaceholderNew' => 'minimum 6 characters',
+                'users.passwordPlaceholderEdit' => 'leave blank to keep unchanged',
+                'users.blocked' => 'Blocked',
+                'groups.title' => 'Groups',
+                'groups.new' => 'New group',
+                'groups.edit' => 'Edit group',
+                'cameras.title' => 'Cameras',
+                'cameras.new' => 'New camera',
+                'cameras.edit' => 'Edit camera',
+                'cameras.name' => 'Name',
+                'cameras.sourceUrl' => 'Source URL',
+                'cameras.server' => 'Server',
+                'cameras.serverAutoNone' => 'Auto/not selected',
+                'cameras.serverSelection' => 'Server selection',
+                'cameras.selectionManual' => 'specific',
+                'cameras.selectionAuto' => 'automatic random',
+                'cameras.streamName' => 'SesameDVR stream name',
+                'cameras.direction' => 'Direction',
+                'cameras.viewAngle' => 'View angle',
+                'cameras.retention' => 'Archive depth',
+                'cameras.blocked' => 'Blocked',
+                'cameras.groups' => 'Groups',
+                'cameras.mode' => 'Camera mode',
+                'cameras.modeManaged' => 'Full DVR management',
+                'cameras.modeReadOnly' => 'Read-only DVR stream',
+                'cameras.sourceRequired' => 'Source URL is required for full DVR management mode',
+                'cameras.readOnlySyncSkipped' => 'Read-only mode: DVR management skipped',
+                'servers.title' => 'SesameDVR servers',
+                'servers.new' => 'New server',
+                'servers.edit' => 'Edit server',
+                'servers.managementKey' => 'Management key',
+                'servers.blocked' => 'Blocked',
+                'audit.title' => 'Audit log',
+                'audit.search' => 'Search action, user, or details',
+                'audit.allActions' => 'All actions',
+                'audit.allUsers' => 'All users',
+                'audit.time' => 'Time',
+                'audit.user' => 'User',
+                'audit.action' => 'Action',
+                'audit.details' => 'Details',
+                'table.search' => 'Search',
+                'table.shown' => 'Shown',
+                'table.of' => 'of',
+                'common.noServer' => 'No server',
+            ],
+        ];
     }
 }
 
@@ -857,6 +1027,10 @@ final class DvrClient
             return self::storeCameraSync($cameraId, false, 'SesameDVR server is unavailable or blocked');
         }
 
+        if (($camera['dvr_control_mode'] ?? 'managed') === 'read_only') {
+            return self::storeCameraSync($cameraId, true, I18n::t('cameras.readOnlySyncSkipped', 'Read-only mode: DVR management skipped'));
+        }
+
         $token = Crypto::decrypt($server['management_token_enc'] ?? null);
         if ($token === '') {
             return self::storeCameraSync($cameraId, false, 'SesameDVR management token is missing');
@@ -1085,11 +1259,17 @@ final class Repo
 
 final class App
 {
+    private static function t(string $key, string $fallback): string
+    {
+        return I18n::t($key, $fallback);
+    }
+
     public static function run(): void
     {
         DB::migrate();
         Auth::start();
         Csrf::verify();
+        I18n::bootstrap();
 
         $path = Util::path();
         match ($path) {
@@ -1131,10 +1311,10 @@ final class App
         }
 
         $counts = [
-            'Пользователи' => (int)DB::pdo()->query('SELECT COUNT(*) FROM users')->fetchColumn(),
-            'Группы' => (int)DB::pdo()->query('SELECT COUNT(*) FROM portal_groups')->fetchColumn(),
-            'Камеры' => (int)DB::pdo()->query('SELECT COUNT(*) FROM cameras')->fetchColumn(),
-            'DVR серверы' => (int)DB::pdo()->query('SELECT COUNT(*) FROM dvr_servers')->fetchColumn(),
+            self::t('dashboard.users', 'Пользователи') => (int)DB::pdo()->query('SELECT COUNT(*) FROM users')->fetchColumn(),
+            self::t('dashboard.groups', 'Группы') => (int)DB::pdo()->query('SELECT COUNT(*) FROM portal_groups')->fetchColumn(),
+            self::t('dashboard.cameras', 'Камеры') => (int)DB::pdo()->query('SELECT COUNT(*) FROM cameras')->fetchColumn(),
+            self::t('dashboard.dvrServers', 'DVR серверы') => (int)DB::pdo()->query('SELECT COUNT(*) FROM dvr_servers')->fetchColumn(),
         ];
         $servers = Repo::all('dvr_servers', 'name ASC');
         $recentSync = DB::pdo()->query('SELECT c.*, s.name AS server_name FROM cameras c LEFT JOIN dvr_servers s ON s.id = c.server_id ORDER BY COALESCE(c.last_sync_at, "") DESC, c.name ASC LIMIT 12')->fetchAll();
@@ -1146,14 +1326,14 @@ final class App
                 echo '<div class="summary-card"><span>' . Util::h($label) . '</span><strong>' . Util::h($value) . '</strong></div>';
             }
             echo '</section>';
-            echo '<section class="panel"><div class="section-head"><h2>SesameDVR серверы</h2>';
-            self::smallPost('/admin/dashboard', ['action' => 'refresh_all'], 'Обновить все', 'primary');
+            echo '<section class="panel"><div class="section-head"><h2>' . self::t('dashboard.dvrServersTitle', 'SesameDVR серверы') . '</h2>';
+            self::smallPost('/admin/dashboard', ['action' => 'refresh_all'], self::t('action.updateAll', 'Обновить все'), 'primary');
             echo '</div><div class="server-grid">';
             foreach ($servers as $server) {
                 self::serverMetricCard($server);
             }
             echo '</div></section>';
-            self::table('Последняя синхронизация камер', ['name', 'server_name', 'last_sync_ok', 'last_sync_at', 'last_sync_message'], $recentSync, '/admin/cameras', true, null, false);
+            self::table(self::t('dashboard.recentSync', 'Последняя синхронизация камер'), ['name', 'server_name', 'last_sync_ok', 'last_sync_at', 'last_sync_message'], $recentSync, '/admin/cameras', true, null, false);
         });
     }
 
@@ -1164,21 +1344,21 @@ final class App
             if (Auth::login((string)Util::post('login'), (string)Util::post('password'))) {
                 Util::redirect('/');
             }
-            $error = 'Неверный логин или пароль';
+            $error = self::t('login.invalid', 'Неверный логин или пароль');
         }
 
-        self::layout('Вход', function () use ($error) {
+        self::layout(self::t('login.title', 'Вход'), function () use ($error) {
             echo '<section class="login-panel">';
-            echo '<div class="login-brand"><img src="/assets/brand-mark.svg" alt="" aria-hidden="true"><div><h1>SesamePortal</h1><p>Портал видеонаблюдения SesameWare</p></div></div>';
+            echo '<div class="login-brand"><img src="/assets/brand-mark.svg" alt="" aria-hidden="true"><div><h1>SesamePortal</h1><p>' . self::t('login.subtitle', 'Портал видеонаблюдения SesameWare') . '</p></div></div>';
             if ($error) {
                 echo '<div class="alert danger">' . Util::h($error) . '</div>';
             }
             echo '<form method="post" class="form">';
             echo Csrf::field();
-            echo '<label>Логин<input name="login" autocomplete="username" required></label>';
-            echo '<label>Пароль<input name="password" type="password" autocomplete="current-password" required></label>';
-            echo '<button class="primary">Войти</button>';
-            echo '</form></section>';
+            echo '<label>' . self::t('field.login', 'Логин') . '<input name="login" autocomplete="username" required></label>';
+            echo '<label>' . self::t('field.password', 'Пароль') . '<input name="password" type="password" autocomplete="current-password" required></label>';
+            echo '<button class="primary">' . self::t('action.login', 'Войти') . '</button>';
+            echo '</form>' . I18n::languageLinks() . '</section>';
         }, null);
     }
 
@@ -1205,14 +1385,14 @@ final class App
                 $role = Util::post('role') === 'admin' ? 'admin' : 'user';
                 $blocked = Util::checkbox('blocked');
                 if ($login === '') {
-                    $message = 'Логин обязателен';
+                    $message = self::t('users.loginRequired', 'Логин обязателен');
                 } elseif ($id === 0 && strlen($password) < 6) {
-                    $message = 'Пароль должен быть не короче 6 символов';
+                    $message = self::t('users.passwordShort', 'Пароль должен быть не короче 6 символов');
                 } else {
                     if ($id > 0) {
                         if ($password !== '') {
                             if (strlen($password) < 6) {
-                                $message = 'Пароль должен быть не короче 6 символов';
+                                $message = self::t('users.passwordShort', 'Пароль должен быть не короче 6 символов');
                             } else {
                                 $pdo->prepare('UPDATE users SET login=?, password_hash=?, role=?, blocked=? WHERE id=?')
                                     ->execute([$login, password_hash($password, PASSWORD_DEFAULT), $role, $blocked, $id]);
@@ -1240,21 +1420,21 @@ final class App
         $edit = self::rowById('users', (int)($_GET['edit'] ?? 0));
         $list = self::filteredRows('users', ['login', 'role'], 'login ASC');
         $users = $list['rows'];
-        self::layout('Пользователи', function () use ($users, $edit, $message, $staticToken, $list) {
+        self::layout(self::t('users.title', 'Пользователи'), function () use ($users, $edit, $message, $staticToken, $list) {
             self::notice($message);
             if ($staticToken) {
                 echo '<div class="alert">Static token: <code>' . Util::h($staticToken) . '</code></div>';
             }
             echo '<div class="admin-grid">';
-            echo '<section class="panel"><h2>' . ($edit ? 'Изменить пользователя' : 'Новый пользователь') . '</h2>';
+            echo '<section class="panel"><h2>' . ($edit ? self::t('users.edit', 'Изменить пользователя') : self::t('users.new', 'Новый пользователь')) . '</h2>';
             echo '<form method="post" class="form">' . Csrf::field();
             echo '<input type="hidden" name="action" value="save"><input type="hidden" name="id" value="' . Util::h($edit['id'] ?? 0) . '">';
-            echo '<label>Логин<input name="login" value="' . Util::h($edit['login'] ?? '') . '" required></label>';
-            echo '<label>Пароль<input name="password" type="password" minlength="6" placeholder="' . ($edit ? 'оставьте пустым, чтобы не менять' : 'минимум 6 символов') . '"></label>';
+            echo '<label>' . self::t('field.login', 'Логин') . '<input name="login" value="' . Util::h($edit['login'] ?? '') . '" required></label>';
+            echo '<label>' . self::t('field.password', 'Пароль') . '<input name="password" type="password" minlength="6" placeholder="' . ($edit ? self::t('users.passwordPlaceholderEdit', 'оставьте пустым, чтобы не менять') : self::t('users.passwordPlaceholderNew', 'минимум 6 символов')) . '"></label>';
             echo '<label>Роль<select name="role"><option value="user">user</option><option value="admin" ' . (($edit['role'] ?? '') === 'admin' ? 'selected' : '') . '>admin</option></select></label>';
-            echo '<label class="check"><input type="checkbox" name="blocked" ' . (!empty($edit['blocked']) ? 'checked' : '') . '> Заблокирован</label>';
-            echo '<button class="primary">Сохранить</button></form></section>';
-            self::table('Пользователи', ['login', 'role', 'blocked', 'last_login_at'], $users, '/admin/users', false, $list);
+            echo '<label class="check"><input type="checkbox" name="blocked" ' . (!empty($edit['blocked']) ? 'checked' : '') . '> ' . self::t('users.blocked', 'Заблокирован') . '</label>';
+            echo '<button class="primary">' . self::t('action.save', 'Сохранить') . '</button></form></section>';
+            self::table(self::t('users.title', 'Пользователи'), ['login', 'role', 'blocked', 'last_login_at'], $users, '/admin/users', false, $list);
             echo '</div>';
         });
     }
@@ -1292,8 +1472,8 @@ final class App
         $cameras = Repo::all('cameras', 'name ASC');
         $list = self::filteredRows('portal_groups', ['name', 'description'], 'name ASC');
         $groups = $list['rows'];
-        self::layout('Группы', function () use ($edit, $users, $cameras, $linkedUsers, $linkedCameras, $groups, $list) {
-            echo '<div class="admin-grid"><section class="panel"><h2>' . ($edit ? 'Изменить группу' : 'Новая группа') . '</h2>';
+        self::layout(self::t('groups.title', 'Группы'), function () use ($edit, $users, $cameras, $linkedUsers, $linkedCameras, $groups, $list) {
+            echo '<div class="admin-grid"><section class="panel"><h2>' . ($edit ? self::t('groups.edit', 'Изменить группу') : self::t('groups.new', 'Новая группа')) . '</h2>';
             echo '<form method="post" class="form">' . Csrf::field();
             echo '<input type="hidden" name="action" value="save"><input type="hidden" name="id" value="' . Util::h($edit['id'] ?? 0) . '">';
             echo '<label>Название<input name="name" value="' . Util::h($edit['name'] ?? '') . '" required></label>';
@@ -1301,8 +1481,8 @@ final class App
             echo '<label class="check"><input type="checkbox" name="blocked" ' . (!empty($edit['blocked']) ? 'checked' : '') . '> Заблокирована</label>';
             self::checkboxList('Пользователи', 'user_ids[]', $users, $linkedUsers, 'login');
             self::checkboxList('Камеры', 'camera_ids[]', $cameras, $linkedCameras, 'name');
-            echo '<button class="primary">Сохранить</button></form></section>';
-            self::table('Группы', ['name', 'blocked', 'description'], $groups, '/admin/groups', false, $list);
+            echo '<button class="primary">' . self::t('action.save', 'Сохранить') . '</button></form></section>';
+            self::table(self::t('groups.title', 'Группы'), ['name', 'blocked', 'description'], $groups, '/admin/groups', false, $list);
             echo '</div>';
         });
     }
@@ -1339,17 +1519,17 @@ final class App
         $edit = self::rowById('dvr_servers', (int)($_GET['edit'] ?? 0));
         $list = self::filteredRows('dvr_servers', ['name', 'base_url', 'last_check_result'], 'name ASC');
         $servers = $list['rows'];
-        self::layout('Серверы SesameDVR', function () use ($edit, $servers, $message, $list) {
+        self::layout(self::t('servers.title', 'Серверы SesameDVR'), function () use ($edit, $servers, $message, $list) {
             self::notice($message);
-            echo '<div class="admin-grid"><section class="panel"><h2>' . ($edit ? 'Изменить сервер' : 'Новый сервер') . '</h2>';
+            echo '<div class="admin-grid"><section class="panel"><h2>' . ($edit ? self::t('servers.edit', 'Изменить сервер') : self::t('servers.new', 'Новый сервер')) . '</h2>';
             echo '<form method="post" class="form">' . Csrf::field();
             echo '<input type="hidden" name="action" value="save"><input type="hidden" name="id" value="' . Util::h($edit['id'] ?? 0) . '">';
             echo '<label>Название<input name="name" value="' . Util::h($edit['name'] ?? '') . '" required></label>';
             echo '<label>URL<input name="base_url" value="' . Util::h($edit['base_url'] ?? '') . '" placeholder="https://dvr.example.com" required></label>';
-            echo '<label>Management key<input name="management_token" placeholder="' . ($edit ? 'оставьте пустым, чтобы не менять' : '') . '"></label>';
-            echo '<label class="check"><input type="checkbox" name="blocked" ' . (!empty($edit['blocked']) ? 'checked' : '') . '> Заблокирован</label>';
-            echo '<button class="primary">Сохранить</button></form></section>';
-            self::table('Серверы', ['name', 'base_url', 'blocked', 'last_check_result'], $servers, '/admin/servers', true, $list);
+            echo '<label>' . self::t('servers.managementKey', 'Management key') . '<input name="management_token" placeholder="' . ($edit ? self::t('users.passwordPlaceholderEdit', 'оставьте пустым, чтобы не менять') : '') . '"></label>';
+            echo '<label class="check"><input type="checkbox" name="blocked" ' . (!empty($edit['blocked']) ? 'checked' : '') . '> ' . self::t('servers.blocked', 'Заблокирован') . '</label>';
+            echo '<button class="primary">' . self::t('action.save', 'Сохранить') . '</button></form></section>';
+            self::table(self::t('servers.title', 'Серверы'), ['name', 'base_url', 'blocked', 'last_check_result'], $servers, '/admin/servers', true, $list);
             echo '</div>';
         });
     }
@@ -1364,37 +1544,44 @@ final class App
             $id = (int)Util::post('id', 0);
             if ($action === 'save') {
                 $selection = Util::post('server_selection') === 'auto' ? 'auto' : 'manual';
+                $controlMode = Util::post('dvr_control_mode') === 'read_only' ? 'read_only' : 'managed';
                 $serverId = (int)Util::post('server_id', 0) ?: null;
                 if ($selection === 'auto' && !$serverId) {
                     $serverId = self::randomActiveServerId();
                 }
                 $name = trim((string)Util::post('name'));
+                $sourceUrl = trim((string)Util::post('source_url'));
                 $stream = trim((string)Util::post('dvr_stream_name')) ?: self::slug($name);
-                $values = [
-                    $name,
-                    Util::post('source_url'),
-                    $serverId,
-                    $selection,
-                    self::nullableFloat(Util::post('latitude')),
-                    self::nullableFloat(Util::post('longitude')),
-                    (int)Util::post('direction_deg', 0),
-                    (int)Util::post('view_angle_deg', 60),
-                    Util::post('retention_days', '7d'),
-                    Util::checkbox('blocked'),
-                    $stream,
-                ];
-                if ($id > 0) {
-                    $pdo->prepare('UPDATE cameras SET name=?, source_url=?, server_id=?, server_selection=?, latitude=?, longitude=?, direction_deg=?, view_angle_deg=?, retention_days=?, blocked=?, dvr_stream_name=?, updated_at=? WHERE id=?')
-                        ->execute([...$values, Util::now(), $id]);
+                if ($controlMode === 'managed' && $sourceUrl === '') {
+                    $message = I18n::t('cameras.sourceRequired', 'Source URL is required for full DVR management mode');
                 } else {
-                    $pdo->prepare('INSERT INTO cameras(name, source_url, server_id, server_selection, latitude, longitude, direction_deg, view_angle_deg, retention_days, blocked, dvr_stream_name, created_at, updated_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
-                        ->execute([...$values, Util::now(), Util::now()]);
-                    $id = DB::lastInsertId('cameras');
+                    $values = [
+                        $name,
+                        $sourceUrl,
+                        $serverId,
+                        $selection,
+                        self::nullableFloat(Util::post('latitude')),
+                        self::nullableFloat(Util::post('longitude')),
+                        (int)Util::post('direction_deg', 0),
+                        (int)Util::post('view_angle_deg', 60),
+                        Util::post('retention_days', '7d'),
+                        $controlMode,
+                        Util::checkbox('blocked'),
+                        $stream,
+                    ];
+                    if ($id > 0) {
+                        $pdo->prepare('UPDATE cameras SET name=?, source_url=?, server_id=?, server_selection=?, latitude=?, longitude=?, direction_deg=?, view_angle_deg=?, retention_days=?, dvr_control_mode=?, blocked=?, dvr_stream_name=?, updated_at=? WHERE id=?')
+                            ->execute([...$values, Util::now(), $id]);
+                    } else {
+                        $pdo->prepare('INSERT INTO cameras(name, source_url, server_id, server_selection, latitude, longitude, direction_deg, view_angle_deg, retention_days, dvr_control_mode, blocked, dvr_stream_name, created_at, updated_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+                            ->execute([...$values, Util::now(), Util::now()]);
+                        $id = DB::lastInsertId('cameras');
+                    }
+                    self::replaceLinks('camera_groups', 'camera_id', $id, 'group_id', $_POST['group_ids'] ?? []);
+                    $sync = DvrClient::syncCamera($id);
+                    $message = $sync['message'];
+                    Audit::log('camera.save', $name . ' mode=' . $controlMode . ' sync=' . $sync['message']);
                 }
-                self::replaceLinks('camera_groups', 'camera_id', $id, 'group_id', $_POST['group_ids'] ?? []);
-                $sync = DvrClient::syncCamera($id);
-                $message = $sync['message'];
-                Audit::log('camera.save', $name . ' sync=' . $sync['message']);
             } elseif ($action === 'delete' && $id > 0) {
                 $pdo->prepare('DELETE FROM cameras WHERE id=?')->execute([$id]);
                 Audit::log('camera.delete', 'camera_id=' . $id);
@@ -1410,27 +1597,30 @@ final class App
         $groups = Repo::all('portal_groups', 'name ASC');
         $list = self::filteredCameras();
         $cameras = $list['rows'];
-        self::layout('Камеры', function () use ($edit, $servers, $groups, $linkedGroups, $cameras, $message, $list) {
+        self::layout(self::t('cameras.title', 'Камеры'), function () use ($edit, $servers, $groups, $linkedGroups, $cameras, $message, $list) {
             self::notice($message);
-            echo '<div class="admin-grid"><section class="panel"><h2>' . ($edit ? 'Изменить камеру' : 'Новая камера') . '</h2>';
+            echo '<div class="admin-grid"><section class="panel"><h2>' . ($edit ? self::t('cameras.edit', 'Изменить камеру') : self::t('cameras.new', 'Новая камера')) . '</h2>';
             echo '<form method="post" class="form">' . Csrf::field();
             echo '<input type="hidden" name="action" value="save"><input type="hidden" name="id" value="' . Util::h($edit['id'] ?? 0) . '">';
-            echo '<label>Имя<input name="name" value="' . Util::h($edit['name'] ?? '') . '" required></label>';
-            echo '<label>URL источника<input name="source_url" value="' . Util::h($edit['source_url'] ?? '') . '" required></label>';
-            echo '<label>Сервер<select name="server_id"><option value="">Авто/не выбран</option>';
+            echo '<label>' . self::t('cameras.name', 'Имя') . '<input name="name" value="' . Util::h($edit['name'] ?? '') . '" required></label>';
+            echo '<label>' . self::t('cameras.mode', 'Режим камеры') . '<select name="dvr_control_mode">';
+            echo '<option value="managed" ' . (($edit['dvr_control_mode'] ?? 'managed') === 'managed' ? 'selected' : '') . '>' . self::t('cameras.modeManaged', 'Полное управление на DVR') . '</option>';
+            echo '<option value="read_only" ' . (($edit['dvr_control_mode'] ?? '') === 'read_only' ? 'selected' : '') . '>' . self::t('cameras.modeReadOnly', 'Read-only поток с DVR') . '</option></select></label>';
+            echo '<label>' . self::t('cameras.sourceUrl', 'URL источника') . '<input name="source_url" value="' . Util::h($edit['source_url'] ?? '') . '"></label>';
+            echo '<label>' . self::t('cameras.server', 'Сервер') . '<select name="server_id"><option value="">' . self::t('cameras.serverAutoNone', 'Авто/не выбран') . '</option>';
             foreach ($servers as $server) {
                 echo '<option value="' . (int)$server['id'] . '" ' . (($edit['server_id'] ?? '') == $server['id'] ? 'selected' : '') . '>' . Util::h($server['name']) . '</option>';
             }
             echo '</select></label>';
-            echo '<label>Выбор сервера<select name="server_selection"><option value="manual">конкретный</option><option value="auto" ' . (($edit['server_selection'] ?? '') === 'auto' ? 'selected' : '') . '>автоматический случайный</option></select></label>';
-            echo '<label>Имя потока SesameDVR<input name="dvr_stream_name" value="' . Util::h($edit['dvr_stream_name'] ?? '') . '"></label>';
+            echo '<label>' . self::t('cameras.serverSelection', 'Выбор сервера') . '<select name="server_selection"><option value="manual">' . self::t('cameras.selectionManual', 'конкретный') . '</option><option value="auto" ' . (($edit['server_selection'] ?? '') === 'auto' ? 'selected' : '') . '>' . self::t('cameras.selectionAuto', 'автоматический случайный') . '</option></select></label>';
+            echo '<label>' . self::t('cameras.streamName', 'Имя потока SesameDVR') . '<input name="dvr_stream_name" value="' . Util::h($edit['dvr_stream_name'] ?? '') . '"></label>';
             echo '<div class="form-row"><label>Latitude<input name="latitude" value="' . Util::h($edit['latitude'] ?? '') . '"></label><label>Longitude<input name="longitude" value="' . Util::h($edit['longitude'] ?? '') . '"></label></div>';
-            echo '<div class="form-row"><label>Направление<input name="direction_deg" type="number" min="0" max="359" value="' . Util::h($edit['direction_deg'] ?? 0) . '"></label><label>Угол обзора<input name="view_angle_deg" type="number" min="1" max="180" value="' . Util::h($edit['view_angle_deg'] ?? 60) . '"></label></div>';
-            echo '<label>Глубина архива<input name="retention_days" value="' . Util::h($edit['retention_days'] ?? '7d') . '"></label>';
-            echo '<label class="check"><input type="checkbox" name="blocked" ' . (!empty($edit['blocked']) ? 'checked' : '') . '> Заблокирована</label>';
-            self::checkboxList('Группы', 'group_ids[]', $groups, $linkedGroups, 'name');
-            echo '<button class="primary">Сохранить и синхронизировать</button></form></section>';
-            self::table('Камеры', ['name', 'server_name', 'retention_days', 'blocked', 'last_sync_ok', 'last_sync_at'], $cameras, '/admin/cameras', true, $list);
+            echo '<div class="form-row"><label>' . self::t('cameras.direction', 'Направление') . '<input name="direction_deg" type="number" min="0" max="359" value="' . Util::h($edit['direction_deg'] ?? 0) . '"></label><label>' . self::t('cameras.viewAngle', 'Угол обзора') . '<input name="view_angle_deg" type="number" min="1" max="180" value="' . Util::h($edit['view_angle_deg'] ?? 60) . '"></label></div>';
+            echo '<label>' . self::t('cameras.retention', 'Глубина архива') . '<input name="retention_days" value="' . Util::h($edit['retention_days'] ?? '7d') . '"></label>';
+            echo '<label class="check"><input type="checkbox" name="blocked" ' . (!empty($edit['blocked']) ? 'checked' : '') . '> ' . self::t('cameras.blocked', 'Заблокирована') . '</label>';
+            self::checkboxList(self::t('cameras.groups', 'Группы'), 'group_ids[]', $groups, $linkedGroups, 'name');
+            echo '<button class="primary">' . self::t('action.saveSync', 'Сохранить и синхронизировать') . '</button></form></section>';
+            self::table(self::t('cameras.title', 'Камеры'), ['name', 'server_name', 'dvr_control_mode', 'retention_days', 'blocked', 'last_sync_ok', 'last_sync_at', 'last_sync_message'], $cameras, '/admin/cameras', true, $list);
             echo '</div>';
         });
     }
@@ -1442,20 +1632,20 @@ final class App
         $actions = DB::pdo()->query('SELECT DISTINCT action FROM audit_logs ORDER BY action ASC')->fetchAll();
         $actors = DB::pdo()->query('SELECT DISTINCT u.id, u.login FROM audit_logs a JOIN users u ON u.id = a.actor_user_id ORDER BY u.login ASC')->fetchAll();
 
-        self::layout('Журнал действий', function () use ($list, $actions, $actors) {
-            echo '<section class="panel"><div class="section-head"><h2>Журнал действий</h2></div>';
+        self::layout(self::t('audit.title', 'Журнал действий'), function () use ($list, $actions, $actors) {
+            echo '<section class="panel"><div class="section-head"><h2>' . self::t('audit.title', 'Журнал действий') . '</h2></div>';
             echo '<form method="get" action="/admin/audit" class="audit-filters">';
-            echo '<input name="q" value="' . Util::h($list['q']) . '" placeholder="Поиск по действию, пользователю или деталям">';
-            echo '<select name="action"><option value="">Все действия</option>';
+            echo '<input name="q" value="' . Util::h($list['q']) . '" placeholder="' . self::t('audit.search', 'Поиск по действию, пользователю или деталям') . '">';
+            echo '<select name="action"><option value="">' . self::t('audit.allActions', 'Все действия') . '</option>';
             foreach ($actions as $action) {
                 echo '<option value="' . Util::h($action['action']) . '" ' . ($list['action'] === $action['action'] ? 'selected' : '') . '>' . Util::h($action['action']) . '</option>';
             }
-            echo '</select><select name="actor"><option value="">Все пользователи</option>';
+            echo '</select><select name="actor"><option value="">' . self::t('audit.allUsers', 'Все пользователи') . '</option>';
             foreach ($actors as $actor) {
                 echo '<option value="' . (int)$actor['id'] . '" ' . ((int)$list['actor'] === (int)$actor['id'] ? 'selected' : '') . '>' . Util::h($actor['login']) . '</option>';
             }
-            echo '</select><button>Показать</button></form>';
-            echo '<table><thead><tr><th>Время</th><th>Пользователь</th><th>Действие</th><th>Детали</th></tr></thead><tbody>';
+            echo '</select><button>' . self::t('action.show', 'Показать') . '</button></form>';
+            echo '<table><thead><tr><th>' . self::t('audit.time', 'Время') . '</th><th>' . self::t('audit.user', 'Пользователь') . '</th><th>' . self::t('audit.action', 'Действие') . '</th><th>' . self::t('audit.details', 'Детали') . '</th></tr></thead><tbody>';
             foreach ($list['rows'] as $row) {
                 echo '<tr><td>' . Util::h($row['created_at']) . '</td><td>' . Util::h($row['login'] ?? '-') . '</td><td><code>' . Util::h($row['action']) . '</code></td><td>';
                 self::auditDetails((string)$row['details']);
@@ -1497,7 +1687,7 @@ final class App
             if ($preview) {
                 echo '<img src="' . Util::h($preview) . '" data-preview-src="' . Util::h($preview) . '" data-preview-refresh-ms="30000" alt="" loading="lazy">';
             }
-            echo '<span class="preview-label">Открыть плеер</span></a><div class="camera-meta"><strong>' . Util::h($camera['name']) . '</strong><span>' . Util::h($camera['server_name'] ?? 'Без сервера') . '</span></div>';
+            echo '<span class="preview-label">' . self::t('viewer.openPlayer', 'Открыть плеер') . '</span></a><div class="camera-meta"><strong>' . Util::h($camera['name']) . '</strong><span>' . Util::h($camera['server_name'] ?? self::t('common.noServer', 'Без сервера')) . '</span></div>';
             self::favoriteButton((int)$camera['id'], isset($favorites[(int)$camera['id']]));
             echo '</article>';
         }
@@ -1551,11 +1741,11 @@ final class App
 
         $back = self::safeBackPath((string)($_GET['back'] ?? ($_SERVER['HTTP_REFERER'] ?? '/')));
         $embed = self::embedUrl($camera, (string)($user['daily_token'] ?? ''));
-        self::layout('Плеер', function () use ($camera, $back, $embed) {
+        self::layout(self::t('player.title', 'Плеер'), function () use ($camera, $back, $embed) {
             echo '<section class="player-page" data-back-url="' . Util::h($back) . '">';
-            echo '<div class="player-toolbar"><a class="back-link" href="' . Util::h($back) . '">Назад</a>';
-            echo '<div class="player-title"><strong>' . Util::h($camera['name']) . '</strong><span>' . Util::h($camera['server_name'] ?? 'Без сервера') . '</span></div>';
-            echo '<button class="player-fullscreen" type="button">На весь экран</button></div>';
+            echo '<div class="player-toolbar"><a class="back-link" href="' . Util::h($back) . '">' . self::t('action.back', 'Назад') . '</a>';
+            echo '<div class="player-title"><strong>' . Util::h($camera['name']) . '</strong><span>' . Util::h($camera['server_name'] ?? self::t('common.noServer', 'Без сервера')) . '</span></div>';
+            echo '<button class="player-fullscreen" type="button">' . self::t('player.fullscreen', 'На весь экран') . '</button></div>';
             echo '<div class="player-stage"><iframe class="player-frame" src="' . Util::h($embed) . '" allow="autoplay; fullscreen; picture-in-picture" allowfullscreen webkitallowfullscreen referrerpolicy="no-referrer-when-downgrade"></iframe>';
             echo '<div class="player-edge-swipe" aria-hidden="true"></div></div>';
             echo '</section>';
@@ -1610,7 +1800,7 @@ final class App
     private static function layout(string $title, callable $body, ?array $userOverride = [], string $bodyClass = ''): void
     {
         $user = $userOverride === null ? null : Auth::user();
-        echo '<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">';
+        echo '<!doctype html><html lang="' . Util::h(I18n::locale()) . '"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">';
         echo '<title>' . Util::h($title) . ' - SesamePortal</title>';
         echo '<link rel="icon" href="/assets/favicon.svg" type="image/svg+xml">';
         echo '<link rel="stylesheet" href="/assets/styles.css">';
@@ -1618,15 +1808,16 @@ final class App
         echo '</head><body' . ($bodyClass !== '' ? ' class="' . Util::h($bodyClass) . '"' : '') . '>';
         if ($user) {
             echo '<header class="topbar"><div class="brand"><img class="brand-mark" src="/assets/brand-mark.svg" alt="" aria-hidden="true"><div><strong>SesamePortal</strong><small>' . Util::h($title) . '</small></div></div><nav>';
-            echo '<a href="/">Мозаика</a><a href="/viewer/map">Карта</a>';
+            echo '<a href="/">' . self::t('nav.mosaic', 'Мозаика') . '</a><a href="/viewer/map">' . self::t('nav.map', 'Карта') . '</a>';
             if ($user['role'] === 'admin') {
-                echo '<a href="/admin/dashboard">Dashboard</a><a href="/admin/users">Пользователи</a><a href="/admin/groups">Группы</a><a href="/admin/cameras">Камеры</a><a href="/admin/servers">DVR</a><a href="/admin/audit">Журнал</a>';
+                echo '<a href="/admin/dashboard">' . self::t('nav.dashboard', 'Dashboard') . '</a><a href="/admin/users">' . self::t('nav.users', 'Пользователи') . '</a><a href="/admin/groups">' . self::t('nav.groups', 'Группы') . '</a><a href="/admin/cameras">' . self::t('nav.cameras', 'Камеры') . '</a><a href="/admin/servers">' . self::t('nav.dvr', 'DVR') . '</a><a href="/admin/audit">' . self::t('nav.audit', 'Журнал') . '</a>';
             }
-            echo '<a href="/logout">Выход</a></nav></header>';
+            echo '<a href="/logout">' . self::t('nav.logout', 'Выход') . '</a>' . I18n::languageLinks() . '</nav></header>';
         }
         echo '<main class="' . ($user ? 'workspace' : 'login-page') . '">';
         $body();
         echo '</main>';
+        echo '<script>window.SESAME_I18N = ' . json_encode(I18n::js(), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . ';</script>';
         echo '<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script><script src="/assets/app.js"></script>';
         echo '</body></html>';
     }
@@ -1634,8 +1825,8 @@ final class App
     private static function filters(string $mode, array $groups, string $filter): void
     {
         $base = $mode === 'map' ? '/viewer/map' : '/';
-        echo '<section class="filters"><a class="' . ($filter === 'all' ? 'active' : '') . '" href="' . $base . '">Все</a>';
-        echo '<a class="' . ($filter === 'favorites' ? 'active' : '') . '" href="' . $base . '?filter=favorites">Избранное</a>';
+        echo '<section class="filters"><a class="' . ($filter === 'all' ? 'active' : '') . '" href="' . $base . '">' . self::t('filter.all', 'Все') . '</a>';
+        echo '<a class="' . ($filter === 'favorites' ? 'active' : '') . '" href="' . $base . '?filter=favorites">' . self::t('filter.favorites', 'Избранное') . '</a>';
         foreach ($groups as $group) {
             $value = 'group:' . $group['id'];
             echo '<a class="' . ($filter === $value ? 'active' : '') . '" href="' . $base . '?filter=' . rawurlencode($value) . '">' . Util::h($group['name']) . '</a>';
@@ -1656,16 +1847,16 @@ final class App
         echo '<article class="server-card">';
         echo '<div><strong>' . Util::h($server['name']) . '</strong><span>' . Util::h($server['base_url']) . '</span></div>';
         echo '<dl>';
-        echo '<dt>Версия</dt><dd>' . Util::h($versionText) . '</dd>';
+        echo '<dt>' . self::t('server.version', 'Версия') . '</dt><dd>' . Util::h($versionText) . '</dd>';
         echo '<dt>CPU</dt><dd>' . Util::h($cpu ?? '-') . '</dd>';
         echo '<dt>RAM</dt><dd>' . Util::h($memory ?? '-') . '</dd>';
-        echo '<dt>Потоки</dt><dd>' . Util::h($streams ?? '-') . '</dd>';
-        echo '<dt>Проверка</dt><dd>' . Util::h($server['last_metrics_at'] ?: $server['last_check_at'] ?: '-') . '</dd>';
+        echo '<dt>' . self::t('server.streams', 'Потоки') . '</dt><dd>' . Util::h($streams ?? '-') . '</dd>';
+        echo '<dt>' . self::t('server.check', 'Проверка') . '</dt><dd>' . Util::h($server['last_metrics_at'] ?: $server['last_check_at'] ?: '-') . '</dd>';
         echo '</dl>';
         if (!empty($server['last_check_result'])) {
             echo '<p>' . Util::h($server['last_check_result']) . '</p>';
         }
-        self::smallPost('/admin/dashboard', ['action' => 'refresh_server', 'id' => $server['id']], 'Обновить');
+        self::smallPost('/admin/dashboard', ['action' => 'refresh_server', 'id' => $server['id']], self::t('action.update', 'Обновить'));
         echo '</article>';
     }
 
@@ -1729,8 +1920,8 @@ final class App
         $where = '';
         $params = [];
         if ($q !== '') {
-            $where = ' WHERE c.name LIKE ? OR c.source_url LIKE ? OR c.dvr_stream_name LIKE ? OR s.name LIKE ? OR c.last_sync_message LIKE ?';
-            $params = array_fill(0, 5, '%' . $q . '%');
+            $where = ' WHERE c.name LIKE ? OR c.source_url LIKE ? OR c.dvr_stream_name LIKE ? OR c.dvr_control_mode LIKE ? OR s.name LIKE ? OR c.last_sync_message LIKE ?';
+            $params = array_fill(0, 6, '%' . $q . '%');
         }
 
         $pdo = DB::pdo();
@@ -1829,8 +2020,8 @@ final class App
         echo '<section class="panel"><div class="section-head"><h2>' . Util::h($title) . '</h2>';
         if ($showSearch) {
             echo '<form method="get" action="' . Util::h($base) . '" class="table-search">';
-            echo '<input name="q" value="' . Util::h($pager['q'] ?? '') . '" placeholder="Поиск">';
-            echo '<button>Найти</button>';
+            echo '<input name="q" value="' . Util::h($pager['q'] ?? '') . '" placeholder="' . self::t('table.search', 'Поиск') . '">';
+            echo '<button>' . self::t('action.find', 'Найти') . '</button>';
             echo '</form>';
         }
         echo '</div><table><thead><tr>';
@@ -1843,14 +2034,14 @@ final class App
             foreach ($columns as $column) {
                 echo '<td>' . Util::h($row[$column] ?? '') . '</td>';
             }
-            echo '<td class="row-actions"><a href="' . $base . '?edit=' . (int)$row['id'] . '">Изменить</a>';
+            echo '<td class="row-actions"><a href="' . $base . '?edit=' . (int)$row['id'] . '">' . self::t('action.edit', 'Изменить') . '</a>';
             if ($actions && str_contains($base, 'servers')) {
-                self::smallPost($base, ['action' => 'check', 'id' => $row['id']], 'Проверить');
+                self::smallPost($base, ['action' => 'check', 'id' => $row['id']], self::t('action.check', 'Проверить'));
             }
             if ($actions && str_contains($base, 'cameras')) {
                 self::smallPost($base, ['action' => 'sync', 'id' => $row['id']], 'Sync');
             }
-            self::smallPost($base, ['action' => 'delete', 'id' => $row['id']], 'Удалить', 'danger');
+            self::smallPost($base, ['action' => 'delete', 'id' => $row['id']], self::t('action.delete', 'Удалить'), 'danger');
             if ($base === '/admin/users') {
                 self::smallPost($base, ['action' => 'issue_static', 'id' => $row['id']], 'Static token');
                 self::smallPost($base, ['action' => 'revoke_static', 'id' => $row['id']], 'Revoke');
@@ -1868,7 +2059,7 @@ final class App
     {
         $pages = (int)ceil(max(1, (int)$pager['total']) / max(1, (int)$pager['pageSize']));
         if ($pages <= 1) {
-            echo '<div class="pager-note">Показано ' . Util::h(count($pager['rows'])) . ' из ' . Util::h($pager['total']) . '</div>';
+            echo '<div class="pager-note">' . self::t('table.shown', 'Показано') . ' ' . Util::h(count($pager['rows'])) . ' ' . self::t('table.of', 'из') . ' ' . Util::h($pager['total']) . '</div>';
             return;
         }
 

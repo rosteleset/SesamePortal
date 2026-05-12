@@ -153,6 +153,22 @@ th {
   justify-content: flex-end;
 }
 
+.locale-switch {
+  display: inline-flex;
+  gap: 4px;
+}
+
+.locale-switch a {
+  min-width: 42px;
+  text-align: center;
+}
+
+.locale-switch a.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
 .workspace {
   max-width: 1440px;
   margin: 0 auto;
@@ -200,6 +216,10 @@ th {
 .login-brand p {
   margin-top: 5px;
   color: var(--muted);
+}
+
+.login-panel .locale-switch {
+  margin-top: 14px;
 }
 
 .panel {

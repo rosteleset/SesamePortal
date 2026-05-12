@@ -191,6 +191,7 @@ return [
     'db_password' => null,
     'app_secret' => '$secret',
     'timezone' => 'UTC',
+    'locale' => 'ru',
     'base_url' => '$scheme://$DOMAIN',
     'auth_backend_path' => '/api/sesamedvr/auth',
     'crypto_primary_key' => 'primary',

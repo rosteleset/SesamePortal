@@ -11,6 +11,7 @@
 - [x] Implement SesameDVR servers CRUD.
 - [x] Implement cameras CRUD with server assignment, archive depth, OSM position,
   view direction, and group membership.
+- [x] Implement managed/read-only camera modes.
 - [x] Implement user favorites.
 - [x] Implement mosaic viewer with group/favorites filters.
 - [x] Implement OSM map viewer with group/favorites filters.
@@ -36,7 +37,7 @@
 ## Phase 3: Product Polish
 
 - [x] Replace text logo with final Sesame brand asset if provided.
-- [ ] Add localized UI strings.
+- [x] Add localized UI strings.
 - [x] Add mobile player gestures and fullscreen refinements.
 - [x] Add camera preview refresh scheduling.
 - [x] Add optional MySQL/PostgreSQL adapter.

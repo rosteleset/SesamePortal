@@ -1,4 +1,5 @@
 (function () {
+  const messages = window.SESAME_I18N || {};
   initMap();
   initPlayer();
   initPreviewRefresh();
@@ -27,7 +28,7 @@
       const marker = L.marker([camera.lat, camera.lng], { icon }).addTo(map);
       marker.bindPopup(`
         <strong>${escapeHtml(camera.name)}</strong><br>
-        <a href="${camera.player}">Открыть видео</a>
+        <a href="${camera.player}">${escapeHtml(tr("openVideo", "Открыть видео"))}</a>
       `);
     });
   }
@@ -61,7 +62,7 @@
       const syncFullscreenState = () => {
         const active = fullscreenElement() === fullscreenTarget;
         page.classList.toggle("is-fullscreen", active);
-        button.textContent = active ? "Свернуть" : "На весь экран";
+        button.textContent = active ? tr("collapse", "Свернуть") : tr("fullscreen", "На весь экран");
       };
       document.addEventListener("fullscreenchange", syncFullscreenState);
       document.addEventListener("webkitfullscreenchange", syncFullscreenState);
@@ -136,5 +137,9 @@
       .replaceAll("<", "&lt;")
       .replaceAll(">", "&gt;")
       .replaceAll('"', "&quot;");
+  }
+
+  function tr(key, fallback) {
+    return messages[key] || fallback;
   }
 })();

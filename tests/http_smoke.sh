@@ -39,6 +39,9 @@ $pdo->prepare('INSERT INTO dvr_servers(name, base_url, management_token_enc, cre
     ->execute(['Smoke DVR', 'https://dvr.example.invalid', $legacy, $now]);
 $pdo->prepare('INSERT INTO cameras(name, source_url, server_id, server_selection, retention_days, dvr_stream_name, created_at, updated_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?)')
     ->execute(['Smoke Cam', 'rtsp://example.invalid/smoke', 1, 'manual', '1d', 'smoke-cam', $now, $now]);
+$pdo->prepare('INSERT INTO cameras(name, source_url, server_id, server_selection, retention_days, dvr_control_mode, dvr_stream_name, created_at, updated_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)')
+    ->execute(['Read Only Cam', '', 1, 'manual', '1d', 'read_only', 'readonly-cam', $now, $now]);
+\SesamePortal\DvrClient::syncCamera(2);
 $pdo->prepare('INSERT INTO audit_logs(actor_user_id, action, details, created_at) VALUES(?, ?, ?, ?)')
     ->execute([1, 'camera.save', 'camera_id=1 sync=ok', $now]);
 $stmt = $pdo->prepare('SELECT daily_token FROM users WHERE login = ?');
@@ -83,13 +86,16 @@ status="$(
 test "$status" = "303"
 
 curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/admin/dashboard" | grep -q "SesameDVR серверы"
+curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/admin/dashboard?lang=en" | grep -q "SesameDVR servers"
 curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/admin/users?q=admin" | grep -q "admin"
+curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/admin/cameras?q=Read" | grep -q "read_only"
+curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/admin/cameras?q=Read" | grep -q "Read-only mode"
 curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/admin/audit?q=camera&action=camera.save&actor=1" | grep -q "camera_id"
 mosaic_page="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/")"
 printf "%s" "$mosaic_page" | grep -q "/viewer/player"
 printf "%s" "$mosaic_page" | grep -q "data-preview-refresh-ms"
 player_page="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/viewer/player?id=1")"
-printf "%s" "$player_page" | grep -q "Назад"
+printf "%s" "$player_page" | grep -Eq "Назад|Back"
 printf "%s" "$player_page" | grep -q "player-fullscreen"
 printf "%s" "$player_page" | grep -q "player-edge-swipe"
 

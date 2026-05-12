@@ -29,6 +29,19 @@ config or environment variables:
 The same values can be passed as `SESAME_PORTAL_DB_DSN`,
 `SESAME_PORTAL_DB_USER`, and `SESAME_PORTAL_DB_PASSWORD`.
 
+The UI supports Russian and English. The default language is configured with
+`locale` or `SESAME_PORTAL_LOCALE`; users can switch with `?lang=ru` or
+`?lang=en`.
+
+## Camera Modes
+
+Each camera can run in one of two modes:
+
+- `managed`: SesamePortal writes the stream configuration to the selected
+  SesameDVR server through the management API.
+- `read_only`: SesamePortal does not change DVR configuration and only uses the
+  selected DVR server plus `dvr_stream_name` for preview, auth, and playback.
+
 ## Production Install
 
 ```bash
