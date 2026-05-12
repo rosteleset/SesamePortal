@@ -22,7 +22,7 @@
     const marker = L.marker([camera.lat, camera.lng], { icon }).addTo(map);
     marker.bindPopup(`
       <strong>${escapeHtml(camera.name)}</strong><br>
-      <a href="${camera.embed}">Открыть видео</a>
+      <a href="${camera.player}">Открыть видео</a>
     `);
   });
 

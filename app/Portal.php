@@ -730,6 +730,7 @@ final class App
             '/admin/cameras' => self::cameras(),
             '/admin/audit' => self::audit(),
             '/viewer/map' => self::viewer('map'),
+            '/viewer/player' => self::player(),
             '/favorite/toggle' => self::toggleFavorite(),
             '/api/sesamedvr/auth' => self::authBackend(),
             default => self::viewer('mosaic'),
@@ -1098,10 +1099,10 @@ final class App
     {
         echo '<section class="camera-grid">';
         foreach ($cameras as $camera) {
-            $embed = self::embedUrl($camera, $token);
+            $player = self::playerUrl($camera);
             $preview = self::previewUrl($camera, $token);
             echo '<article class="camera-card">';
-            echo '<a class="preview' . ($preview ? '' : ' no-preview') . '" href="' . Util::h($embed) . '">';
+            echo '<a class="preview' . ($preview ? '' : ' no-preview') . '" href="' . Util::h($player) . '">';
             if ($preview) {
                 echo '<img src="' . Util::h($preview) . '" alt="" onerror="this.hidden=true;this.closest(\'.preview\').classList.add(\'no-preview\')">';
             }
@@ -1127,10 +1128,45 @@ final class App
                 'lng' => (float)$camera['longitude'],
                 'direction' => (int)$camera['direction_deg'],
                 'favorite' => isset($favorites[(int)$camera['id']]),
-                'embed' => self::embedUrl($camera, $token),
+                'player' => self::playerUrl($camera),
             ];
         }
         echo '<script>window.SESAME_CAMERAS = ' . json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . ';</script>';
+    }
+
+    private static function player(): void
+    {
+        $user = Auth::requireLogin();
+        $cameraId = (int)($_GET['id'] ?? 0);
+        if (!Repo::cameraAllowedForUser($user, $cameraId)) {
+            http_response_code(403);
+            echo 'Forbidden';
+            return;
+        }
+
+        $stmt = DB::pdo()->prepare(
+            'SELECT c.*, s.name AS server_name, s.base_url AS server_url
+             FROM cameras c
+             LEFT JOIN dvr_servers s ON s.id = c.server_id
+             WHERE c.id = ? AND c.blocked = 0'
+        );
+        $stmt->execute([$cameraId]);
+        $camera = $stmt->fetch();
+        if (!$camera) {
+            http_response_code(404);
+            echo 'Camera not found';
+            return;
+        }
+
+        $back = self::safeBackPath((string)($_GET['back'] ?? ($_SERVER['HTTP_REFERER'] ?? '/')));
+        $embed = self::embedUrl($camera, (string)($user['daily_token'] ?? ''));
+        self::layout('Плеер', function () use ($camera, $back, $embed) {
+            echo '<section class="player-page">';
+            echo '<div class="player-toolbar"><a class="back-link" href="' . Util::h($back) . '">Назад</a>';
+            echo '<div><strong>' . Util::h($camera['name']) . '</strong><span>' . Util::h($camera['server_name'] ?? 'Без сервера') . '</span></div></div>';
+            echo '<iframe class="player-frame" src="' . Util::h($embed) . '" allow="autoplay; fullscreen; picture-in-picture" allowfullscreen referrerpolicy="no-referrer-when-downgrade"></iframe>';
+            echo '</section>';
+        });
     }
 
     private static function toggleFavorite(): void
@@ -1414,6 +1450,32 @@ final class App
             return '#';
         }
         return rtrim($camera['server_url'], '/') . '/' . rawurlencode($camera['dvr_stream_name']) . '/embed.html?dvr=true&token=' . rawurlencode($token);
+    }
+
+    private static function playerUrl(array $camera): string
+    {
+        $back = self::safeBackPath((string)($_SERVER['REQUEST_URI'] ?? '/'));
+        return '/viewer/player?' . http_build_query([
+            'id' => (int)$camera['id'],
+            'back' => $back,
+        ]);
+    }
+
+    private static function safeBackPath(string $path): string
+    {
+        if (str_starts_with($path, 'http://') || str_starts_with($path, 'https://')) {
+            $parts = parse_url($path);
+            $path = (string)($parts['path'] ?? '/');
+            if (!empty($parts['query'])) {
+                $path .= '?' . $parts['query'];
+            }
+        }
+
+        if (!str_starts_with($path, '/') || str_starts_with($path, '//')) {
+            return '/';
+        }
+
+        return parse_url($path, PHP_URL_PATH) === '/viewer/player' ? '/' : $path;
     }
 
     private static function previewUrl(array $camera, string $token): string

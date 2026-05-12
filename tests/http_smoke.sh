@@ -55,7 +55,8 @@ test "$status" = "303"
 
 curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/admin/dashboard" | grep -q "SesameDVR серверы"
 curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/admin/users?q=admin" | grep -q "admin"
-curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/" | grep -q "Открыть плеер"
+curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/" | grep -q "/viewer/player"
+curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/viewer/player?id=1" | grep -q "Назад"
 
 denied="$(
   curl -sS -o /dev/null -w '%{http_code}' \
