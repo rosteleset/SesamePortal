@@ -1,0 +1,12 @@
+{
+  "name": "sesameware/sesame-portal",
+  "description": "Local PHP surveillance portal for SesameDVR servers",
+  "type": "project",
+  "require": {
+    "php": ">=8.2",
+    "ext-pdo": "*",
+    "ext-pdo_sqlite": "*",
+    "ext-curl": "*",
+    "ext-openssl": "*"
+  }
+}

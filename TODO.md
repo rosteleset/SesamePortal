@@ -1,0 +1,42 @@
+# SesamePortal TODO
+
+## Phase 1: Installable MVP
+
+- [x] Initialize repository and PHP project layout.
+- [x] Add SQLite schema and migration command.
+- [x] Add first-admin creation command.
+- [x] Implement login/logout and session-based access control.
+- [x] Implement users CRUD with password policy and block/unblock.
+- [x] Implement groups CRUD with user membership.
+- [x] Implement SesameDVR servers CRUD.
+- [x] Implement cameras CRUD with server assignment, archive depth, OSM position,
+  view direction, and group membership.
+- [x] Implement user favorites.
+- [x] Implement mosaic viewer with group/favorites filters.
+- [x] Implement OSM map viewer with group/favorites filters.
+- [x] Implement SesameDVR auth-backend endpoint.
+- [x] Implement daily token rotation with 6-hour overlap.
+- [x] Implement optional static integration tokens.
+- [x] Add mobile-friendly responsive CSS.
+- [x] Add nginx/php-fpm/certbot installer.
+
+## Phase 2: Hardening
+
+- [ ] Add automated browser/UI tests.
+- [ ] Add full SesameDVR management sync error reporting per camera.
+- [ ] Add encrypted at-rest storage for SesameDVR management tokens with key
+  rotation.
+- [ ] Add pagination/search for large user/group/camera lists.
+- [ ] Add richer dashboard metrics from all configured SesameDVR servers.
+- [ ] Add import/export backup commands.
+- [ ] Add structured audit log viewer.
+- [ ] Add stricter installer rollback/repair flow.
+- [ ] Add packaged release artifacts.
+
+## Phase 3: Product Polish
+
+- [ ] Replace text logo with final Sesame brand asset if provided.
+- [ ] Add localized UI strings.
+- [ ] Add mobile player gestures and fullscreen refinements.
+- [ ] Add camera preview refresh scheduling.
+- [ ] Add optional MySQL/PostgreSQL adapter.
