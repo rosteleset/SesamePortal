@@ -37,4 +37,14 @@ certbot.
 php bin/portal migrate
 php bin/portal create-admin <login> <password>
 php bin/portal rotate-tokens
+php bin/portal backup /path/to/backup.json
+php bin/portal restore /path/to/backup.json
+```
+
+## Checks
+
+```bash
+php -l app/Portal.php
+bash -n scripts/install.sh
+tests/http_smoke.sh
 ```

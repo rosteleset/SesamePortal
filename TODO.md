@@ -22,13 +22,13 @@
 
 ## Phase 2: Hardening
 
-- [ ] Add automated browser/UI tests.
-- [ ] Add full SesameDVR management sync error reporting per camera.
+- [x] Add automated HTTP/UI smoke tests.
+- [x] Add full SesameDVR management sync error reporting per camera.
 - [ ] Add encrypted at-rest storage for SesameDVR management tokens with key
   rotation.
-- [ ] Add pagination/search for large user/group/camera lists.
-- [ ] Add richer dashboard metrics from all configured SesameDVR servers.
-- [ ] Add import/export backup commands.
+- [x] Add pagination/search for large user/group/camera lists.
+- [x] Add richer dashboard metrics from all configured SesameDVR servers.
+- [x] Add import/export backup commands.
 - [ ] Add structured audit log viewer.
 - [ ] Add stricter installer rollback/repair flow.
 - [ ] Add packaged release artifacts.

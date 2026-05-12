@@ -111,6 +111,8 @@ final class DB
                 blocked INTEGER NOT NULL DEFAULT 0,
                 last_check_at TEXT,
                 last_check_result TEXT,
+                last_metrics_at TEXT,
+                last_metrics_json TEXT,
                 created_at TEXT NOT NULL
             )',
             'CREATE TABLE IF NOT EXISTS cameras (
@@ -126,6 +128,9 @@ final class DB
                 retention_days TEXT NOT NULL DEFAULT "7d",
                 blocked INTEGER NOT NULL DEFAULT 0,
                 dvr_stream_name TEXT NOT NULL,
+                last_sync_at TEXT,
+                last_sync_ok INTEGER,
+                last_sync_message TEXT,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
             )',
@@ -155,6 +160,25 @@ final class DB
         foreach ($sql as $statement) {
             $pdo->exec($statement);
         }
+
+        self::ensureColumn('dvr_servers', 'last_metrics_at', 'TEXT');
+        self::ensureColumn('dvr_servers', 'last_metrics_json', 'TEXT');
+        self::ensureColumn('cameras', 'last_sync_at', 'TEXT');
+        self::ensureColumn('cameras', 'last_sync_ok', 'INTEGER');
+        self::ensureColumn('cameras', 'last_sync_message', 'TEXT');
+    }
+
+    private static function ensureColumn(string $table, string $column, string $definition): void
+    {
+        $pdo = self::pdo();
+        $columns = $pdo->query('PRAGMA table_info(' . $table . ')')->fetchAll();
+        foreach ($columns as $existing) {
+            if (($existing['name'] ?? '') === $column) {
+                return;
+            }
+        }
+
+        $pdo->exec('ALTER TABLE ' . $table . ' ADD COLUMN ' . $column . ' ' . $definition);
     }
 }
 
@@ -453,17 +477,17 @@ final class DvrClient
     {
         $camera = Repo::camera($cameraId);
         if (!$camera || !$camera['server_id']) {
-            return ['ok' => false, 'message' => 'No SesameDVR server selected'];
+            return self::storeCameraSync($cameraId, false, 'No SesameDVR server selected');
         }
 
         $server = Repo::server((int)$camera['server_id']);
         if (!$server || (int)$server['blocked'] === 1) {
-            return ['ok' => false, 'message' => 'SesameDVR server is unavailable or blocked'];
+            return self::storeCameraSync($cameraId, false, 'SesameDVR server is unavailable or blocked');
         }
 
         $token = Crypto::decrypt($server['management_token_enc'] ?? null);
         if ($token === '') {
-            return ['ok' => false, 'message' => 'SesameDVR management token is missing'];
+            return self::storeCameraSync($cameraId, false, 'SesameDVR management token is missing');
         }
 
         $name = $camera['dvr_stream_name'] ?: $camera['name'];
@@ -476,15 +500,16 @@ final class DvrClient
         ];
 
         $base = rtrim($server['base_url'], '/');
-        $result = self::request('PUT', $base . '/api/streams/' . rawurlencode($name), $token, $payload);
+        $endpoint = $base . '/api/streams/' . rawurlencode($name);
+        $result = self::request('PUT', $endpoint, $token, $payload);
         if ($result['status'] === 404) {
-            $result = self::request('POST', $base . '/api/streams', $token, $payload);
+            $endpoint = $base . '/api/streams';
+            $result = self::request('POST', $endpoint, $token, $payload);
         }
 
-        return [
-            'ok' => $result['status'] >= 200 && $result['status'] < 300,
-            'message' => 'HTTP ' . $result['status'] . ' ' . substr($result['body'], 0, 180),
-        ];
+        $ok = $result['status'] >= 200 && $result['status'] < 300;
+        $message = self::responseSummary($result, $endpoint);
+        return self::storeCameraSync($cameraId, $ok, $message);
     }
 
     public static function checkServer(int $serverId): array
@@ -497,10 +522,34 @@ final class DvrClient
         $token = Crypto::decrypt($server['management_token_enc'] ?? null);
         $result = self::request('GET', rtrim($server['base_url'], '/') . '/api/system/version', $token, null);
         $ok = $result['status'] >= 200 && $result['status'] < 300;
-        $message = 'HTTP ' . $result['status'] . ' ' . substr($result['body'], 0, 180);
+        $message = self::responseSummary($result, rtrim($server['base_url'], '/') . '/api/system/version');
         DB::pdo()->prepare('UPDATE dvr_servers SET last_check_at = ?, last_check_result = ? WHERE id = ?')
             ->execute([Util::now(), $message, $serverId]);
         return ['ok' => $ok, 'message' => $message];
+    }
+
+    public static function fetchServerMetrics(int $serverId): array
+    {
+        $server = Repo::server($serverId);
+        if (!$server) {
+            return ['ok' => false, 'message' => 'server_not_found'];
+        }
+
+        $token = Crypto::decrypt($server['management_token_enc'] ?? null);
+        $base = rtrim($server['base_url'], '/');
+        $version = self::request('GET', $base . '/api/system/version', $token, null);
+        $status = self::request('GET', $base . '/api/system/status', $token, null);
+        $ok = $version['status'] >= 200 && $version['status'] < 300 && $status['status'] >= 200 && $status['status'] < 300;
+        $payload = [
+            'version' => self::jsonOrBody($version),
+            'status' => self::jsonOrBody($status),
+            'fetchedAt' => Util::now(),
+        ];
+        $message = self::responseSummary($version, $base . '/api/system/version') . '; ' .
+            self::responseSummary($status, $base . '/api/system/status');
+        DB::pdo()->prepare('UPDATE dvr_servers SET last_check_at = ?, last_check_result = ?, last_metrics_at = ?, last_metrics_json = ? WHERE id = ?')
+            ->execute([Util::now(), $message, Util::now(), json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES), $serverId]);
+        return ['ok' => $ok, 'message' => $message, 'metrics' => $payload];
     }
 
     private static function request(string $method, string $url, string $token, ?array $payload): array
@@ -525,6 +574,36 @@ final class DvrClient
         $error = curl_error($ch);
         curl_close($ch);
         return ['status' => $status, 'body' => $body === false ? $error : (string)$body];
+    }
+
+    private static function storeCameraSync(int $cameraId, bool $ok, string $message): array
+    {
+        DB::pdo()->prepare('UPDATE cameras SET last_sync_at = ?, last_sync_ok = ?, last_sync_message = ? WHERE id = ?')
+            ->execute([Util::now(), $ok ? 1 : 0, mb_substr($message, 0, 1000), $cameraId]);
+        return ['ok' => $ok, 'message' => $message];
+    }
+
+    private static function responseSummary(array $result, string $endpoint): string
+    {
+        $body = trim((string)($result['body'] ?? ''));
+        $decoded = json_decode($body, true);
+        if (is_array($decoded)) {
+            $body = json_encode($decoded, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        }
+        $body = preg_replace('/\s+/', ' ', $body);
+        return 'HTTP ' . (int)($result['status'] ?? 0) . ' ' . $endpoint . ' ' . mb_substr((string)$body, 0, 420);
+    }
+
+    private static function jsonOrBody(array $result): mixed
+    {
+        $decoded = json_decode((string)($result['body'] ?? ''), true);
+        if (is_array($decoded)) {
+            return $decoded;
+        }
+        return [
+            'httpStatus' => (int)($result['status'] ?? 0),
+            'body' => mb_substr((string)($result['body'] ?? ''), 0, 1000),
+        ];
     }
 }
 
@@ -644,6 +723,7 @@ final class App
         match ($path) {
             '/login' => self::login(),
             '/logout' => self::logout(),
+            '/admin/dashboard' => self::dashboard(),
             '/admin/users' => self::users(),
             '/admin/groups' => self::groups(),
             '/admin/servers' => self::servers(),
@@ -654,6 +734,54 @@ final class App
             '/api/sesamedvr/auth' => self::authBackend(),
             default => self::viewer('mosaic'),
         };
+    }
+
+    private static function dashboard(): void
+    {
+        Auth::requireAdmin();
+        $message = '';
+        if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
+            $action = (string)Util::post('action');
+            if ($action === 'refresh_server') {
+                $result = DvrClient::fetchServerMetrics((int)Util::post('id'));
+                $message = $result['message'];
+            } elseif ($action === 'refresh_all') {
+                $messages = [];
+                foreach (Repo::all('dvr_servers', 'name ASC') as $server) {
+                    if ((int)$server['blocked'] === 0) {
+                        $result = DvrClient::fetchServerMetrics((int)$server['id']);
+                        $messages[] = $server['name'] . ': ' . ($result['ok'] ? 'ok' : 'error');
+                    }
+                }
+                $message = implode('; ', $messages);
+            }
+        }
+
+        $counts = [
+            'Пользователи' => (int)DB::pdo()->query('SELECT COUNT(*) FROM users')->fetchColumn(),
+            'Группы' => (int)DB::pdo()->query('SELECT COUNT(*) FROM portal_groups')->fetchColumn(),
+            'Камеры' => (int)DB::pdo()->query('SELECT COUNT(*) FROM cameras')->fetchColumn(),
+            'DVR серверы' => (int)DB::pdo()->query('SELECT COUNT(*) FROM dvr_servers')->fetchColumn(),
+        ];
+        $servers = Repo::all('dvr_servers', 'name ASC');
+        $recentSync = DB::pdo()->query('SELECT c.*, s.name AS server_name FROM cameras c LEFT JOIN dvr_servers s ON s.id = c.server_id ORDER BY COALESCE(c.last_sync_at, "") DESC, c.name ASC LIMIT 12')->fetchAll();
+
+        self::layout('Dashboard', function () use ($counts, $servers, $recentSync, $message) {
+            self::notice($message);
+            echo '<section class="summary-grid">';
+            foreach ($counts as $label => $value) {
+                echo '<div class="summary-card"><span>' . Util::h($label) . '</span><strong>' . Util::h($value) . '</strong></div>';
+            }
+            echo '</section>';
+            echo '<section class="panel"><div class="section-head"><h2>SesameDVR серверы</h2>';
+            self::smallPost('/admin/dashboard', ['action' => 'refresh_all'], 'Обновить все', 'primary');
+            echo '</div><div class="server-grid">';
+            foreach ($servers as $server) {
+                self::serverMetricCard($server);
+            }
+            echo '</div></section>';
+            self::table('Последняя синхронизация камер', ['name', 'server_name', 'last_sync_ok', 'last_sync_at', 'last_sync_message'], $recentSync, '/admin/cameras', true, null, false);
+        });
     }
 
     private static function login(): void
@@ -737,8 +865,9 @@ final class App
         }
 
         $edit = self::rowById('users', (int)($_GET['edit'] ?? 0));
-        $users = Repo::all('users', 'login ASC');
-        self::layout('Пользователи', function () use ($users, $edit, $message, $staticToken) {
+        $list = self::filteredRows('users', ['login', 'role'], 'login ASC');
+        $users = $list['rows'];
+        self::layout('Пользователи', function () use ($users, $edit, $message, $staticToken, $list) {
             self::notice($message);
             if ($staticToken) {
                 echo '<div class="alert">Static token: <code>' . Util::h($staticToken) . '</code></div>';
@@ -752,7 +881,7 @@ final class App
             echo '<label>Роль<select name="role"><option value="user">user</option><option value="admin" ' . (($edit['role'] ?? '') === 'admin' ? 'selected' : '') . '>admin</option></select></label>';
             echo '<label class="check"><input type="checkbox" name="blocked" ' . (!empty($edit['blocked']) ? 'checked' : '') . '> Заблокирован</label>';
             echo '<button class="primary">Сохранить</button></form></section>';
-            self::table('Пользователи', ['login', 'role', 'blocked', 'last_login_at'], $users, '/admin/users');
+            self::table('Пользователи', ['login', 'role', 'blocked', 'last_login_at'], $users, '/admin/users', false, $list);
             echo '</div>';
         });
     }
@@ -788,8 +917,9 @@ final class App
         $linkedCameras = $edit ? self::linkedIds('camera_groups', 'group_id', (int)$edit['id'], 'camera_id') : [];
         $users = Repo::all('users', 'login ASC');
         $cameras = Repo::all('cameras', 'name ASC');
-        $groups = Repo::all('portal_groups', 'name ASC');
-        self::layout('Группы', function () use ($edit, $users, $cameras, $linkedUsers, $linkedCameras, $groups) {
+        $list = self::filteredRows('portal_groups', ['name', 'description'], 'name ASC');
+        $groups = $list['rows'];
+        self::layout('Группы', function () use ($edit, $users, $cameras, $linkedUsers, $linkedCameras, $groups, $list) {
             echo '<div class="admin-grid"><section class="panel"><h2>' . ($edit ? 'Изменить группу' : 'Новая группа') . '</h2>';
             echo '<form method="post" class="form">' . Csrf::field();
             echo '<input type="hidden" name="action" value="save"><input type="hidden" name="id" value="' . Util::h($edit['id'] ?? 0) . '">';
@@ -799,7 +929,7 @@ final class App
             self::checkboxList('Пользователи', 'user_ids[]', $users, $linkedUsers, 'login');
             self::checkboxList('Камеры', 'camera_ids[]', $cameras, $linkedCameras, 'name');
             echo '<button class="primary">Сохранить</button></form></section>';
-            self::table('Группы', ['name', 'blocked', 'description'], $groups, '/admin/groups');
+            self::table('Группы', ['name', 'blocked', 'description'], $groups, '/admin/groups', false, $list);
             echo '</div>';
         });
     }
@@ -834,8 +964,9 @@ final class App
         }
 
         $edit = self::rowById('dvr_servers', (int)($_GET['edit'] ?? 0));
-        $servers = Repo::all('dvr_servers', 'name ASC');
-        self::layout('Серверы SesameDVR', function () use ($edit, $servers, $message) {
+        $list = self::filteredRows('dvr_servers', ['name', 'base_url', 'last_check_result'], 'name ASC');
+        $servers = $list['rows'];
+        self::layout('Серверы SesameDVR', function () use ($edit, $servers, $message, $list) {
             self::notice($message);
             echo '<div class="admin-grid"><section class="panel"><h2>' . ($edit ? 'Изменить сервер' : 'Новый сервер') . '</h2>';
             echo '<form method="post" class="form">' . Csrf::field();
@@ -845,7 +976,7 @@ final class App
             echo '<label>Management key<input name="management_token" placeholder="' . ($edit ? 'оставьте пустым, чтобы не менять' : '') . '"></label>';
             echo '<label class="check"><input type="checkbox" name="blocked" ' . (!empty($edit['blocked']) ? 'checked' : '') . '> Заблокирован</label>';
             echo '<button class="primary">Сохранить</button></form></section>';
-            self::table('Серверы', ['name', 'base_url', 'blocked', 'last_check_result'], $servers, '/admin/servers', true);
+            self::table('Серверы', ['name', 'base_url', 'blocked', 'last_check_result'], $servers, '/admin/servers', true, $list);
             echo '</div>';
         });
     }
@@ -904,8 +1035,9 @@ final class App
         $linkedGroups = $edit ? self::linkedIds('camera_groups', 'camera_id', (int)$edit['id'], 'group_id') : [];
         $servers = Repo::all('dvr_servers', 'name ASC');
         $groups = Repo::all('portal_groups', 'name ASC');
-        $cameras = DB::pdo()->query('SELECT c.*, s.name AS server_name FROM cameras c LEFT JOIN dvr_servers s ON s.id = c.server_id ORDER BY c.name ASC')->fetchAll();
-        self::layout('Камеры', function () use ($edit, $servers, $groups, $linkedGroups, $cameras, $message) {
+        $list = self::filteredCameras();
+        $cameras = $list['rows'];
+        self::layout('Камеры', function () use ($edit, $servers, $groups, $linkedGroups, $cameras, $message, $list) {
             self::notice($message);
             echo '<div class="admin-grid"><section class="panel"><h2>' . ($edit ? 'Изменить камеру' : 'Новая камера') . '</h2>';
             echo '<form method="post" class="form">' . Csrf::field();
@@ -925,7 +1057,7 @@ final class App
             echo '<label class="check"><input type="checkbox" name="blocked" ' . (!empty($edit['blocked']) ? 'checked' : '') . '> Заблокирована</label>';
             self::checkboxList('Группы', 'group_ids[]', $groups, $linkedGroups, 'name');
             echo '<button class="primary">Сохранить и синхронизировать</button></form></section>';
-            self::table('Камеры', ['name', 'server_name', 'retention_days', 'blocked'], $cameras, '/admin/cameras', true);
+            self::table('Камеры', ['name', 'server_name', 'retention_days', 'blocked', 'last_sync_ok', 'last_sync_at'], $cameras, '/admin/cameras', true, $list);
             echo '</div>';
         });
     }
@@ -1060,7 +1192,7 @@ final class App
             echo '<header class="topbar"><div class="brand"><span class="brand-mark">S</span><div><strong>SesamePortal</strong><small>' . Util::h($title) . '</small></div></div><nav>';
             echo '<a href="/">Мозаика</a><a href="/viewer/map">Карта</a>';
             if ($user['role'] === 'admin') {
-                echo '<a href="/admin/users">Пользователи</a><a href="/admin/groups">Группы</a><a href="/admin/cameras">Камеры</a><a href="/admin/servers">DVR</a><a href="/admin/audit">Журнал</a>';
+                echo '<a href="/admin/dashboard">Dashboard</a><a href="/admin/users">Пользователи</a><a href="/admin/groups">Группы</a><a href="/admin/cameras">Камеры</a><a href="/admin/servers">DVR</a><a href="/admin/audit">Журнал</a>';
             }
             echo '<a href="/logout">Выход</a></nav></header>';
         }
@@ -1083,9 +1215,120 @@ final class App
         echo '</section>';
     }
 
-    private static function table(string $title, array $columns, array $rows, string $base, bool $actions = false): void
+    private static function serverMetricCard(array $server): void
     {
-        echo '<section class="panel"><h2>' . Util::h($title) . '</h2><table><thead><tr>';
+        $metrics = json_decode((string)($server['last_metrics_json'] ?? ''), true);
+        $version = is_array($metrics['version'] ?? null) ? $metrics['version'] : [];
+        $status = is_array($metrics['status'] ?? null) ? $metrics['status'] : [];
+        $versionText = $version['version'] ?? $version['buildId'] ?? $version['sourceCommit'] ?? 'unknown';
+        $cpu = self::firstMetric($status, ['cpu.totalPercent', 'cpu.percent', 'system.cpuPercent', 'cpu']);
+        $memory = self::firstMetric($status, ['memory.usedPercent', 'system.memoryUsedPercent', 'ram.usedPercent']);
+        $streams = self::firstMetric($status, ['streams.total', 'streamCount', 'cameras.total']);
+
+        echo '<article class="server-card">';
+        echo '<div><strong>' . Util::h($server['name']) . '</strong><span>' . Util::h($server['base_url']) . '</span></div>';
+        echo '<dl>';
+        echo '<dt>Версия</dt><dd>' . Util::h($versionText) . '</dd>';
+        echo '<dt>CPU</dt><dd>' . Util::h($cpu ?? '-') . '</dd>';
+        echo '<dt>RAM</dt><dd>' . Util::h($memory ?? '-') . '</dd>';
+        echo '<dt>Потоки</dt><dd>' . Util::h($streams ?? '-') . '</dd>';
+        echo '<dt>Проверка</dt><dd>' . Util::h($server['last_metrics_at'] ?: $server['last_check_at'] ?: '-') . '</dd>';
+        echo '</dl>';
+        if (!empty($server['last_check_result'])) {
+            echo '<p>' . Util::h($server['last_check_result']) . '</p>';
+        }
+        self::smallPost('/admin/dashboard', ['action' => 'refresh_server', 'id' => $server['id']], 'Обновить');
+        echo '</article>';
+    }
+
+    private static function firstMetric(array $data, array $paths): mixed
+    {
+        foreach ($paths as $path) {
+            $value = self::arrayPath($data, $path);
+            if ($value !== null && $value !== '') {
+                return is_float($value) ? round($value, 2) : $value;
+            }
+        }
+        return null;
+    }
+
+    private static function arrayPath(array $data, string $path): mixed
+    {
+        $value = $data;
+        foreach (explode('.', $path) as $part) {
+            if (!is_array($value) || !array_key_exists($part, $value)) {
+                return null;
+            }
+            $value = $value[$part];
+        }
+        return $value;
+    }
+
+    private static function filteredRows(string $table, array $searchColumns, string $order, int $pageSize = 25): array
+    {
+        $q = trim((string)($_GET['q'] ?? ''));
+        $page = max(1, (int)($_GET['page'] ?? 1));
+        $where = '';
+        $params = [];
+
+        if ($q !== '') {
+            $likes = [];
+            foreach ($searchColumns as $column) {
+                $likes[] = $column . ' LIKE ?';
+                $params[] = '%' . $q . '%';
+            }
+            $where = ' WHERE ' . implode(' OR ', $likes);
+        }
+
+        $pdo = DB::pdo();
+        $count = $pdo->prepare('SELECT COUNT(*) FROM ' . $table . $where);
+        $count->execute($params);
+        $total = (int)$count->fetchColumn();
+
+        $stmt = $pdo->prepare('SELECT * FROM ' . $table . $where . ' ORDER BY ' . $order . ' LIMIT ? OFFSET ?');
+        $bind = [...$params, $pageSize, ($page - 1) * $pageSize];
+        foreach ($bind as $idx => $value) {
+            $stmt->bindValue($idx + 1, $value, is_int($value) ? PDO::PARAM_INT : PDO::PARAM_STR);
+        }
+        $stmt->execute();
+        return ['rows' => $stmt->fetchAll(), 'total' => $total, 'page' => $page, 'pageSize' => $pageSize, 'q' => $q];
+    }
+
+    private static function filteredCameras(int $pageSize = 25): array
+    {
+        $q = trim((string)($_GET['q'] ?? ''));
+        $page = max(1, (int)($_GET['page'] ?? 1));
+        $where = '';
+        $params = [];
+        if ($q !== '') {
+            $where = ' WHERE c.name LIKE ? OR c.source_url LIKE ? OR c.dvr_stream_name LIKE ? OR s.name LIKE ? OR c.last_sync_message LIKE ?';
+            $params = array_fill(0, 5, '%' . $q . '%');
+        }
+
+        $pdo = DB::pdo();
+        $count = $pdo->prepare('SELECT COUNT(*) FROM cameras c LEFT JOIN dvr_servers s ON s.id = c.server_id' . $where);
+        $count->execute($params);
+        $total = (int)$count->fetchColumn();
+
+        $stmt = $pdo->prepare('SELECT c.*, s.name AS server_name FROM cameras c LEFT JOIN dvr_servers s ON s.id = c.server_id' . $where . ' ORDER BY c.name ASC LIMIT ? OFFSET ?');
+        $bind = [...$params, $pageSize, ($page - 1) * $pageSize];
+        foreach ($bind as $idx => $value) {
+            $stmt->bindValue($idx + 1, $value, is_int($value) ? PDO::PARAM_INT : PDO::PARAM_STR);
+        }
+        $stmt->execute();
+        return ['rows' => $stmt->fetchAll(), 'total' => $total, 'page' => $page, 'pageSize' => $pageSize, 'q' => $q];
+    }
+
+    private static function table(string $title, array $columns, array $rows, string $base, bool $actions = false, ?array $pager = null, bool $showSearch = true): void
+    {
+        echo '<section class="panel"><div class="section-head"><h2>' . Util::h($title) . '</h2>';
+        if ($showSearch) {
+            echo '<form method="get" action="' . Util::h($base) . '" class="table-search">';
+            echo '<input name="q" value="' . Util::h($pager['q'] ?? '') . '" placeholder="Поиск">';
+            echo '<button>Найти</button>';
+            echo '</form>';
+        }
+        echo '</div><table><thead><tr>';
         foreach ($columns as $column) {
             echo '<th>' . Util::h($column) . '</th>';
         }
@@ -1109,7 +1352,30 @@ final class App
             }
             echo '</td></tr>';
         }
-        echo '</tbody></table></section>';
+        echo '</tbody></table>';
+        if ($pager) {
+            self::pager($base, $pager);
+        }
+        echo '</section>';
+    }
+
+    private static function pager(string $base, array $pager): void
+    {
+        $pages = (int)ceil(max(1, (int)$pager['total']) / max(1, (int)$pager['pageSize']));
+        if ($pages <= 1) {
+            echo '<div class="pager-note">Показано ' . Util::h(count($pager['rows'])) . ' из ' . Util::h($pager['total']) . '</div>';
+            return;
+        }
+
+        echo '<nav class="pager">';
+        for ($page = 1; $page <= $pages; $page++) {
+            $query = http_build_query(array_filter([
+                'q' => $pager['q'] ?? '',
+                'page' => $page,
+            ], fn($value) => $value !== '' && $value !== null));
+            echo '<a class="' . ((int)$pager['page'] === $page ? 'active' : '') . '" href="' . Util::h($base . ($query ? '?' . $query : '')) . '">' . $page . '</a>';
+        }
+        echo '</nav>';
     }
 
     private static function smallPost(string $path, array $fields, string $label, string $class = ''): void
@@ -1226,6 +1492,17 @@ final class App
 
 final class Cli
 {
+    private const BACKUP_TABLES = [
+        'users',
+        'portal_groups',
+        'user_groups',
+        'dvr_servers',
+        'cameras',
+        'camera_groups',
+        'favorites',
+        'audit_logs',
+    ];
+
     public static function run(array $argv): void
     {
         DB::migrate();
@@ -1263,6 +1540,82 @@ final class Cli
             return;
         }
 
-        echo "commands: migrate, create-admin, rotate-tokens\n";
+        if ($command === 'backup') {
+            $path = $argv[2] ?? '';
+            if ($path === '') {
+                fwrite(STDERR, "usage: php bin/portal backup <out.json>\n");
+                exit(2);
+            }
+            self::backup($path);
+            echo "backup written: {$path}\n";
+            return;
+        }
+
+        if ($command === 'restore') {
+            $path = $argv[2] ?? '';
+            if ($path === '' || !is_file($path)) {
+                fwrite(STDERR, "usage: php bin/portal restore <in.json>\n");
+                exit(2);
+            }
+            self::restore($path);
+            echo "backup restored: {$path}\n";
+            return;
+        }
+
+        echo "commands: migrate, create-admin, rotate-tokens, backup, restore\n";
+    }
+
+    private static function backup(string $path): void
+    {
+        $pdo = DB::pdo();
+        $data = [
+            'format' => 'sesame-portal-backup-v1',
+            'createdAt' => Util::now(),
+            'tables' => [],
+        ];
+        foreach (self::BACKUP_TABLES as $table) {
+            $data['tables'][$table] = $pdo->query('SELECT * FROM ' . $table)->fetchAll();
+        }
+
+        $dir = dirname($path);
+        if ($dir !== '' && $dir !== '.' && !is_dir($dir)) {
+            mkdir($dir, 0700, true);
+        }
+        file_put_contents($path, json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+        chmod($path, 0600);
+    }
+
+    private static function restore(string $path): void
+    {
+        $data = json_decode((string)file_get_contents($path), true);
+        if (!is_array($data) || ($data['format'] ?? '') !== 'sesame-portal-backup-v1') {
+            throw new RuntimeException('invalid_backup_format');
+        }
+
+        $pdo = DB::pdo();
+        $pdo->beginTransaction();
+        try {
+            $pdo->exec('PRAGMA foreign_keys = OFF');
+            foreach (array_reverse(self::BACKUP_TABLES) as $table) {
+                $pdo->exec('DELETE FROM ' . $table);
+            }
+            foreach (self::BACKUP_TABLES as $table) {
+                foreach (($data['tables'][$table] ?? []) as $row) {
+                    if (!is_array($row) || $row === []) {
+                        continue;
+                    }
+                    $columns = array_keys($row);
+                    $placeholders = implode(', ', array_fill(0, count($columns), '?'));
+                    $sql = 'INSERT INTO ' . $table . '(' . implode(', ', $columns) . ') VALUES(' . $placeholders . ')';
+                    $pdo->prepare($sql)->execute(array_values($row));
+                }
+            }
+            $pdo->exec('PRAGMA foreign_keys = ON');
+            $pdo->commit();
+        } catch (\Throwable $error) {
+            $pdo->rollBack();
+            $pdo->exec('PRAGMA foreign_keys = ON');
+            throw $error;
+        }
     }
 }

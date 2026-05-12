@@ -207,6 +207,28 @@ th {
   font-size: 18px;
 }
 
+.section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.section-head h2 {
+  margin: 0;
+}
+
+.table-search {
+  display: flex;
+  gap: 8px;
+  width: min(360px, 100%);
+}
+
+.table-search input {
+  min-width: 0;
+}
+
 .form {
   display: grid;
   gap: 12px;
@@ -281,6 +303,102 @@ legend {
 .alert.danger {
   border-color: rgba(179, 38, 30, 0.35);
   background: rgba(179, 38, 30, 0.08);
+}
+
+.summary-grid,
+.server-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 14px;
+  margin-bottom: 16px;
+}
+
+.summary-card,
+.server-card {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+.summary-card {
+  display: grid;
+  gap: 4px;
+  padding: 15px;
+}
+
+.summary-card span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.summary-card strong {
+  font-size: 28px;
+}
+
+.server-card {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+}
+
+.server-card strong,
+.server-card span {
+  display: block;
+}
+
+.server-card span,
+.server-card p,
+.pager-note {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.server-card p {
+  margin: 0;
+  word-break: break-word;
+}
+
+.server-card dl {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 6px 10px;
+  margin: 0;
+}
+
+.server-card dt {
+  color: var(--muted);
+}
+
+.server-card dd {
+  margin: 0;
+  font-weight: 650;
+}
+
+.pager {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
+
+.pager a {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 34px;
+  min-height: 34px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--text);
+}
+
+.pager a.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
 }
 
 .filters {
@@ -441,6 +559,16 @@ code {
 
   .panel {
     padding: 12px;
+  }
+
+  .section-head,
+  .table-search {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .table-search {
+    width: 100%;
   }
 
   table,
