@@ -33,15 +33,26 @@ final class Config
         $file = getenv('SESAME_PORTAL_CONFIG') ?: $stateDir . '/config.php';
         $loaded = is_file($file) ? require $file : [];
 
-        self::$config = array_replace([
+        $config = array_replace([
             'state_dir' => $stateDir,
             'db_path' => $stateDir . '/portal.sqlite',
+            'db_dsn' => getenv('SESAME_PORTAL_DB_DSN') ?: null,
+            'db_user' => getenv('SESAME_PORTAL_DB_USER') ?: null,
+            'db_password' => getenv('SESAME_PORTAL_DB_PASSWORD') ?: null,
             'app_secret' => getenv('SESAME_PORTAL_SECRET') ?: 'dev-insecure-change-me',
             'timezone' => getenv('SESAME_PORTAL_TIMEZONE') ?: 'UTC',
             'base_url' => getenv('SESAME_PORTAL_BASE_URL') ?: '',
             'auth_backend_path' => '/api/sesamedvr/auth',
         ], is_array($loaded) ? $loaded : []);
 
+        if (empty($config['crypto_keys']) || !is_array($config['crypto_keys'])) {
+            $config['crypto_keys'] = ['default' => $config['app_secret']];
+        }
+        if (empty($config['crypto_primary_key'])) {
+            $config['crypto_primary_key'] = array_key_first($config['crypto_keys']) ?: 'default';
+        }
+
+        self::$config = $config;
         return self::$config;
     }
 
@@ -54,6 +65,7 @@ final class Config
 final class DB
 {
     private static ?PDO $pdo = null;
+    private static ?string $driver = null;
 
     public static function pdo(): PDO
     {
@@ -61,23 +73,100 @@ final class DB
             return self::$pdo;
         }
 
-        $stateDir = Config::stateDir();
-        if (!is_dir($stateDir)) {
-            mkdir($stateDir, 0750, true);
+        $dsn = (string)(Config::get('db_dsn') ?: '');
+        if ($dsn === '') {
+            $stateDir = Config::stateDir();
+            if (!is_dir($stateDir)) {
+                mkdir($stateDir, 0750, true);
+            }
+            $dsn = 'sqlite:' . Config::get('db_path');
         }
 
-        $pdo = new PDO('sqlite:' . Config::get('db_path'));
+        $pdo = new PDO($dsn, Config::get('db_user') ?: null, Config::get('db_password') ?: null);
         $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
         $pdo->setAttribute(PDO::ATTR_DEFAULT_FETCH_MODE, PDO::FETCH_ASSOC);
-        $pdo->exec('PRAGMA foreign_keys = ON');
+        if (self::driver() === 'sqlite') {
+            $pdo->exec('PRAGMA foreign_keys = ON');
+        }
         self::$pdo = $pdo;
         return $pdo;
+    }
+
+    public static function driver(): string
+    {
+        if (self::$driver !== null) {
+            return self::$driver;
+        }
+
+        $dsn = (string)(Config::get('db_dsn') ?: 'sqlite:' . Config::get('db_path'));
+        self::$driver = strtolower(strtok($dsn, ':') ?: 'sqlite');
+        return self::$driver;
     }
 
     public static function migrate(): void
     {
         $pdo = self::pdo();
-        $sql = [
+        foreach (self::schemaStatements() as $statement) {
+            $pdo->exec($statement);
+        }
+
+        self::ensureIndex('camera_groups', 'idx_camera_groups_group', 'group_id');
+        self::ensureIndex('user_groups', 'idx_user_groups_group', 'group_id');
+        self::ensureIndex('favorites', 'idx_favorites_user', 'user_id');
+        self::ensureColumn('dvr_servers', 'last_metrics_at', 'TEXT');
+        self::ensureColumn('dvr_servers', 'last_metrics_json', 'TEXT');
+        self::ensureColumn('cameras', 'last_sync_at', 'TEXT');
+        self::ensureColumn('cameras', 'last_sync_ok', 'INTEGER');
+        self::ensureColumn('cameras', 'last_sync_message', 'TEXT');
+    }
+
+    public static function insertIgnoreSql(string $table, array $columns): string
+    {
+        $columnSql = implode(', ', $columns);
+        $placeholderSql = implode(', ', array_fill(0, count($columns), '?'));
+        return match (self::driver()) {
+            'pgsql' => "INSERT INTO {$table}({$columnSql}) VALUES({$placeholderSql}) ON CONFLICT DO NOTHING",
+            'mysql' => "INSERT IGNORE INTO {$table}({$columnSql}) VALUES({$placeholderSql})",
+            default => "INSERT OR IGNORE INTO {$table}({$columnSql}) VALUES({$placeholderSql})",
+        };
+    }
+
+    public static function randomOrderSql(): string
+    {
+        return self::driver() === 'mysql' ? 'RAND()' : 'RANDOM()';
+    }
+
+    public static function lastInsertId(string $table): int
+    {
+        if (self::driver() === 'pgsql') {
+            $stmt = self::pdo()->prepare("SELECT currval(pg_get_serial_sequence(?, 'id'))");
+            $stmt->execute([$table]);
+            return (int)$stmt->fetchColumn();
+        }
+        return (int)self::pdo()->lastInsertId();
+    }
+
+    public static function setForeignKeys(bool $enabled): void
+    {
+        if (self::driver() === 'sqlite') {
+            self::pdo()->exec('PRAGMA foreign_keys = ' . ($enabled ? 'ON' : 'OFF'));
+        } elseif (self::driver() === 'mysql') {
+            self::pdo()->exec('SET FOREIGN_KEY_CHECKS=' . ($enabled ? '1' : '0'));
+        }
+    }
+
+    private static function schemaStatements(): array
+    {
+        return match (self::driver()) {
+            'pgsql' => self::pgsqlSchema(),
+            'mysql' => self::mysqlSchema(),
+            default => self::sqliteSchema(),
+        };
+    }
+
+    private static function sqliteSchema(): array
+    {
+        return [
             'CREATE TABLE IF NOT EXISTS users (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 login TEXT NOT NULL UNIQUE,
@@ -152,33 +241,241 @@ final class DB
                 details TEXT NOT NULL DEFAULT "",
                 created_at TEXT NOT NULL
             )',
-            'CREATE INDEX IF NOT EXISTS idx_camera_groups_group ON camera_groups(group_id)',
-            'CREATE INDEX IF NOT EXISTS idx_user_groups_group ON user_groups(group_id)',
-            'CREATE INDEX IF NOT EXISTS idx_favorites_user ON favorites(user_id)',
         ];
+    }
 
-        foreach ($sql as $statement) {
-            $pdo->exec($statement);
-        }
+    private static function pgsqlSchema(): array
+    {
+        return [
+            "CREATE TABLE IF NOT EXISTS users (
+                id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+                login TEXT NOT NULL UNIQUE,
+                password_hash TEXT NOT NULL,
+                role TEXT NOT NULL DEFAULT 'user',
+                blocked INTEGER NOT NULL DEFAULT 0,
+                daily_token TEXT,
+                previous_daily_token TEXT,
+                daily_token_date TEXT,
+                static_token_hash TEXT,
+                created_at TEXT NOT NULL,
+                last_login_at TEXT
+            )",
+            'CREATE TABLE IF NOT EXISTS portal_groups (
+                id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+                name TEXT NOT NULL UNIQUE,
+                description TEXT NOT NULL,
+                blocked INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL
+            )',
+            'CREATE TABLE IF NOT EXISTS user_groups (
+                user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                group_id BIGINT NOT NULL REFERENCES portal_groups(id) ON DELETE CASCADE,
+                PRIMARY KEY (user_id, group_id)
+            )',
+            'CREATE TABLE IF NOT EXISTS dvr_servers (
+                id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+                name TEXT NOT NULL,
+                base_url TEXT NOT NULL,
+                management_token_enc TEXT,
+                blocked INTEGER NOT NULL DEFAULT 0,
+                last_check_at TEXT,
+                last_check_result TEXT,
+                last_metrics_at TEXT,
+                last_metrics_json TEXT,
+                created_at TEXT NOT NULL
+            )',
+            "CREATE TABLE IF NOT EXISTS cameras (
+                id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+                name TEXT NOT NULL UNIQUE,
+                source_url TEXT NOT NULL,
+                server_id BIGINT REFERENCES dvr_servers(id) ON DELETE SET NULL,
+                server_selection TEXT NOT NULL DEFAULT 'manual',
+                latitude DOUBLE PRECISION,
+                longitude DOUBLE PRECISION,
+                direction_deg INTEGER NOT NULL DEFAULT 0,
+                view_angle_deg INTEGER NOT NULL DEFAULT 60,
+                retention_days TEXT NOT NULL DEFAULT '7d',
+                blocked INTEGER NOT NULL DEFAULT 0,
+                dvr_stream_name TEXT NOT NULL,
+                last_sync_at TEXT,
+                last_sync_ok INTEGER,
+                last_sync_message TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )",
+            'CREATE TABLE IF NOT EXISTS camera_groups (
+                camera_id BIGINT NOT NULL REFERENCES cameras(id) ON DELETE CASCADE,
+                group_id BIGINT NOT NULL REFERENCES portal_groups(id) ON DELETE CASCADE,
+                PRIMARY KEY (camera_id, group_id)
+            )',
+            'CREATE TABLE IF NOT EXISTS favorites (
+                user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                camera_id BIGINT NOT NULL REFERENCES cameras(id) ON DELETE CASCADE,
+                created_at TEXT NOT NULL,
+                PRIMARY KEY (user_id, camera_id)
+            )',
+            'CREATE TABLE IF NOT EXISTS audit_logs (
+                id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+                actor_user_id BIGINT,
+                action TEXT NOT NULL,
+                details TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            )',
+        ];
+    }
 
-        self::ensureColumn('dvr_servers', 'last_metrics_at', 'TEXT');
-        self::ensureColumn('dvr_servers', 'last_metrics_json', 'TEXT');
-        self::ensureColumn('cameras', 'last_sync_at', 'TEXT');
-        self::ensureColumn('cameras', 'last_sync_ok', 'INTEGER');
-        self::ensureColumn('cameras', 'last_sync_message', 'TEXT');
+    private static function mysqlSchema(): array
+    {
+        $suffix = ' ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci';
+        return [
+            "CREATE TABLE IF NOT EXISTS users (
+                id BIGINT AUTO_INCREMENT PRIMARY KEY,
+                login VARCHAR(255) NOT NULL UNIQUE,
+                password_hash VARCHAR(255) NOT NULL,
+                role VARCHAR(32) NOT NULL DEFAULT 'user',
+                blocked INTEGER NOT NULL DEFAULT 0,
+                daily_token TEXT,
+                previous_daily_token TEXT,
+                daily_token_date VARCHAR(64),
+                static_token_hash VARCHAR(255),
+                created_at VARCHAR(64) NOT NULL,
+                last_login_at VARCHAR(64)
+            ){$suffix}",
+            "CREATE TABLE IF NOT EXISTS portal_groups (
+                id BIGINT AUTO_INCREMENT PRIMARY KEY,
+                name VARCHAR(255) NOT NULL UNIQUE,
+                description TEXT NOT NULL,
+                blocked INTEGER NOT NULL DEFAULT 0,
+                created_at VARCHAR(64) NOT NULL
+            ){$suffix}",
+            "CREATE TABLE IF NOT EXISTS user_groups (
+                user_id BIGINT NOT NULL,
+                group_id BIGINT NOT NULL,
+                PRIMARY KEY (user_id, group_id),
+                CONSTRAINT fk_user_groups_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+                CONSTRAINT fk_user_groups_group FOREIGN KEY (group_id) REFERENCES portal_groups(id) ON DELETE CASCADE
+            ){$suffix}",
+            "CREATE TABLE IF NOT EXISTS dvr_servers (
+                id BIGINT AUTO_INCREMENT PRIMARY KEY,
+                name VARCHAR(255) NOT NULL,
+                base_url TEXT NOT NULL,
+                management_token_enc TEXT,
+                blocked INTEGER NOT NULL DEFAULT 0,
+                last_check_at VARCHAR(64),
+                last_check_result TEXT,
+                last_metrics_at VARCHAR(64),
+                last_metrics_json MEDIUMTEXT,
+                created_at VARCHAR(64) NOT NULL
+            ){$suffix}",
+            "CREATE TABLE IF NOT EXISTS cameras (
+                id BIGINT AUTO_INCREMENT PRIMARY KEY,
+                name VARCHAR(255) NOT NULL UNIQUE,
+                source_url TEXT NOT NULL,
+                server_id BIGINT,
+                server_selection VARCHAR(32) NOT NULL DEFAULT 'manual',
+                latitude DOUBLE,
+                longitude DOUBLE,
+                direction_deg INTEGER NOT NULL DEFAULT 0,
+                view_angle_deg INTEGER NOT NULL DEFAULT 60,
+                retention_days VARCHAR(64) NOT NULL DEFAULT '7d',
+                blocked INTEGER NOT NULL DEFAULT 0,
+                dvr_stream_name VARCHAR(255) NOT NULL,
+                last_sync_at VARCHAR(64),
+                last_sync_ok INTEGER,
+                last_sync_message TEXT,
+                created_at VARCHAR(64) NOT NULL,
+                updated_at VARCHAR(64) NOT NULL,
+                CONSTRAINT fk_cameras_server FOREIGN KEY (server_id) REFERENCES dvr_servers(id) ON DELETE SET NULL
+            ){$suffix}",
+            "CREATE TABLE IF NOT EXISTS camera_groups (
+                camera_id BIGINT NOT NULL,
+                group_id BIGINT NOT NULL,
+                PRIMARY KEY (camera_id, group_id),
+                CONSTRAINT fk_camera_groups_camera FOREIGN KEY (camera_id) REFERENCES cameras(id) ON DELETE CASCADE,
+                CONSTRAINT fk_camera_groups_group FOREIGN KEY (group_id) REFERENCES portal_groups(id) ON DELETE CASCADE
+            ){$suffix}",
+            "CREATE TABLE IF NOT EXISTS favorites (
+                user_id BIGINT NOT NULL,
+                camera_id BIGINT NOT NULL,
+                created_at VARCHAR(64) NOT NULL,
+                PRIMARY KEY (user_id, camera_id),
+                CONSTRAINT fk_favorites_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+                CONSTRAINT fk_favorites_camera FOREIGN KEY (camera_id) REFERENCES cameras(id) ON DELETE CASCADE
+            ){$suffix}",
+            "CREATE TABLE IF NOT EXISTS audit_logs (
+                id BIGINT AUTO_INCREMENT PRIMARY KEY,
+                actor_user_id BIGINT,
+                action VARCHAR(255) NOT NULL,
+                details TEXT NOT NULL,
+                created_at VARCHAR(64) NOT NULL
+            ){$suffix}",
+        ];
     }
 
     private static function ensureColumn(string $table, string $column, string $definition): void
     {
         $pdo = self::pdo();
-        $columns = $pdo->query('PRAGMA table_info(' . $table . ')')->fetchAll();
-        foreach ($columns as $existing) {
-            if (($existing['name'] ?? '') === $column) {
-                return;
-            }
+        if (self::columnExists($table, $column)) {
+            return;
         }
 
         $pdo->exec('ALTER TABLE ' . $table . ' ADD COLUMN ' . $column . ' ' . $definition);
+    }
+
+    private static function ensureIndex(string $table, string $index, string $column): void
+    {
+        if (self::indexExists($table, $index)) {
+            return;
+        }
+        self::pdo()->exec("CREATE INDEX {$index} ON {$table}({$column})");
+    }
+
+    private static function columnExists(string $table, string $column): bool
+    {
+        $pdo = self::pdo();
+        if (self::driver() === 'sqlite') {
+            $columns = $pdo->query('PRAGMA table_info(' . $table . ')')->fetchAll();
+            foreach ($columns as $existing) {
+                if (($existing['name'] ?? '') === $column) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        if (self::driver() === 'pgsql') {
+            $stmt = $pdo->prepare('SELECT 1 FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = ? AND column_name = ?');
+            $stmt->execute([$table, $column]);
+            return (bool)$stmt->fetchColumn();
+        }
+
+        $stmt = $pdo->prepare('SELECT 1 FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = ? AND column_name = ?');
+        $stmt->execute([$table, $column]);
+        return (bool)$stmt->fetchColumn();
+    }
+
+    private static function indexExists(string $table, string $index): bool
+    {
+        $pdo = self::pdo();
+        if (self::driver() === 'sqlite') {
+            $indexes = $pdo->query('PRAGMA index_list(' . $table . ')')->fetchAll();
+            foreach ($indexes as $existing) {
+                if (($existing['name'] ?? '') === $index) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        if (self::driver() === 'pgsql') {
+            $stmt = $pdo->prepare('SELECT 1 FROM pg_indexes WHERE schemaname = current_schema() AND tablename = ? AND indexname = ?');
+            $stmt->execute([$table, $index]);
+            return (bool)$stmt->fetchColumn();
+        }
+
+        $stmt = $pdo->prepare('SELECT 1 FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = ? AND index_name = ?');
+        $stmt->execute([$table, $index]);
+        return (bool)$stmt->fetchColumn();
     }
 }
 
@@ -224,13 +521,16 @@ final class Util
 
 final class Crypto
 {
+    private const PREFIX = 'v2';
+
     public static function encrypt(?string $plain): ?string
     {
         if ($plain === null || $plain === '') {
             return null;
         }
 
-        $key = hash('sha256', (string)Config::get('app_secret'), true);
+        $keyId = self::primaryKeyId();
+        $key = self::keyBytes(self::keys()[$keyId]);
         $iv = random_bytes(12);
         $tag = '';
         $cipher = openssl_encrypt($plain, 'aes-256-gcm', $key, OPENSSL_RAW_DATA, $iv, $tag);
@@ -238,7 +538,7 @@ final class Crypto
             throw new RuntimeException('encrypt_failed');
         }
 
-        return base64_encode($iv . $tag . $cipher);
+        return self::PREFIX . ':' . $keyId . ':' . base64_encode($iv . $tag . $cipher);
     }
 
     public static function decrypt(?string $encoded): string
@@ -247,17 +547,89 @@ final class Crypto
             return '';
         }
 
+        if (str_starts_with($encoded, self::PREFIX . ':')) {
+            return self::decryptVersioned($encoded);
+        }
+
+        return self::decryptRaw($encoded, hash('sha256', (string)Config::get('app_secret'), true));
+    }
+
+    public static function needsRotation(?string $encoded): bool
+    {
+        if (!$encoded || !str_starts_with($encoded, self::PREFIX . ':')) {
+            return (bool)$encoded;
+        }
+
+        $parts = explode(':', $encoded, 3);
+        return count($parts) !== 3 || $parts[1] !== self::primaryKeyId();
+    }
+
+    private static function decryptVersioned(string $encoded): string
+    {
+        $parts = explode(':', $encoded, 3);
+        if (count($parts) !== 3 || $parts[1] === '' || $parts[2] === '') {
+            return '';
+        }
+
+        $keys = self::keys();
+        if (!isset($keys[$parts[1]])) {
+            return '';
+        }
+
+        return self::decryptRaw($parts[2], self::keyBytes($keys[$parts[1]]));
+    }
+
+    private static function decryptRaw(string $encoded, string $key): string
+    {
         $raw = base64_decode($encoded, true);
         if ($raw === false || strlen($raw) < 28) {
             return '';
         }
 
-        $key = hash('sha256', (string)Config::get('app_secret'), true);
         $iv = substr($raw, 0, 12);
         $tag = substr($raw, 12, 16);
         $cipher = substr($raw, 28);
         $plain = openssl_decrypt($cipher, 'aes-256-gcm', $key, OPENSSL_RAW_DATA, $iv, $tag);
         return $plain === false ? '' : $plain;
+    }
+
+    private static function primaryKeyId(): string
+    {
+        $keyId = (string)Config::get('crypto_primary_key', 'default');
+        if (str_contains($keyId, ':')) {
+            throw new RuntimeException('crypto_primary_key_must_not_contain_colon');
+        }
+
+        $keys = self::keys();
+        if (!isset($keys[$keyId])) {
+            throw new RuntimeException('crypto_primary_key_not_found');
+        }
+
+        return $keyId;
+    }
+
+    private static function keys(): array
+    {
+        $keys = Config::get('crypto_keys', []);
+        if (!is_array($keys) || !$keys) {
+            return ['default' => (string)Config::get('app_secret')];
+        }
+
+        $usable = [];
+        foreach ($keys as $id => $material) {
+            $id = (string)$id;
+            $material = (string)$material;
+            if ($id !== '' && !str_contains($id, ':') && $material !== '') {
+                $usable[$id] = $material;
+            }
+        }
+
+        return $usable ?: ['default' => (string)Config::get('app_secret')];
+    }
+
+    private static function keyBytes(string $material): string
+    {
+        return hash('sha256', $material, true);
     }
 }
 
@@ -797,7 +1169,7 @@ final class App
 
         self::layout('Вход', function () use ($error) {
             echo '<section class="login-panel">';
-            echo '<h1>SesamePortal</h1><p>Портал видеонаблюдения SesameWare</p>';
+            echo '<div class="login-brand"><img src="/assets/brand-mark.svg" alt="" aria-hidden="true"><div><h1>SesamePortal</h1><p>Портал видеонаблюдения SesameWare</p></div></div>';
             if ($error) {
                 echo '<div class="alert danger">' . Util::h($error) . '</div>';
             }
@@ -902,7 +1274,7 @@ final class App
                 } else {
                     $pdo->prepare('INSERT INTO portal_groups(name, description, blocked, created_at) VALUES(?, ?, ?, ?)')
                         ->execute([$name, Util::post('description'), Util::checkbox('blocked'), Util::now()]);
-                    $id = (int)$pdo->lastInsertId();
+                    $id = DB::lastInsertId('portal_groups');
                 }
                 self::replaceLinks('user_groups', 'group_id', $id, 'user_id', $_POST['user_ids'] ?? []);
                 self::replaceLinks('camera_groups', 'group_id', $id, 'camera_id', $_POST['camera_ids'] ?? []);
@@ -1017,7 +1389,7 @@ final class App
                 } else {
                     $pdo->prepare('INSERT INTO cameras(name, source_url, server_id, server_selection, latitude, longitude, direction_deg, view_angle_deg, retention_days, blocked, dvr_stream_name, created_at, updated_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
                         ->execute([...$values, Util::now(), Util::now()]);
-                    $id = (int)$pdo->lastInsertId();
+                    $id = DB::lastInsertId('cameras');
                 }
                 self::replaceLinks('camera_groups', 'camera_id', $id, 'group_id', $_POST['group_ids'] ?? []);
                 $sync = DvrClient::syncCamera($id);
@@ -1066,13 +1438,32 @@ final class App
     private static function audit(): void
     {
         Auth::requireAdmin();
-        $rows = DB::pdo()->query('SELECT a.*, u.login FROM audit_logs a LEFT JOIN users u ON u.id = a.actor_user_id ORDER BY a.id DESC LIMIT 200')->fetchAll();
-        self::layout('Журнал действий', function () use ($rows) {
-            echo '<section class="panel"><h2>Последние действия</h2><table><thead><tr><th>Время</th><th>Пользователь</th><th>Действие</th><th>Детали</th></tr></thead><tbody>';
-            foreach ($rows as $row) {
-                echo '<tr><td>' . Util::h($row['created_at']) . '</td><td>' . Util::h($row['login'] ?? '-') . '</td><td>' . Util::h($row['action']) . '</td><td>' . Util::h($row['details']) . '</td></tr>';
+        $list = self::filteredAudit();
+        $actions = DB::pdo()->query('SELECT DISTINCT action FROM audit_logs ORDER BY action ASC')->fetchAll();
+        $actors = DB::pdo()->query('SELECT DISTINCT u.id, u.login FROM audit_logs a JOIN users u ON u.id = a.actor_user_id ORDER BY u.login ASC')->fetchAll();
+
+        self::layout('Журнал действий', function () use ($list, $actions, $actors) {
+            echo '<section class="panel"><div class="section-head"><h2>Журнал действий</h2></div>';
+            echo '<form method="get" action="/admin/audit" class="audit-filters">';
+            echo '<input name="q" value="' . Util::h($list['q']) . '" placeholder="Поиск по действию, пользователю или деталям">';
+            echo '<select name="action"><option value="">Все действия</option>';
+            foreach ($actions as $action) {
+                echo '<option value="' . Util::h($action['action']) . '" ' . ($list['action'] === $action['action'] ? 'selected' : '') . '>' . Util::h($action['action']) . '</option>';
             }
-            echo '</tbody></table></section>';
+            echo '</select><select name="actor"><option value="">Все пользователи</option>';
+            foreach ($actors as $actor) {
+                echo '<option value="' . (int)$actor['id'] . '" ' . ((int)$list['actor'] === (int)$actor['id'] ? 'selected' : '') . '>' . Util::h($actor['login']) . '</option>';
+            }
+            echo '</select><button>Показать</button></form>';
+            echo '<table><thead><tr><th>Время</th><th>Пользователь</th><th>Действие</th><th>Детали</th></tr></thead><tbody>';
+            foreach ($list['rows'] as $row) {
+                echo '<tr><td>' . Util::h($row['created_at']) . '</td><td>' . Util::h($row['login'] ?? '-') . '</td><td><code>' . Util::h($row['action']) . '</code></td><td>';
+                self::auditDetails((string)$row['details']);
+                echo '</td></tr>';
+            }
+            echo '</tbody></table>';
+            self::pager('/admin/audit', $list, ['action' => $list['action'], 'actor' => $list['actor']]);
+            echo '</section>';
         });
     }
 
@@ -1104,7 +1495,7 @@ final class App
             echo '<article class="camera-card">';
             echo '<a class="preview' . ($preview ? '' : ' no-preview') . '" href="' . Util::h($player) . '">';
             if ($preview) {
-                echo '<img src="' . Util::h($preview) . '" alt="" onerror="this.hidden=true;this.closest(\'.preview\').classList.add(\'no-preview\')">';
+                echo '<img src="' . Util::h($preview) . '" data-preview-src="' . Util::h($preview) . '" data-preview-refresh-ms="30000" alt="" loading="lazy">';
             }
             echo '<span class="preview-label">Открыть плеер</span></a><div class="camera-meta"><strong>' . Util::h($camera['name']) . '</strong><span>' . Util::h($camera['server_name'] ?? 'Без сервера') . '</span></div>';
             self::favoriteButton((int)$camera['id'], isset($favorites[(int)$camera['id']]));
@@ -1161,12 +1552,14 @@ final class App
         $back = self::safeBackPath((string)($_GET['back'] ?? ($_SERVER['HTTP_REFERER'] ?? '/')));
         $embed = self::embedUrl($camera, (string)($user['daily_token'] ?? ''));
         self::layout('Плеер', function () use ($camera, $back, $embed) {
-            echo '<section class="player-page">';
+            echo '<section class="player-page" data-back-url="' . Util::h($back) . '">';
             echo '<div class="player-toolbar"><a class="back-link" href="' . Util::h($back) . '">Назад</a>';
-            echo '<div><strong>' . Util::h($camera['name']) . '</strong><span>' . Util::h($camera['server_name'] ?? 'Без сервера') . '</span></div></div>';
-            echo '<iframe class="player-frame" src="' . Util::h($embed) . '" allow="autoplay; fullscreen; picture-in-picture" allowfullscreen referrerpolicy="no-referrer-when-downgrade"></iframe>';
+            echo '<div class="player-title"><strong>' . Util::h($camera['name']) . '</strong><span>' . Util::h($camera['server_name'] ?? 'Без сервера') . '</span></div>';
+            echo '<button class="player-fullscreen" type="button">На весь экран</button></div>';
+            echo '<div class="player-stage"><iframe class="player-frame" src="' . Util::h($embed) . '" allow="autoplay; fullscreen; picture-in-picture" allowfullscreen webkitallowfullscreen referrerpolicy="no-referrer-when-downgrade"></iframe>';
+            echo '<div class="player-edge-swipe" aria-hidden="true"></div></div>';
             echo '</section>';
-        });
+        }, [], 'player-view');
     }
 
     private static function toggleFavorite(): void
@@ -1214,16 +1607,17 @@ final class App
         echo "ok\n";
     }
 
-    private static function layout(string $title, callable $body, ?array $userOverride = []): void
+    private static function layout(string $title, callable $body, ?array $userOverride = [], string $bodyClass = ''): void
     {
         $user = $userOverride === null ? null : Auth::user();
         echo '<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">';
         echo '<title>' . Util::h($title) . ' - SesamePortal</title>';
+        echo '<link rel="icon" href="/assets/favicon.svg" type="image/svg+xml">';
         echo '<link rel="stylesheet" href="/assets/styles.css">';
         echo '<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">';
-        echo '</head><body>';
+        echo '</head><body' . ($bodyClass !== '' ? ' class="' . Util::h($bodyClass) . '"' : '') . '>';
         if ($user) {
-            echo '<header class="topbar"><div class="brand"><span class="brand-mark">S</span><div><strong>SesamePortal</strong><small>' . Util::h($title) . '</small></div></div><nav>';
+            echo '<header class="topbar"><div class="brand"><img class="brand-mark" src="/assets/brand-mark.svg" alt="" aria-hidden="true"><div><strong>SesamePortal</strong><small>' . Util::h($title) . '</small></div></div><nav>';
             echo '<a href="/">Мозаика</a><a href="/viewer/map">Карта</a>';
             if ($user['role'] === 'admin') {
                 echo '<a href="/admin/dashboard">Dashboard</a><a href="/admin/users">Пользователи</a><a href="/admin/groups">Группы</a><a href="/admin/cameras">Камеры</a><a href="/admin/servers">DVR</a><a href="/admin/audit">Журнал</a>';
@@ -1353,6 +1747,83 @@ final class App
         return ['rows' => $stmt->fetchAll(), 'total' => $total, 'page' => $page, 'pageSize' => $pageSize, 'q' => $q];
     }
 
+    private static function filteredAudit(int $pageSize = 50): array
+    {
+        $q = trim((string)($_GET['q'] ?? ''));
+        $action = trim((string)($_GET['action'] ?? ''));
+        $actor = (int)($_GET['actor'] ?? 0);
+        $page = max(1, (int)($_GET['page'] ?? 1));
+        $where = [];
+        $params = [];
+
+        if ($q !== '') {
+            $where[] = '(a.action LIKE ? OR a.details LIKE ? OR u.login LIKE ?)';
+            array_push($params, '%' . $q . '%', '%' . $q . '%', '%' . $q . '%');
+        }
+        if ($action !== '') {
+            $where[] = 'a.action = ?';
+            $params[] = $action;
+        }
+        if ($actor > 0) {
+            $where[] = 'a.actor_user_id = ?';
+            $params[] = $actor;
+        }
+
+        $sqlWhere = $where ? ' WHERE ' . implode(' AND ', $where) : '';
+        $pdo = DB::pdo();
+        $count = $pdo->prepare('SELECT COUNT(*) FROM audit_logs a LEFT JOIN users u ON u.id = a.actor_user_id' . $sqlWhere);
+        $count->execute($params);
+        $total = (int)$count->fetchColumn();
+
+        $stmt = $pdo->prepare('SELECT a.*, u.login FROM audit_logs a LEFT JOIN users u ON u.id = a.actor_user_id' . $sqlWhere . ' ORDER BY a.id DESC LIMIT ? OFFSET ?');
+        $bind = [...$params, $pageSize, ($page - 1) * $pageSize];
+        foreach ($bind as $idx => $value) {
+            $stmt->bindValue($idx + 1, $value, is_int($value) ? PDO::PARAM_INT : PDO::PARAM_STR);
+        }
+        $stmt->execute();
+
+        return [
+            'rows' => $stmt->fetchAll(),
+            'total' => $total,
+            'page' => $page,
+            'pageSize' => $pageSize,
+            'q' => $q,
+            'action' => $action,
+            'actor' => $actor,
+        ];
+    }
+
+    private static function auditDetails(string $details): void
+    {
+        $details = trim($details);
+        if ($details === '') {
+            echo '-';
+            return;
+        }
+
+        $json = json_decode($details, true);
+        if (is_array($json)) {
+            echo '<dl class="audit-details">';
+            foreach ($json as $key => $value) {
+                echo '<dt>' . Util::h((string)$key) . '</dt><dd>' . Util::h(is_scalar($value) ? (string)$value : json_encode($value, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)) . '</dd>';
+            }
+            echo '</dl>';
+            return;
+        }
+
+        preg_match_all('/(?:^|\\s)([A-Za-z0-9_.-]+)=([^\\s]+)/', $details, $matches, PREG_SET_ORDER);
+        if (!$matches) {
+            echo Util::h($details);
+            return;
+        }
+
+        echo '<div class="audit-details">';
+        foreach ($matches as $match) {
+            echo '<span><strong>' . Util::h($match[1]) . '</strong> ' . Util::h($match[2]) . '</span>';
+        }
+        echo '<small>' . Util::h($details) . '</small></div>';
+    }
+
     private static function table(string $title, array $columns, array $rows, string $base, bool $actions = false, ?array $pager = null, bool $showSearch = true): void
     {
         echo '<section class="panel"><div class="section-head"><h2>' . Util::h($title) . '</h2>';
@@ -1393,7 +1864,7 @@ final class App
         echo '</section>';
     }
 
-    private static function pager(string $base, array $pager): void
+    private static function pager(string $base, array $pager, array $extraParams = []): void
     {
         $pages = (int)ceil(max(1, (int)$pager['total']) / max(1, (int)$pager['pageSize']));
         if ($pages <= 1) {
@@ -1406,7 +1877,8 @@ final class App
             $query = http_build_query(array_filter([
                 'q' => $pager['q'] ?? '',
                 'page' => $page,
-            ], fn($value) => $value !== '' && $value !== null));
+                ...$extraParams,
+            ], fn($value) => $value !== '' && $value !== null && $value !== 0));
             echo '<a class="' . ((int)$pager['page'] === $page ? 'active' : '') . '" href="' . Util::h($base . ($query ? '?' . $query : '')) . '">' . $page . '</a>';
         }
         echo '</nav>';
@@ -1561,7 +2033,7 @@ final class App
     {
         $pdo = DB::pdo();
         $pdo->prepare("DELETE FROM {$table} WHERE {$ownerKey} = ?")->execute([$ownerId]);
-        $stmt = $pdo->prepare("INSERT OR IGNORE INTO {$table}({$ownerKey}, {$targetKey}) VALUES(?, ?)");
+        $stmt = $pdo->prepare(DB::insertIgnoreSql($table, [$ownerKey, $targetKey]));
         foreach ($values as $value) {
             $stmt->execute([$ownerId, (int)$value]);
         }
@@ -1576,7 +2048,7 @@ final class App
 
     private static function randomActiveServerId(): ?int
     {
-        $servers = DB::pdo()->query('SELECT id FROM dvr_servers WHERE blocked = 0 ORDER BY RANDOM() LIMIT 1')->fetchAll();
+        $servers = DB::pdo()->query('SELECT id FROM dvr_servers WHERE blocked = 0 ORDER BY ' . DB::randomOrderSql() . ' LIMIT 1')->fetchAll();
         return $servers ? (int)$servers[0]['id'] : null;
     }
 
@@ -1627,11 +2099,11 @@ final class Cli
             $stmt = $pdo->prepare('SELECT id FROM users WHERE login = ?');
             $stmt->execute([$login]);
             if ($stmt->fetch()) {
-                $pdo->prepare('UPDATE users SET password_hash=?, role="admin", blocked=0 WHERE login=?')
-                    ->execute([password_hash($password, PASSWORD_DEFAULT), $login]);
+                $pdo->prepare('UPDATE users SET password_hash=?, role=?, blocked=0 WHERE login=?')
+                    ->execute([password_hash($password, PASSWORD_DEFAULT), 'admin', $login]);
             } else {
-                $pdo->prepare('INSERT INTO users(login, password_hash, role, blocked, daily_token, daily_token_date, created_at) VALUES(?, ?, "admin", 0, ?, ?, ?)')
-                    ->execute([$login, password_hash($password, PASSWORD_DEFAULT), Util::randomToken(), TokenService::today(), Util::now()]);
+                $pdo->prepare('INSERT INTO users(login, password_hash, role, blocked, daily_token, daily_token_date, created_at) VALUES(?, ?, ?, 0, ?, ?, ?)')
+                    ->execute([$login, password_hash($password, PASSWORD_DEFAULT), 'admin', Util::randomToken(), TokenService::today(), Util::now()]);
             }
             echo "admin ready: {$login}\n";
             return;
@@ -1640,6 +2112,12 @@ final class Cli
         if ($command === 'rotate-tokens') {
             $count = TokenService::rotateAll();
             echo "rotated {$count} users\n";
+            return;
+        }
+
+        if ($command === 'rotate-secrets') {
+            $count = self::rotateSecrets();
+            echo "rotated {$count} encrypted secrets\n";
             return;
         }
 
@@ -1665,7 +2143,31 @@ final class Cli
             return;
         }
 
-        echo "commands: migrate, create-admin, rotate-tokens, backup, restore\n";
+        echo "commands: migrate, create-admin, rotate-tokens, rotate-secrets, backup, restore\n";
+    }
+
+    private static function rotateSecrets(): int
+    {
+        $pdo = DB::pdo();
+        $rows = $pdo->query('SELECT id, management_token_enc FROM dvr_servers WHERE management_token_enc IS NOT NULL AND management_token_enc != ""')->fetchAll();
+        $stmt = $pdo->prepare('UPDATE dvr_servers SET management_token_enc = ? WHERE id = ?');
+        $count = 0;
+        foreach ($rows as $row) {
+            $encoded = (string)$row['management_token_enc'];
+            if (!Crypto::needsRotation($encoded)) {
+                continue;
+            }
+
+            $plain = Crypto::decrypt($encoded);
+            if ($plain === '') {
+                continue;
+            }
+
+            $stmt->execute([Crypto::encrypt($plain), (int)$row['id']]);
+            $count++;
+        }
+
+        return $count;
     }
 
     private static function backup(string $path): void
@@ -1698,7 +2200,7 @@ final class Cli
         $pdo = DB::pdo();
         $pdo->beginTransaction();
         try {
-            $pdo->exec('PRAGMA foreign_keys = OFF');
+            DB::setForeignKeys(false);
             foreach (array_reverse(self::BACKUP_TABLES) as $table) {
                 $pdo->exec('DELETE FROM ' . $table);
             }
@@ -1713,11 +2215,11 @@ final class Cli
                     $pdo->prepare($sql)->execute(array_values($row));
                 }
             }
-            $pdo->exec('PRAGMA foreign_keys = ON');
+            DB::setForeignKeys(true);
             $pdo->commit();
         } catch (\Throwable $error) {
             $pdo->rollBack();
-            $pdo->exec('PRAGMA foreign_keys = ON');
+            DB::setForeignKeys(true);
             throw $error;
         }
     }

@@ -17,6 +17,18 @@ Open `http://127.0.0.1:8080`.
 Default local state is stored in `var/portal.sqlite`. Production installs use
 `/var/lib/sesame-portal`.
 
+SQLite is the default storage backend. PostgreSQL/MySQL can be selected through
+config or environment variables:
+
+```php
+'db_dsn' => 'pgsql:host=127.0.0.1;port=5432;dbname=sesame_portal',
+'db_user' => 'sesame_portal',
+'db_password' => 'secret',
+```
+
+The same values can be passed as `SESAME_PORTAL_DB_DSN`,
+`SESAME_PORTAL_DB_USER`, and `SESAME_PORTAL_DB_PASSWORD`.
+
 ## Production Install
 
 ```bash
@@ -31,15 +43,43 @@ The installer creates an nginx site, configures php-fpm, initializes SQLite,
 creates the first admin user, and can issue a Let's Encrypt certificate through
 certbot.
 
+For repair/update runs against an existing database:
+
+```bash
+sudo bash scripts/install.sh \
+  --domain portal.example.com \
+  --email admin@example.com \
+  --repair
+```
+
+The installer backs up the current release, nginx site, cron entry, config, and
+SQLite files before applying changes. If a step fails, it restores those files
+and reloads nginx when possible.
+
+## Release Artifact
+
+```bash
+bash scripts/package-release.sh --version 1.0.0
+```
+
+The package script writes `_dist/sesame-portal-<version>.tar.gz`,
+`_dist/sesame-portal-<version>.tar.gz.sha256`, and embeds `RELEASE.json` in the
+archive.
+
 ## CLI
 
 ```bash
 php bin/portal migrate
 php bin/portal create-admin <login> <password>
 php bin/portal rotate-tokens
+php bin/portal rotate-secrets
 php bin/portal backup /path/to/backup.json
 php bin/portal restore /path/to/backup.json
 ```
+
+`rotate-secrets` re-encrypts stored SesameDVR management tokens with the
+configured `crypto_primary_key` while preserving access to older key ids for
+rotation windows.
 
 ## Checks
 

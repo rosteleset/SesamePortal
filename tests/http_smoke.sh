@@ -30,13 +30,39 @@ require getenv('ROOT') . '/app/Portal.php';
 \SesamePortal\DB::migrate();
 $pdo = \SesamePortal\DB::pdo();
 $now = \SesamePortal\Util::now();
-$pdo->prepare('INSERT INTO cameras(name, source_url, server_selection, retention_days, dvr_stream_name, created_at, updated_at) VALUES(?, ?, ?, ?, ?, ?, ?)')
-    ->execute(['Smoke Cam', 'rtsp://example.invalid/smoke', 'manual', '1d', 'smoke-cam', $now, $now]);
+$key = hash('sha256', (string)\SesamePortal\Config::get('app_secret'), true);
+$iv = random_bytes(12);
+$tag = '';
+$cipher = openssl_encrypt('legacy-management-secret', 'aes-256-gcm', $key, OPENSSL_RAW_DATA, $iv, $tag);
+$legacy = base64_encode($iv . $tag . $cipher);
+$pdo->prepare('INSERT INTO dvr_servers(name, base_url, management_token_enc, created_at) VALUES(?, ?, ?, ?)')
+    ->execute(['Smoke DVR', 'https://dvr.example.invalid', $legacy, $now]);
+$pdo->prepare('INSERT INTO cameras(name, source_url, server_id, server_selection, retention_days, dvr_stream_name, created_at, updated_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?)')
+    ->execute(['Smoke Cam', 'rtsp://example.invalid/smoke', 1, 'manual', '1d', 'smoke-cam', $now, $now]);
+$pdo->prepare('INSERT INTO audit_logs(actor_user_id, action, details, created_at) VALUES(?, ?, ?, ?)')
+    ->execute([1, 'camera.save', 'camera_id=1 sync=ok', $now]);
 $stmt = $pdo->prepare('SELECT daily_token FROM users WHERE login = ?');
 $stmt->execute(['admin']);
 echo $stmt->fetchColumn();
 PHP
 )"
+
+rotate_output="$(php "$ROOT/bin/portal" rotate-secrets)"
+grep -q "rotated 1 encrypted secrets" <<<"$rotate_output"
+crypto_check="$(
+  php <<'PHP'
+<?php
+require getenv('ROOT') . '/app/Portal.php';
+$stmt = \SesamePortal\DB::pdo()->query('SELECT management_token_enc FROM dvr_servers WHERE id = 1');
+$encoded = (string)$stmt->fetchColumn();
+echo str_starts_with($encoded, 'v2:')
+    && \SesamePortal\Crypto::decrypt($encoded) === 'legacy-management-secret'
+    && !\SesamePortal\Crypto::needsRotation($encoded)
+    ? 'crypto ok'
+    : 'crypto failed';
+PHP
+)"
+test "$crypto_check" = "crypto ok"
 
 php -S "127.0.0.1:$PORT" -t "$ROOT/public" >"$SERVER_LOG" 2>&1 &
 SERVER_PID="$!"
@@ -45,6 +71,9 @@ sleep 0.4
 login_page="$(curl -fsS -c "$COOKIE_JAR" "http://127.0.0.1:$PORT/login")"
 csrf="$(printf "%s" "$login_page" | sed -n 's/.*name="csrf" value="\([^"]*\)".*/\1/p' | head -n 1)"
 test -n "$csrf"
+printf "%s" "$login_page" | grep -q "/assets/brand-mark.svg"
+printf "%s" "$login_page" | grep -q "/assets/favicon.svg"
+curl -fsS "http://127.0.0.1:$PORT/assets/brand-mark.svg" | grep -q "SesameDVR mark"
 
 status="$(
   curl -sS -o /dev/null -w '%{http_code}' -b "$COOKIE_JAR" -c "$COOKIE_JAR" \
@@ -55,8 +84,14 @@ test "$status" = "303"
 
 curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/admin/dashboard" | grep -q "SesameDVR серверы"
 curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/admin/users?q=admin" | grep -q "admin"
-curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/" | grep -q "/viewer/player"
-curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/viewer/player?id=1" | grep -q "Назад"
+curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/admin/audit?q=camera&action=camera.save&actor=1" | grep -q "camera_id"
+mosaic_page="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/")"
+printf "%s" "$mosaic_page" | grep -q "/viewer/player"
+printf "%s" "$mosaic_page" | grep -q "data-preview-refresh-ms"
+player_page="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/viewer/player?id=1")"
+printf "%s" "$player_page" | grep -q "Назад"
+printf "%s" "$player_page" | grep -q "player-fullscreen"
+printf "%s" "$player_page" | grep -q "player-edge-swipe"
 
 denied="$(
   curl -sS -o /dev/null -w '%{http_code}' \

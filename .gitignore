@@ -1,5 +1,6 @@
 /var/*
 !/var/.gitkeep
+/_dist/
 *.log
 *.sqlite
 *.sqlite-shm

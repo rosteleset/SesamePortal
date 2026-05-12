@@ -5,8 +5,12 @@
   "require": {
     "php": ">=8.2",
     "ext-pdo": "*",
-    "ext-pdo_sqlite": "*",
     "ext-curl": "*",
     "ext-openssl": "*"
+  },
+  "suggest": {
+    "ext-pdo_sqlite": "Default SQLite storage backend.",
+    "ext-pdo_pgsql": "Optional PostgreSQL storage backend.",
+    "ext-pdo_mysql": "Optional MySQL/MariaDB storage backend."
   }
 }

@@ -24,19 +24,19 @@
 
 - [x] Add automated HTTP/UI smoke tests.
 - [x] Add full SesameDVR management sync error reporting per camera.
-- [ ] Add encrypted at-rest storage for SesameDVR management tokens with key
+- [x] Add encrypted at-rest storage for SesameDVR management tokens with key
   rotation.
 - [x] Add pagination/search for large user/group/camera lists.
 - [x] Add richer dashboard metrics from all configured SesameDVR servers.
 - [x] Add import/export backup commands.
-- [ ] Add structured audit log viewer.
-- [ ] Add stricter installer rollback/repair flow.
-- [ ] Add packaged release artifacts.
+- [x] Add structured audit log viewer.
+- [x] Add stricter installer rollback/repair flow.
+- [x] Add packaged release artifacts.
 
 ## Phase 3: Product Polish
 
-- [ ] Replace text logo with final Sesame brand asset if provided.
+- [x] Replace text logo with final Sesame brand asset if provided.
 - [ ] Add localized UI strings.
-- [ ] Add mobile player gestures and fullscreen refinements.
-- [ ] Add camera preview refresh scheduling.
-- [ ] Add optional MySQL/PostgreSQL adapter.
+- [x] Add mobile player gestures and fullscreen refinements.
+- [x] Add camera preview refresh scheduling.
+- [x] Add optional MySQL/PostgreSQL adapter.

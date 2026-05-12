@@ -8,6 +8,15 @@ ADMIN_PASSWORD=""
 INSTALL_DIR="/opt/sesame-portal/current"
 STATE_DIR="/var/lib/sesame-portal"
 NO_ACME=0
+REPAIR=0
+SKIP_ADMIN_UPDATE=0
+BACKUP_DIR=""
+ROLLBACK_READY=0
+INSTALL_COMPLETE=0
+STAGING_DIR=""
+NGINX_AVAILABLE="/etc/nginx/sites-available/sesame-portal.conf"
+NGINX_ENABLED="/etc/nginx/sites-enabled/sesame-portal.conf"
+CRON_FILE="/etc/cron.d/sesame-portal"
 
 usage() {
   cat <<'USAGE'
@@ -22,6 +31,8 @@ Options:
   --install-dir <path>        Install target, default /opt/sesame-portal/current.
   --state-dir <path>          State directory, default /var/lib/sesame-portal.
   --no-acme                   Configure HTTP only and skip certbot.
+  --repair                    Re-apply files/nginx/cron/migrations; admin password
+                              may be omitted when an existing DB is present.
 USAGE
 }
 
@@ -34,6 +45,7 @@ while [[ $# -gt 0 ]]; do
     --install-dir) INSTALL_DIR="${2:-}"; shift 2 ;;
     --state-dir) STATE_DIR="${2:-}"; shift 2 ;;
     --no-acme) NO_ACME=1; shift ;;
+    --repair) REPAIR=1; shift ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Unknown option: $1" >&2; usage; exit 2 ;;
   esac
@@ -55,12 +67,84 @@ if [[ "$NO_ACME" != "1" && -z "$EMAIL" ]]; then
 fi
 
 if [[ ${#ADMIN_PASSWORD} -lt 6 ]]; then
-  echo "--admin-password must be at least 6 characters" >&2
-  exit 2
+  if [[ "$REPAIR" == "1" && -f "$STATE_DIR/portal.sqlite" ]]; then
+    SKIP_ADMIN_UPDATE=1
+  else
+    echo "--admin-password must be at least 6 characters" >&2
+    exit 2
+  fi
 fi
 
 SOURCE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PHP_BIN="${PHP_BIN:-$(command -v php || true)}"
+
+backup_path() {
+  local path="$1"
+  local label="$2"
+  if [[ -e "$path" || -L "$path" ]]; then
+    cp -a "$path" "$BACKUP_DIR/$label"
+  fi
+}
+
+restore_path() {
+  local path="$1"
+  local label="$2"
+  rm -rf "$path"
+  if [[ -e "$BACKUP_DIR/$label" || -L "$BACKUP_DIR/$label" ]]; then
+    install -d -m 0755 "$(dirname "$path")"
+    cp -a "$BACKUP_DIR/$label" "$path"
+  fi
+}
+
+prepare_rollback() {
+  BACKUP_DIR="$(mktemp -d /tmp/sesame-portal-install.XXXXXX)"
+  backup_path "$INSTALL_DIR" install_dir
+  backup_path "$STATE_DIR/config.php" config_php
+  backup_path "$STATE_DIR/portal.sqlite" db_sqlite
+  backup_path "$STATE_DIR/portal.sqlite-wal" db_sqlite_wal
+  backup_path "$STATE_DIR/portal.sqlite-shm" db_sqlite_shm
+  backup_path "$NGINX_AVAILABLE" nginx_available
+  backup_path "$NGINX_ENABLED" nginx_enabled
+  backup_path "$CRON_FILE" cron_file
+  ROLLBACK_READY=1
+}
+
+rollback_on_error() {
+  local rc="$?"
+  local line="${1:-unknown}"
+  if [[ "$ROLLBACK_READY" != "1" || "$INSTALL_COMPLETE" == "1" ]]; then
+    exit "$rc"
+  fi
+
+  set +e
+  echo "SesamePortal installer failed at line $line; rolling back changed files" >&2
+  [[ -n "$STAGING_DIR" ]] && rm -rf "$STAGING_DIR"
+  restore_path "$INSTALL_DIR" install_dir
+  restore_path "$STATE_DIR/config.php" config_php
+  restore_path "$STATE_DIR/portal.sqlite" db_sqlite
+  restore_path "$STATE_DIR/portal.sqlite-wal" db_sqlite_wal
+  restore_path "$STATE_DIR/portal.sqlite-shm" db_sqlite_shm
+  restore_path "$NGINX_AVAILABLE" nginx_available
+  restore_path "$NGINX_ENABLED" nginx_enabled
+  restore_path "$CRON_FILE" cron_file
+  if command -v nginx >/dev/null 2>&1; then
+    if nginx -t; then
+      systemctl reload nginx || systemctl restart nginx || true
+    else
+      echo "nginx config failed after rollback; inspect $NGINX_AVAILABLE" >&2
+    fi
+  fi
+  rm -rf "$BACKUP_DIR"
+  exit "$rc"
+}
+
+cleanup_rollback() {
+  INSTALL_COMPLETE=1
+  [[ -n "$STAGING_DIR" ]] && rm -rf "$STAGING_DIR"
+  [[ -n "$BACKUP_DIR" ]] && rm -rf "$BACKUP_DIR"
+}
+
+trap 'rollback_on_error $LINENO' ERR
 
 install_packages() {
   if command -v apt-get >/dev/null 2>&1; then
@@ -82,6 +166,7 @@ detect_php_fpm_socket() {
 
 write_config() {
   local secret
+  local crypto_secret
   local scheme="https"
   if [[ "$NO_ACME" == "1" ]]; then
     scheme="http"
@@ -95,15 +180,23 @@ write_config() {
   fi
 
   secret="$(openssl rand -hex 32)"
+  crypto_secret="$(openssl rand -hex 32)"
   cat > "$STATE_DIR/config.php" <<PHP
 <?php
 return [
     'state_dir' => '$STATE_DIR',
     'db_path' => '$STATE_DIR/portal.sqlite',
+    'db_dsn' => null,
+    'db_user' => null,
+    'db_password' => null,
     'app_secret' => '$secret',
     'timezone' => 'UTC',
     'base_url' => '$scheme://$DOMAIN',
     'auth_backend_path' => '/api/sesamedvr/auth',
+    'crypto_primary_key' => 'primary',
+    'crypto_keys' => [
+        'primary' => '$crypto_secret',
+    ],
 ];
 PHP
   chown www-data:www-data "$STATE_DIR/config.php"
@@ -111,13 +204,21 @@ PHP
 }
 
 copy_release() {
-  install -d -m 0755 "$(dirname "$INSTALL_DIR")"
-  install -d -m 0755 "$INSTALL_DIR"
+  local install_parent
+  install_parent="$(dirname "$INSTALL_DIR")"
+  STAGING_DIR="$install_parent/.sesame-portal.staging.$$"
+  rm -rf "$STAGING_DIR"
+  install -d -m 0755 "$install_parent"
+  install -d -m 0755 "$STAGING_DIR"
   rsync -a --delete \
     --exclude '.git/' \
     --exclude 'var/' \
-    "$SOURCE_DIR/" "$INSTALL_DIR/"
-  chmod +x "$INSTALL_DIR/bin/portal" "$INSTALL_DIR/scripts/install.sh"
+    "$SOURCE_DIR/" "$STAGING_DIR/"
+  chmod +x "$STAGING_DIR/bin/portal" "$STAGING_DIR/scripts/install.sh" "$STAGING_DIR/scripts/package-release.sh"
+  rm -rf "$INSTALL_DIR"
+  mv "$STAGING_DIR" "$INSTALL_DIR"
+  STAGING_DIR=""
+  chmod +x "$INSTALL_DIR/bin/portal" "$INSTALL_DIR/scripts/install.sh" "$INSTALL_DIR/scripts/package-release.sh"
 }
 
 run_portal_cli() {
@@ -129,7 +230,7 @@ run_portal_cli() {
 
 write_nginx_http() {
   local fpm="$1"
-  cat > /etc/nginx/sites-available/sesame-portal.conf <<NGINX
+  cat > "$NGINX_AVAILABLE" <<NGINX
 server {
     listen 80;
     listen [::]:80;
@@ -150,12 +251,12 @@ server {
     }
 }
 NGINX
-  ln -sfn /etc/nginx/sites-available/sesame-portal.conf /etc/nginx/sites-enabled/sesame-portal.conf
+  ln -sfn "$NGINX_AVAILABLE" "$NGINX_ENABLED"
 }
 
 write_nginx_https() {
   local fpm="$1"
-  cat > /etc/nginx/sites-available/sesame-portal.conf <<NGINX
+  cat > "$NGINX_AVAILABLE" <<NGINX
 server {
     listen 80;
     listen [::]:80;
@@ -190,7 +291,7 @@ NGINX
 }
 
 write_cron() {
-  cat > /etc/cron.d/sesame-portal <<CRON
+  cat > "$CRON_FILE" <<CRON
 SHELL=/bin/sh
 PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin
 
@@ -199,6 +300,7 @@ CRON
 }
 
 main() {
+  prepare_rollback
   install_packages
   PHP_BIN="${PHP_BIN:-$(command -v php || true)}"
   if [[ -z "$PHP_BIN" ]]; then
@@ -209,7 +311,11 @@ main() {
   copy_release
   write_config
   run_portal_cli migrate
-  run_portal_cli create-admin "$ADMIN_LOGIN" "$ADMIN_PASSWORD"
+  if [[ "$SKIP_ADMIN_UPDATE" == "1" ]]; then
+    echo "repair mode: admin password omitted, existing admin users are unchanged"
+  else
+    run_portal_cli create-admin "$ADMIN_LOGIN" "$ADMIN_PASSWORD"
+  fi
   write_cron
 
   local fpm
@@ -225,6 +331,7 @@ main() {
     systemctl reload nginx || systemctl restart nginx
   fi
 
+  cleanup_rollback
   echo "SesamePortal installed: https://$DOMAIN"
 }
 
