@@ -82,8 +82,19 @@ detect_php_fpm_socket() {
 
 write_config() {
   local secret
-  secret="$(openssl rand -hex 32)"
+  local scheme="https"
+  if [[ "$NO_ACME" == "1" ]]; then
+    scheme="http"
+  fi
+
   install -d -m 0750 -o www-data -g www-data "$STATE_DIR"
+  if [[ -f "$STATE_DIR/config.php" ]]; then
+    chown www-data:www-data "$STATE_DIR/config.php"
+    chmod 0640 "$STATE_DIR/config.php"
+    return
+  fi
+
+  secret="$(openssl rand -hex 32)"
   cat > "$STATE_DIR/config.php" <<PHP
 <?php
 return [
@@ -91,7 +102,7 @@ return [
     'db_path' => '$STATE_DIR/portal.sqlite',
     'app_secret' => '$secret',
     'timezone' => 'UTC',
-    'base_url' => 'https://$DOMAIN',
+    'base_url' => '$scheme://$DOMAIN',
     'auth_backend_path' => '/api/sesamedvr/auth',
 ];
 PHP
