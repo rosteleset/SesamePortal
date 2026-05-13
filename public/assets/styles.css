@@ -236,6 +236,18 @@ code {
   min-width: 0;
   max-width: 100%;
 }
+.server-card .server-metric-explain {
+  grid-column: 1 / -1;
+  margin: 0;
+  border: 1px solid #F1D49E;
+  border-radius: 12px;
+  background: var(--warn-bg);
+  color: #7A4F08;
+  padding: 10px 12px;
+  font-size: 13px;
+  font-weight: 750;
+  line-height: 1.35;
+}
 .server-card .inline-form {
   justify-self: end;
 }

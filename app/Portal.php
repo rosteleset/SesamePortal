@@ -654,9 +654,18 @@ final class I18n
                 'dashboard.dvrServers' => 'DVR servers',
                 'dashboard.dvrServersTitle' => 'SesameDVR servers',
                 'dashboard.recentSync' => 'Recent camera sync',
+                'dashboard.metricsUpdated' => 'Metrics refreshed',
+                'dashboard.metricsRefreshFailed' => 'Metrics were not refreshed. Details are shown in the server card.',
+                'dashboard.refreshFinished' => 'Refresh finished',
+                'dashboard.refreshOk' => 'ok',
+                'dashboard.refreshErrors' => 'errors',
+                'server.checkOk' => 'Server check completed',
                 'server.version' => 'Version',
                 'server.streams' => 'Streams',
                 'server.check' => 'Check',
+                'server.managementTokenMissingNotice' => 'Management token is not configured. Portal cannot read /api/system/status and /api/streams from this SesameDVR server.',
+                'server.managementTokenUnreadableNotice' => 'Management token cannot be decrypted. Save a new token in DVR server settings.',
+                'server.managementUnauthorizedNotice' => 'SesameDVR returned HTTP 401. Check the Management token in DVR server settings.',
                 'users.title' => 'Users',
                 'users.new' => 'New user',
                 'users.edit' => 'Edit user',
@@ -1091,6 +1100,14 @@ final class DvrClient
         }
 
         $token = Crypto::decrypt($server['management_token_enc'] ?? null);
+        $tokenIssue = self::managementTokenIssue($server, $token);
+        if ($tokenIssue !== null) {
+            $message = self::managementTokenIssueMessage($tokenIssue);
+            DB::pdo()->prepare('UPDATE dvr_servers SET last_check_at = ?, last_check_result = ? WHERE id = ?')
+                ->execute([Util::now(), $message, $serverId]);
+            return ['ok' => false, 'message' => $message, 'reason' => $tokenIssue];
+        }
+
         $result = self::request('GET', rtrim($server['base_url'], '/') . '/api/system/version', $token, null);
         $ok = $result['status'] >= 200 && $result['status'] < 300;
         $message = self::responseSummary($result, rtrim($server['base_url'], '/') . '/api/system/version');
@@ -1107,6 +1124,20 @@ final class DvrClient
         }
 
         $token = Crypto::decrypt($server['management_token_enc'] ?? null);
+        $tokenIssue = self::managementTokenIssue($server, $token);
+        if ($tokenIssue !== null) {
+            $message = self::managementTokenIssueMessage($tokenIssue);
+            $payload = [
+                'version' => ['error' => $tokenIssue],
+                'status' => ['error' => $tokenIssue],
+                'streams' => ['error' => $tokenIssue],
+                'fetchedAt' => Util::now(),
+            ];
+            DB::pdo()->prepare('UPDATE dvr_servers SET last_check_at = ?, last_check_result = ?, last_metrics_at = ?, last_metrics_json = ? WHERE id = ?')
+                ->execute([Util::now(), $message, Util::now(), json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES), $serverId]);
+            return ['ok' => false, 'message' => $message, 'metrics' => $payload, 'reason' => $tokenIssue];
+        }
+
         $base = rtrim($server['base_url'], '/');
         $version = self::request('GET', $base . '/api/system/version', $token, null);
         $status = self::request('GET', $base . '/api/system/status', $token, null);
@@ -1126,6 +1157,23 @@ final class DvrClient
         DB::pdo()->prepare('UPDATE dvr_servers SET last_check_at = ?, last_check_result = ?, last_metrics_at = ?, last_metrics_json = ? WHERE id = ?')
             ->execute([Util::now(), $message, Util::now(), json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES), $serverId]);
         return ['ok' => $ok, 'message' => $message, 'metrics' => $payload];
+    }
+
+    private static function managementTokenIssue(array $server, string $token): ?string
+    {
+        if ($token !== '') {
+            return null;
+        }
+
+        $encoded = trim((string)($server['management_token_enc'] ?? ''));
+        return $encoded === '' ? 'management_token_missing' : 'management_token_unreadable';
+    }
+
+    private static function managementTokenIssueMessage(string $issue): string
+    {
+        return $issue === 'management_token_unreadable'
+            ? 'Management token cannot be decrypted'
+            : 'Management token is not configured';
     }
 
     private static function request(string $method, string $url, string $token, ?array $payload): array
@@ -1336,17 +1384,19 @@ final class App
         if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
             $action = (string)Util::post('action');
             if ($action === 'refresh_server') {
+                $server = Repo::server((int)Util::post('id'));
                 $result = DvrClient::fetchServerMetrics((int)Util::post('id'));
-                $message = $result['message'];
+                $message = self::dashboardRefreshNotice($result, $server['name'] ?? '');
             } elseif ($action === 'refresh_all') {
-                $messages = [];
+                $okCount = 0;
+                $errorCount = 0;
                 foreach (Repo::all('dvr_servers', 'name ASC') as $server) {
                     if ((int)$server['blocked'] === 0) {
                         $result = DvrClient::fetchServerMetrics((int)$server['id']);
-                        $messages[] = $server['name'] . ': ' . ($result['ok'] ? 'ok' : 'error');
+                        $result['ok'] ? $okCount++ : $errorCount++;
                     }
                 }
-                $message = implode('; ', $messages);
+                $message = self::dashboardRefreshAllNotice($okCount, $errorCount);
             }
         }
 
@@ -1375,6 +1425,48 @@ final class App
             echo '</div></section>';
             self::table(self::t('dashboard.recentSync', 'Последняя синхронизация камер'), ['name', 'server_name', 'last_sync_ok', 'last_sync_at', 'last_sync_message'], $recentSync, '/admin/cameras', true, null, false);
         });
+    }
+
+    private static function dashboardRefreshNotice(array $result, string $serverName = ''): string
+    {
+        $prefix = $serverName !== '' ? $serverName . ': ' : '';
+        if (!empty($result['ok'])) {
+            return $prefix . self::t('dashboard.metricsUpdated', 'Статистика обновлена');
+        }
+
+        return $prefix . self::metricFailureNotice((string)($result['reason'] ?? ''), (string)($result['message'] ?? ''));
+    }
+
+    private static function dashboardRefreshAllNotice(int $okCount, int $errorCount): string
+    {
+        return self::t('dashboard.refreshFinished', 'Обновление завершено') . ': '
+            . $okCount . ' ' . self::t('dashboard.refreshOk', 'успешно') . ', '
+            . $errorCount . ' ' . self::t('dashboard.refreshErrors', 'с ошибкой');
+    }
+
+    private static function serverCheckNotice(array $result, string $serverName = ''): string
+    {
+        $prefix = $serverName !== '' ? $serverName . ': ' : '';
+        if (!empty($result['ok'])) {
+            return $prefix . self::t('server.checkOk', 'Проверка сервера выполнена');
+        }
+
+        return $prefix . self::metricFailureNotice((string)($result['reason'] ?? ''), (string)($result['message'] ?? ''));
+    }
+
+    private static function metricFailureNotice(string $reason, string $message): string
+    {
+        if ($reason === 'management_token_missing') {
+            return self::t('server.managementTokenMissingNotice', 'Management token не указан. Portal не может прочитать /api/system/status и /api/streams этого SesameDVR сервера.');
+        }
+        if ($reason === 'management_token_unreadable') {
+            return self::t('server.managementTokenUnreadableNotice', 'Management token не удалось расшифровать. Сохраните новый token в настройках DVR сервера.');
+        }
+        if (preg_match('/^HTTP\s+401\b/', $message) || str_contains($message, 'HTTP 401')) {
+            return self::t('server.managementUnauthorizedNotice', 'SesameDVR вернул HTTP 401. Проверьте Management token в настройках DVR сервера.');
+        }
+
+        return self::t('dashboard.metricsRefreshFailed', 'Статистика не обновлена. Подробности показаны в карточке сервера.');
     }
 
     private static function login(): void
@@ -1553,8 +1645,9 @@ final class App
                 $pdo->prepare('DELETE FROM dvr_servers WHERE id=?')->execute([$id]);
                 Audit::log('server.delete', 'server_id=' . $id);
             } elseif ($action === 'check' && $id > 0) {
+                $server = Repo::server($id);
                 $result = DvrClient::checkServer($id);
-                $message = $result['message'];
+                $message = self::serverCheckNotice($result, $server['name'] ?? '');
             }
         }
 
@@ -1958,6 +2051,8 @@ final class App
         $cpu = self::serverCpuText($status);
         $memory = self::serverMemoryText($status);
         $streams = self::serverStreamsText($metrics, $status);
+        $tokenIssue = self::serverManagementTokenIssue($server);
+        $metricExplanation = self::serverMetricExplanation($server, $tokenIssue);
 
         echo '<article class="server-card">';
         echo '<div><strong>' . Util::h($server['name']) . '</strong><span>' . Util::h($server['base_url']) . '</span></div>';
@@ -1968,13 +2063,40 @@ final class App
         echo '<dt>' . self::t('server.streams', 'Потоки') . '</dt><dd>' . Util::h($streams ?? '-') . '</dd>';
         echo '<dt>' . self::t('server.check', 'Проверка') . '</dt><dd>' . Util::h($server['last_metrics_at'] ?: $server['last_check_at'] ?: '-') . '</dd>';
         echo '</dl>';
-        if (!empty($server['last_check_result'])) {
+        if ($metricExplanation !== null) {
+            echo '<div class="server-metric-explain">' . Util::h($metricExplanation) . '</div>';
+        }
+        if (!empty($server['last_check_result']) && $tokenIssue === null) {
             echo '<div class="server-check-result">';
             self::technicalResult((string)$server['last_check_result']);
             echo '</div>';
         }
         self::smallPost('/admin/dashboard', ['action' => 'refresh_server', 'id' => $server['id']], self::t('action.update', 'Обновить'));
         echo '</article>';
+    }
+
+    private static function serverManagementTokenIssue(array $server): ?string
+    {
+        $encoded = trim((string)($server['management_token_enc'] ?? ''));
+        if ($encoded === '') {
+            return 'management_token_missing';
+        }
+
+        return Crypto::decrypt($encoded) === '' ? 'management_token_unreadable' : null;
+    }
+
+    private static function serverMetricExplanation(array $server, ?string $tokenIssue): ?string
+    {
+        if ($tokenIssue !== null) {
+            return self::metricFailureNotice($tokenIssue, '');
+        }
+
+        $lastResult = (string)($server['last_check_result'] ?? '');
+        if (preg_match('/^HTTP\s+401\b/', $lastResult) || str_contains($lastResult, 'HTTP 401')) {
+            return self::metricFailureNotice('', $lastResult);
+        }
+
+        return null;
     }
 
     private static function serverVersionText(array $version): string
