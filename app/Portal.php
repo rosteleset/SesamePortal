@@ -627,6 +627,9 @@ final class I18n
                 'action.cancel' => 'Cancel',
                 'filter.all' => 'All',
                 'filter.favorites' => 'Favorites',
+                'filter.groupSearch' => 'Find group',
+                'filter.groupSearchPlaceholder' => 'Group name',
+                'filter.noGroups' => 'No groups found',
                 'viewer.openPlayer' => 'Open player',
                 'player.title' => 'Player',
                 'player.fullscreen' => 'Fullscreen',
@@ -1209,6 +1212,16 @@ final class Repo
             $join .= ' JOIN camera_groups cg_filter ON cg_filter.camera_id = c.id';
             $where[] = 'cg_filter.group_id = ?';
             $params[] = $groupId;
+            if ($user['role'] !== 'admin') {
+                $where[] = 'EXISTS (
+                    SELECT 1 FROM user_groups ug_filter
+                    JOIN portal_groups pg_filter ON pg_filter.id = ug_filter.group_id
+                    WHERE ug_filter.group_id = cg_filter.group_id
+                      AND ug_filter.user_id = ?
+                      AND pg_filter.blocked = 0
+                )';
+                $params[] = (int)$user['id'];
+            }
         }
 
         $sql = 'SELECT DISTINCT c.*, s.name AS server_name, s.base_url AS server_url
@@ -1234,6 +1247,70 @@ final class Repo
         );
         $stmt->execute([$user['id']]);
         return $stmt->fetchAll();
+    }
+
+    public static function groupChoicesForUser(array $user, string $query = '', ?int $selectedGroupId = null, int $limit = 30): array
+    {
+        $groups = $query === '' ? [] : self::searchGroupsForUser($user, $query, $limit);
+        if ($selectedGroupId === null) {
+            return $groups;
+        }
+
+        foreach ($groups as $group) {
+            if ((int)$group['id'] === $selectedGroupId) {
+                return $groups;
+            }
+        }
+
+        $selected = self::groupForUser($user, $selectedGroupId);
+        if ($selected) {
+            array_unshift($groups, $selected);
+        }
+        return $groups;
+    }
+
+    private static function searchGroupsForUser(array $user, string $query, int $limit): array
+    {
+        $join = '';
+        $where = [];
+        $params = [];
+        if ($user['role'] !== 'admin') {
+            $join = ' JOIN user_groups ug ON ug.group_id = g.id';
+            $where[] = 'ug.user_id = ?';
+            $where[] = 'g.blocked = 0';
+            $params[] = (int)$user['id'];
+        }
+        if ($query !== '') {
+            $where[] = 'g.name LIKE ?';
+            $params[] = '%' . $query . '%';
+        }
+
+        $sql = 'SELECT DISTINCT g.* FROM portal_groups g' . $join . ($where ? ' WHERE ' . implode(' AND ', $where) : '') . ' ORDER BY g.name ASC LIMIT ?';
+        $stmt = DB::pdo()->prepare($sql);
+        foreach ($params as $idx => $value) {
+            $stmt->bindValue($idx + 1, $value, is_int($value) ? PDO::PARAM_INT : PDO::PARAM_STR);
+        }
+        $stmt->bindValue(count($params) + 1, max(1, $limit), PDO::PARAM_INT);
+        $stmt->execute();
+        return $stmt->fetchAll();
+    }
+
+    private static function groupForUser(array $user, int $groupId): ?array
+    {
+        if ($user['role'] === 'admin') {
+            $stmt = DB::pdo()->prepare('SELECT g.* FROM portal_groups g WHERE g.id = ? LIMIT 1');
+            $stmt->execute([$groupId]);
+            return $stmt->fetch() ?: null;
+        }
+
+        $stmt = DB::pdo()->prepare(
+            'SELECT g.* FROM portal_groups g
+             JOIN user_groups ug ON ug.group_id = g.id
+             WHERE g.id = ? AND ug.user_id = ? AND g.blocked = 0
+             LIMIT 1'
+        );
+        $stmt->execute([$groupId, (int)$user['id']]);
+        return $stmt->fetch() ?: null;
     }
 
     public static function favoritesMap(int $userId): array
@@ -1678,13 +1755,15 @@ final class App
     {
         $user = Auth::requireLogin();
         $filter = (string)($_GET['filter'] ?? 'all');
-        $groups = Repo::groupsForUser($user);
+        $selectedGroupId = str_starts_with($filter, 'group:') ? (int)substr($filter, 6) : null;
+        $groupQuery = trim((string)($_GET['group_q'] ?? ''));
+        $groups = Repo::groupChoicesForUser($user, $groupQuery, $selectedGroupId);
         $cameras = Repo::accessibleCameras($user, $filter);
         $favorites = Repo::favoritesMap((int)$user['id']);
         $token = $user['daily_token'] ?? '';
 
-        self::layout($mode === 'map' ? 'Карта' : 'Камеры', function () use ($mode, $groups, $filter, $cameras, $favorites, $token) {
-            self::filters($mode, $groups, $filter);
+        self::layout($mode === 'map' ? 'Карта' : 'Камеры', function () use ($mode, $groups, $filter, $groupQuery, $cameras, $favorites, $token) {
+            self::filters($mode, $groups, $filter, $groupQuery);
             if ($mode === 'map') {
                 self::map($cameras, $favorites, $token);
             } else {
@@ -1881,16 +1960,33 @@ final class App
         return '<svg viewBox="0 0 24 24" aria-hidden="true">' . ($paths[$name] ?? $paths['grid']) . '</svg>';
     }
 
-    private static function filters(string $mode, array $groups, string $filter): void
+    private static function filters(string $mode, array $groups, string $filter, string $groupQuery): void
     {
         $base = $mode === 'map' ? '/viewer/map' : '/';
-        echo '<section class="filters"><a class="' . ($filter === 'all' ? 'active' : '') . '" href="' . $base . '">' . self::t('filter.all', 'Все') . '</a>';
-        echo '<a class="' . ($filter === 'favorites' ? 'active' : '') . '" href="' . $base . '?filter=favorites">' . self::t('filter.favorites', 'Избранное') . '</a>';
-        foreach ($groups as $group) {
-            $value = 'group:' . $group['id'];
-            echo '<a class="' . ($filter === $value ? 'active' : '') . '" href="' . $base . '?filter=' . rawurlencode($value) . '">' . Util::h($group['name']) . '</a>';
+        $url = static function (array $params = []) use ($base): string {
+            $query = http_build_query(array_filter($params, fn($value) => $value !== '' && $value !== null));
+            return $base . ($query ? '?' . $query : '');
+        };
+
+        echo '<section class="filters viewer-filters">';
+        echo '<a class="' . ($filter === 'all' ? 'active' : '') . '" href="' . Util::h($base) . '">' . self::t('filter.all', 'Все') . '</a>';
+        echo '<a class="' . ($filter === 'favorites' ? 'active' : '') . '" href="' . Util::h($url(['filter' => 'favorites'])) . '">' . self::t('filter.favorites', 'Избранное') . '</a>';
+        echo '<form method="get" action="' . Util::h($base) . '" class="group-filter">';
+        echo '<input name="group_q" value="' . Util::h($groupQuery) . '" placeholder="' . self::t('filter.groupSearchPlaceholder', 'Название группы') . '">';
+        echo '<button>' . self::t('filter.groupSearch', 'Найти группу') . '</button>';
+        echo '</form></section>';
+
+        if ($groups || $groupQuery !== '') {
+            echo '<section class="filters group-filter-results">';
+            foreach ($groups as $group) {
+                $value = 'group:' . $group['id'];
+                echo '<a class="' . ($filter === $value ? 'active' : '') . '" href="' . Util::h($url(['filter' => $value, 'group_q' => $groupQuery])) . '">' . Util::h($group['name']) . '</a>';
+            }
+            if (!$groups) {
+                echo '<span class="filter-empty">' . self::t('filter.noGroups', 'Группы не найдены') . '</span>';
+            }
+            echo '</section>';
         }
-        echo '</section>';
     }
 
     private static function serverMetricCard(array $server): void

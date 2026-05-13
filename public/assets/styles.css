@@ -449,11 +449,48 @@ tr:last-child td {
   color: #8A5C0C;
   border-color: #DEBD78;
 }
+.viewer-filters {
+  margin-bottom: 8px;
+}
+.group-filter {
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+  min-width: min(420px, 100%);
+}
+.group-filter input {
+  min-width: 220px;
+}
+.group-filter button {
+  min-width: 112px;
+  white-space: nowrap;
+}
+.group-filter-results {
+  max-width: 100%;
+  max-height: 118px;
+  overflow: auto;
+  padding-bottom: 2px;
+  scrollbar-width: thin;
+}
+.filter-empty {
+  color: var(--muted);
+  font-weight: 800;
+}
 .camera-card {
   min-width: 0;
 }
+.camera-grid {
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 360px), 420px));
+  align-items: start;
+}
 .preview {
   display: block;
+  height: auto;
+  aspect-ratio: 16 / 9;
+}
+.mobile-grid .preview {
+  height: auto;
+  aspect-ratio: 16 / 9;
 }
 .preview.no-preview::before {
   content: "";
@@ -825,6 +862,9 @@ body.player-view .player-frame {
   border: 0;
 }
 @media(max-width:980px) {
+  .camera-grid {
+    grid-template-columns: 1fr;
+  }
   .sidebar {
     gap: 14px;
     padding: 16px;

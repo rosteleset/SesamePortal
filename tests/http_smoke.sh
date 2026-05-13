@@ -41,6 +41,10 @@ $pdo->prepare('INSERT INTO cameras(name, source_url, server_id, server_selection
     ->execute(['Smoke Cam', 'rtsp://example.invalid/smoke', 1, 'manual', '1d', 'smoke-cam', 25.2048, 55.2708, 90, $now, $now]);
 $pdo->prepare('INSERT INTO cameras(name, source_url, server_id, server_selection, retention_days, dvr_control_mode, dvr_stream_name, created_at, updated_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)')
     ->execute(['Read Only Cam', '', 1, 'manual', '1d', 'read_only', 'readonly-cam', $now, $now]);
+$pdo->prepare('INSERT INTO portal_groups(name, description, blocked, created_at) VALUES(?, ?, ?, ?)')
+    ->execute(['Smoke Group', 'smoke test group', 0, $now]);
+$pdo->prepare('INSERT INTO camera_groups(camera_id, group_id) VALUES(?, ?)')
+    ->execute([1, 1]);
 \SesamePortal\DvrClient::syncCamera(2);
 $pdo->prepare('INSERT INTO audit_logs(actor_user_id, action, details, created_at) VALUES(?, ?, ?, ?)')
     ->execute([1, 'camera.save', 'camera_id=1 sync=ok', $now]);
@@ -107,6 +111,11 @@ printf "%s" "$audit_page" | grep -q "audit-action"
 mosaic_page="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/")"
 printf "%s" "$mosaic_page" | grep -q "/viewer/player"
 printf "%s" "$mosaic_page" | grep -q "data-preview-refresh-ms"
+printf "%s" "$mosaic_page" | grep -q "group-filter"
+! printf "%s" "$mosaic_page" | grep -q "Smoke Group"
+curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/?group_q=Smoke" | grep -q "Smoke Group"
+curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/?filter=group:1&group_q=Smoke" | grep -q "Smoke Cam"
+curl -fsS "http://127.0.0.1:$PORT/assets/styles.css" | grep -q "aspect-ratio: 16 / 9"
 map_page="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/viewer/map")"
 printf "%s" "$map_page" | grep -q "preview.jpg"
 printf "%s" "$map_page" | grep -q "direction"
