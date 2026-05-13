@@ -690,6 +690,7 @@ final class I18n
                 'audit.user' => 'User',
                 'audit.action' => 'Action',
                 'audit.details' => 'Details',
+                'audit.raw' => 'Full text',
                 'table.search' => 'Search',
                 'table.shown' => 'Shown',
                 'table.of' => 'of',
@@ -1636,7 +1637,7 @@ final class App
             echo '<label class="check"><input type="checkbox" name="blocked" ' . (!empty($edit['blocked']) ? 'checked' : '') . '> ' . self::t('cameras.blocked', 'Заблокирована') . '</label>';
             self::checkboxList(self::t('cameras.groups', 'Группы'), 'group_ids[]', $groups, $linkedGroups, 'name');
             echo '<button class="primary">' . self::t('action.saveSync', 'Сохранить и синхронизировать') . '</button></form></section>';
-            self::table(self::t('cameras.title', 'Камеры'), ['name', 'server_name', 'dvr_control_mode', 'retention_days', 'blocked', 'last_sync_ok', 'last_sync_at', 'last_sync_message'], $cameras, '/admin/cameras', true, $list);
+            self::table(self::t('cameras.title', 'Камеры'), ['name', 'server_name', 'dvr_control_mode', 'retention_days', 'last_sync_message'], $cameras, '/admin/cameras', true, $list);
             echo '</div>';
         });
     }
@@ -1661,13 +1662,13 @@ final class App
                 echo '<option value="' . (int)$actor['id'] . '" ' . ((int)$list['actor'] === (int)$actor['id'] ? 'selected' : '') . '>' . Util::h($actor['login']) . '</option>';
             }
             echo '</select><button>' . self::t('action.show', 'Показать') . '</button></form>';
-            echo '<table><thead><tr><th>' . self::t('audit.time', 'Время') . '</th><th>' . self::t('audit.user', 'Пользователь') . '</th><th>' . self::t('audit.action', 'Действие') . '</th><th>' . self::t('audit.details', 'Детали') . '</th></tr></thead><tbody>';
+            echo '<div class="table-wrap"><table class="data-table table-audit"><thead><tr><th>' . self::t('audit.time', 'Время') . '</th><th>' . self::t('audit.user', 'Пользователь') . '</th><th>' . self::t('audit.action', 'Действие') . '</th><th>' . self::t('audit.details', 'Детали') . '</th></tr></thead><tbody>';
             foreach ($list['rows'] as $row) {
-                echo '<tr><td>' . Util::h($row['created_at']) . '</td><td>' . Util::h($row['login'] ?? '-') . '</td><td><code>' . Util::h($row['action']) . '</code></td><td>';
+                echo '<tr><td>' . Util::h($row['created_at']) . '</td><td>' . Util::h($row['login'] ?? '-') . '</td><td><code class="audit-action">' . Util::h($row['action']) . '</code></td><td>';
                 self::auditDetails((string)$row['details']);
                 echo '</td></tr>';
             }
-            echo '</tbody></table>';
+            echo '</tbody></table></div>';
             self::pager('/admin/audit', $list, ['action' => $list['action'], 'actor' => $list['actor']]);
             echo '</section>';
         });
@@ -1842,7 +1843,7 @@ final class App
             }
             echo '<div class="sidebar-foot">' . I18n::languageLinks() . '<a class="logout-link" href="/logout">' . self::icon('logout') . self::t('nav.logout', 'Выход') . '</a></div></aside>';
             $initial = strtoupper(substr((string)$user['login'], 0, 1) ?: 'U');
-            echo '<main class="main workspace"><div class="topbar"><div><div class="crumb">SesamePortal</div><h1>' . Util::h($title) . '</h1></div><div class="user">' . Util::h($initial) . '</div></div>';
+            echo '<main class="main workspace"><div class="topbar"><div><h1>' . Util::h($title) . '</h1></div><div class="user">' . Util::h($initial) . '</div></div>';
             $body();
             echo '</main></div>';
         } else {
@@ -2062,17 +2063,24 @@ final class App
             return;
         }
 
-        preg_match_all('/(?:^|\\s)([A-Za-z0-9_.-]+)=([^\\s]+)/', $details, $matches, PREG_SET_ORDER);
+        preg_match_all('/(?:^|\\s)([A-Za-z0-9_.-]+)=([^\\s]+)/', $details, $matches, PREG_SET_ORDER | PREG_OFFSET_CAPTURE);
         if (!$matches) {
-            echo Util::h($details);
+            echo '<div class="audit-details audit-details-text">' . Util::h($details) . '</div>';
             return;
         }
 
         echo '<div class="audit-details">';
-        foreach ($matches as $match) {
-            echo '<span><strong>' . Util::h($match[1]) . '</strong> ' . Util::h($match[2]) . '</span>';
+        $context = trim(substr($details, 0, (int)$matches[0][0][1]));
+        if ($context !== '') {
+            echo '<span class="audit-context">' . Util::h($context) . '</span>';
         }
-        echo '<small>' . Util::h($details) . '</small></div>';
+        foreach ($matches as $match) {
+            echo '<span><strong>' . Util::h($match[1][0]) . '</strong> ' . Util::h($match[2][0]) . '</span>';
+        }
+        if (strlen($details) > 120 || count($matches) > 1) {
+            echo '<details class="audit-raw"><summary>' . self::t('audit.raw', 'Полный текст') . '</summary><pre>' . Util::h($details) . '</pre></details>';
+        }
+        echo '</div>';
     }
 
     private static function table(string $title, array $columns, array $rows, string $base, bool $actions = false, ?array $pager = null, bool $showSearch = true): void
