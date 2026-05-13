@@ -719,13 +719,12 @@ body.player-view .player-page {
 }
 
 body.player-view .player-toolbar {
-  position: absolute;
-  top: max(8px, env(safe-area-inset-top));
-  right: max(8px, env(safe-area-inset-right));
+  position: fixed;
+  top: 50dvh;
   left: max(8px, env(safe-area-inset-left));
-  z-index: 4;
+  z-index: 12;
   display: block;
-  height: 0;
+  transform: translateY(-50%);
   border: 0;
   background: transparent;
   box-shadow: none;
@@ -737,10 +736,7 @@ body.player-view .player-title {
   display: none;
 }
 
-body.player-view .back-link,
-body.player-view .player-fullscreen {
-  position: absolute;
-  top: 0;
+body.player-view .back-link {
   width: 40px;
   height: 40px;
   min-height: 40px;
@@ -755,28 +751,13 @@ body.player-view .player-fullscreen {
   pointer-events: auto;
 }
 
-body.player-view .back-link {
-  left: 0;
-}
-
-body.player-view .player-fullscreen {
-  right: 0;
-}
-
 body.player-view .back-link::before {
   margin: 0;
   font-size: 24px;
   line-height: 1;
 }
 
-body.player-view .player-fullscreen::before {
-  content: "⛶";
-  font-size: 24px;
-  line-height: 1;
-}
-
-body.player-view .back-link:hover,
-body.player-view .player-fullscreen:hover {
+body.player-view .back-link:hover {
   border-color: rgba(255, 255, 255, 0.46);
   background: rgba(10, 12, 14, 0.74);
 }
@@ -790,6 +771,10 @@ body.player-view .player-frame {
 body.player-view .player-stage {
   border: 0;
   border-radius: 0;
+}
+
+body.player-view .player-edge-swipe::before {
+  display: none;
 }
 
 code {
@@ -926,13 +911,11 @@ code {
   }
 
   body.player-view .player-toolbar {
-    top: max(6px, env(safe-area-inset-top));
-    right: max(6px, env(safe-area-inset-right));
+    top: 50dvh;
     left: max(6px, env(safe-area-inset-left));
   }
 
-  body.player-view .back-link,
-  body.player-view .player-fullscreen {
+  body.player-view .back-link {
     width: 36px;
     height: 36px;
     min-height: 36px;
