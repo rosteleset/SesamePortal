@@ -1740,13 +1740,11 @@ final class App
         }
 
         $back = self::safeBackPath((string)($_GET['back'] ?? ($_SERVER['HTTP_REFERER'] ?? '/')));
-        $embed = self::embedUrl($camera, (string)($user['daily_token'] ?? ''));
-        self::layout(self::t('player.title', 'Плеер'), function () use ($back, $embed) {
-            $backLabel = self::t('action.back', 'Назад');
-            echo '<section class="player-page" data-back-url="' . Util::h($back) . '">';
-            echo '<div class="player-toolbar"><a class="back-link" href="' . Util::h($back) . '" aria-label="' . Util::h($backLabel) . '" title="' . Util::h($backLabel) . '">' . Util::h($backLabel) . '</a></div>';
+        $embed = self::embedUrl($camera, (string)($user['daily_token'] ?? ''), $back, self::t('action.back', 'Назад'));
+        self::layout(self::t('player.title', 'Плеер'), function () use ($embed) {
+            echo '<section class="player-page">';
             echo '<div class="player-stage"><iframe class="player-frame" src="' . Util::h($embed) . '" allow="autoplay; fullscreen; picture-in-picture" allowfullscreen webkitallowfullscreen referrerpolicy="no-referrer-when-downgrade"></iframe>';
-            echo '<div class="player-edge-swipe" aria-hidden="true"></div></div>';
+            echo '</div>';
             echo '</section>';
         }, [], 'player-view', false);
     }
@@ -2106,12 +2104,22 @@ final class App
         }
     }
 
-    private static function embedUrl(array $camera, string $token): string
+    private static function embedUrl(array $camera, string $token, string $back = '', string $backLabel = ''): string
     {
         if (empty($camera['server_url'])) {
             return '#';
         }
-        return rtrim($camera['server_url'], '/') . '/' . rawurlencode($camera['dvr_stream_name']) . '/embed.html?dvr=true&token=' . rawurlencode($token);
+
+        $query = [
+            'dvr' => 'true',
+            'token' => $token,
+        ];
+        if ($back !== '') {
+            $query['back_url'] = self::absolutePortalUrl($back);
+            $query['back_label'] = $backLabel !== '' ? $backLabel : self::t('action.back', 'Назад');
+        }
+
+        return rtrim($camera['server_url'], '/') . '/' . rawurlencode($camera['dvr_stream_name']) . '/embed.html?' . http_build_query($query);
     }
 
     private static function playerUrl(array $camera): string
@@ -2138,6 +2146,24 @@ final class App
         }
 
         return parse_url($path, PHP_URL_PATH) === '/viewer/player' ? '/' : $path;
+    }
+
+    private static function absolutePortalUrl(string $path): string
+    {
+        $base = trim((string)Config::get('base_url', ''));
+        if ($base === '') {
+            $scheme = (string)($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '');
+            if ($scheme === '') {
+                $scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
+            }
+            $host = (string)($_SERVER['HTTP_X_FORWARDED_HOST'] ?? $_SERVER['HTTP_HOST'] ?? $_SERVER['SERVER_NAME'] ?? '');
+            if ($host === '') {
+                return $path;
+            }
+            $base = $scheme . '://' . $host;
+        }
+
+        return rtrim($base, '/') . $path;
     }
 
     private static function previewUrl(array $camera, string $token): string

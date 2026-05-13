@@ -95,10 +95,11 @@ mosaic_page="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/")"
 printf "%s" "$mosaic_page" | grep -q "/viewer/player"
 printf "%s" "$mosaic_page" | grep -q "data-preview-refresh-ms"
 player_page="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/viewer/player?id=1")"
-printf "%s" "$player_page" | grep -Eq "Назад|Back"
-printf "%s" "$player_page" | grep -q "back-link"
+printf "%s" "$player_page" | grep -q "back_url="
+printf "%s" "$player_page" | grep -q "back_label="
+! printf "%s" "$player_page" | grep -q "back-link"
 ! printf "%s" "$player_page" | grep -q "player-fullscreen"
-printf "%s" "$player_page" | grep -q "player-edge-swipe"
+! printf "%s" "$player_page" | grep -q "player-edge-swipe"
 ! printf "%s" "$player_page" | grep -q 'class="topbar"'
 
 denied="$(
