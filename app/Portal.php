@@ -1899,7 +1899,7 @@ final class App
         echo '<!doctype html><html lang="' . Util::h(I18n::locale()) . '"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">';
         echo '<title>' . Util::h($title) . ' - SesamePortal</title>';
         echo '<link rel="icon" href="/assets/favicon.svg" type="image/svg+xml">';
-        echo '<link rel="stylesheet" href="/assets/styles.css">';
+        echo '<link rel="stylesheet" href="' . Util::h(self::assetUrl('/assets/styles.css')) . '">';
         echo '<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">';
         echo '</head><body' . ($bodyClass !== '' ? ' class="' . Util::h($bodyClass) . '"' : '') . '>';
         if ($user && $showChrome) {
@@ -1932,8 +1932,18 @@ final class App
             echo '</main>';
         }
         echo '<script>window.SESAME_I18N = ' . json_encode(I18n::js(), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . ';</script>';
-        echo '<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script><script src="/assets/app.js"></script>';
+        echo '<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script><script src="' . Util::h(self::assetUrl('/assets/app.js')) . '"></script>';
         echo '</body></html>';
+    }
+
+    private static function assetUrl(string $path): string
+    {
+        $file = dirname(__DIR__) . '/public' . $path;
+        if (!is_file($file)) {
+            return $path;
+        }
+
+        return $path . '?v=' . filemtime($file);
     }
 
     private static function navLink(string $href, string $label, string $icon, ?bool $activeOverride = null): void
