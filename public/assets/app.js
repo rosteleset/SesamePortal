@@ -11,6 +11,7 @@
     const cameras = window.SESAME_CAMERAS || [];
     const visibleCameras = cameras.filter((camera) => Number.isFinite(camera.lat) && Number.isFinite(camera.lng));
     const map = L.map("map", { zoomControl: true });
+    setPlainLeafletAttribution(map);
     map.setView([25.2048, 55.2708], 10);
 
     L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
@@ -40,6 +41,7 @@
     let pending = null;
     const start = hasPoint(committed) ? [committed.lat, committed.lng] : [25.2048, 55.2708];
     const editorMap = L.map(container, { zoomControl: true }).setView(start, hasPoint(committed) ? 16 : 4);
+    setPlainLeafletAttribution(editorMap);
     const confirmBar = createMapConfirmBar(container);
     let cameraMarker = null;
     let directionMarker = null;
@@ -279,6 +281,10 @@
       paddingBottomRight: padding,
       maxZoom: 16
     });
+  }
+
+  function setPlainLeafletAttribution(map) {
+    map.attributionControl?.setPrefix('<a href="https://leafletjs.com" title="A JavaScript library for interactive maps">Leaflet</a>');
   }
 
   function normalizeEditorState(state) {
