@@ -720,7 +720,7 @@ body.player-view .player-page {
 
 body.player-view .player-toolbar {
   position: fixed;
-  top: 50dvh;
+  top: clamp(96px, 30dvh, 300px);
   left: max(8px, env(safe-area-inset-left));
   z-index: 12;
   display: block;
@@ -911,7 +911,7 @@ code {
   }
 
   body.player-view .player-toolbar {
-    top: 50dvh;
+    top: clamp(84px, 28dvh, 260px);
     left: max(6px, env(safe-area-inset-left));
   }
 
