@@ -1912,7 +1912,9 @@ final class App
         echo '<dt>' . self::t('server.check', 'Проверка') . '</dt><dd>' . Util::h($server['last_metrics_at'] ?: $server['last_check_at'] ?: '-') . '</dd>';
         echo '</dl>';
         if (!empty($server['last_check_result'])) {
-            echo '<p>' . Util::h($server['last_check_result']) . '</p>';
+            echo '<div class="server-check-result">';
+            self::technicalResult((string)$server['last_check_result']);
+            echo '</div>';
         }
         self::smallPost('/admin/dashboard', ['action' => 'refresh_server', 'id' => $server['id']], self::t('action.update', 'Обновить'));
         echo '</article>';
@@ -2121,11 +2123,18 @@ final class App
                 echo '<td class="muted">-</td>';
                 return;
             }
-            echo '<td class="table-technical"><details class="technical-result"><summary>' . Util::h(self::technicalSummary($text)) . '</summary><pre>' . Util::h($text) . '</pre></details></td>';
+            echo '<td class="table-technical">';
+            self::technicalResult($text);
+            echo '</td>';
             return;
         }
 
         echo '<td>' . Util::h($value) . '</td>';
+    }
+
+    private static function technicalResult(string $text): void
+    {
+        echo '<details class="technical-result"><summary>' . Util::h(self::technicalSummary($text)) . '</summary><pre>' . Util::h($text) . '</pre></details>';
     }
 
     private static function technicalSummary(string $text): string

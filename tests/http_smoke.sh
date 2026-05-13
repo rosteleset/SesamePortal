@@ -85,7 +85,9 @@ status="$(
 )"
 test "$status" = "303"
 
-curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/admin/dashboard" | grep -q "SesameDVR серверы"
+dashboard_page="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/admin/dashboard")"
+printf "%s" "$dashboard_page" | grep -q "SesameDVR серверы"
+printf "%s" "$dashboard_page" | grep -q "technical-result"
 curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/admin/dashboard?lang=en" | grep -q "SesameDVR servers"
 curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/admin/users?q=admin" | grep -q "admin"
 curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/admin/servers" | grep -q "technical-result"

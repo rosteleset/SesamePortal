@@ -229,10 +229,12 @@ code {
 .server-card dt:nth-of-type(5), .server-card dd:nth-of-type(5) { grid-column: 5; }
 .server-card dt { grid-row: 1; }
 .server-card dd { grid-row: 2; }
-.server-card p {
+.server-card .server-check-result {
   grid-column: 1 / -1;
   margin: 0;
   color: var(--muted);
+  min-width: 0;
+  max-width: 100%;
 }
 .server-card .inline-form {
   justify-self: end;
