@@ -9,20 +9,21 @@
     if (!window.L || !window.SESAME_CAMERAS || !document.getElementById("map")) return;
 
     const cameras = window.SESAME_CAMERAS || [];
-    const first = cameras.find((camera) => Number.isFinite(camera.lat) && Number.isFinite(camera.lng));
+    const visibleCameras = cameras.filter((camera) => Number.isFinite(camera.lat) && Number.isFinite(camera.lng));
     const map = L.map("map", { zoomControl: true });
-    map.setView(first ? [first.lat, first.lng] : [25.2048, 55.2708], first ? 14 : 10);
+    map.setView([25.2048, 55.2708], 10);
 
     L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
       maxZoom: 19,
       attribution: "&copy; OpenStreetMap"
     }).addTo(map);
 
-    cameras.forEach((camera) => {
+    visibleCameras.forEach((camera) => {
       const marker = L.marker([camera.lat, camera.lng], { icon: cameraIcon(camera.direction) }).addTo(map);
       marker.bindPopup(cameraPopupHtml(camera), { className: "camera-popup", maxWidth: 280 });
     });
 
+    fitMapToCameras(map, visibleCameras);
     map.on("popupopen", (event) => initPreviewRefresh(event.popup.getElement()));
   }
 
@@ -261,6 +262,23 @@
     if (visible && attention) {
       bar.scrollIntoView({ block: "nearest" });
     }
+  }
+
+  function fitMapToCameras(map, cameras) {
+    if (!cameras.length) return;
+
+    if (cameras.length === 1) {
+      map.setView([cameras[0].lat, cameras[0].lng], 16);
+      return;
+    }
+
+    const bounds = L.latLngBounds(cameras.map((camera) => [camera.lat, camera.lng]));
+    const padding = map.getSize().x < 520 ? [28, 28] : [52, 52];
+    map.fitBounds(bounds, {
+      paddingTopLeft: padding,
+      paddingBottomRight: padding,
+      maxZoom: 16
+    });
   }
 
   function normalizeEditorState(state) {
