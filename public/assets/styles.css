@@ -111,13 +111,41 @@ code {
 .brand-mark-compat {
   display: none !important;
 }
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0,0,0,0);
+  white-space: nowrap;
+  border: 0;
+}
 .sidebar .locale-switch {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 6px;
+  display: block;
   margin-bottom: 10px;
 }
-.sidebar .locale-switch a,
+.locale-switch select {
+  width: 100%;
+  min-height: 34px;
+  border-radius: 10px;
+  padding: 0 34px 0 11px;
+  color: #E8E4DC;
+  background: rgba(255,255,255,.05);
+  border: 1px solid rgba(255,255,255,.08);
+  font-weight: 800;
+  outline: none;
+}
+.locale-switch select:focus {
+  border-color: var(--gold);
+  box-shadow: 0 0 0 3px rgba(193,150,78,.24);
+}
+.login-card .locale-switch select {
+  color: var(--ink);
+  background: #fff;
+  border-color: var(--line);
+}
 .logout-link {
   min-height: 34px;
   border-radius: 10px;
@@ -129,11 +157,6 @@ code {
   background: rgba(255,255,255,.05);
   border: 1px solid rgba(255,255,255,.08);
   font-weight: 800;
-}
-.sidebar .locale-switch a.active {
-  color: #111;
-  background: var(--gold);
-  border-color: var(--gold);
 }
 .logout-link {
   justify-content: flex-start;
@@ -977,23 +1000,8 @@ tr:last-child td {
   min-height: 44px;
 }
 .login-card .locale-switch {
-  display: flex;
-  gap: 6px;
+  display: block;
   margin-top: 16px;
-}
-.login-card .locale-switch a {
-  min-height: 34px;
-  min-width: 44px;
-  display: grid;
-  place-items: center;
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  font-weight: 800;
-}
-.login-card .locale-switch a.active {
-  background: var(--ink);
-  color: #fff;
-  border-color: var(--ink);
 }
 .login-features {
   display: flex;
@@ -1157,7 +1165,7 @@ body.player-view .player-frame {
     min-width: 0;
     overflow: hidden;
   }
-  .sidebar .locale-switch a,
+  .sidebar .locale-switch select,
   .logout-link {
     min-height: 34px;
   }

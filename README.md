@@ -29,9 +29,10 @@ config or environment variables:
 The same values can be passed as `SESAME_PORTAL_DB_DSN`,
 `SESAME_PORTAL_DB_USER`, and `SESAME_PORTAL_DB_PASSWORD`.
 
-The UI supports Russian and English. The default language is configured with
-`locale` or `SESAME_PORTAL_LOCALE`; users can switch with `?lang=ru` or
-`?lang=en`.
+The UI supports the same language set as SesameDVR: `ru`, `en`, `de`, `fr`,
+`es`, `it`, `pt`, `bg`, `pl`, `zh`, `ja`, `ko`, `ar`, and `hy`. The default
+language is configured with `locale` or `SESAME_PORTAL_LOCALE`; users can
+switch from the language dropdown or with `?lang=<code>`.
 
 ## Camera Modes
 

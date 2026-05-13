@@ -92,6 +92,9 @@ csrf="$(printf "%s" "$login_page" | sed -n 's/.*name="csrf" value="\([^"]*\)".*/
 test -n "$csrf"
 printf "%s" "$login_page" | grep -q "/assets/brand-mark.svg"
 printf "%s" "$login_page" | grep -q "/assets/favicon.svg"
+printf "%s" "$login_page" | grep -q 'select name="lang"'
+printf "%s" "$login_page" | grep -q 'DE - Deutsch'
+printf "%s" "$login_page" | grep -q 'AR - العربية'
 curl -fsS "http://127.0.0.1:$PORT/assets/brand-mark.svg" | grep -q "SesameDVR mark"
 
 status="$(
@@ -121,6 +124,8 @@ no_token_refresh="$(
 printf "%s" "$no_token_refresh" | grep -q "No Token DVR: Management token не указан"
 ! printf "%s" "$no_token_refresh" | grep -q "HTTP 200 https://"
 curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/admin/dashboard?lang=en" | grep -q "SesameDVR servers"
+curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/admin/dashboard?lang=de" | grep -q "Benutzer"
+curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/admin/dashboard?lang=ar" | grep -q 'dir="rtl"'
 curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/admin/users?q=admin" | grep -q "admin"
 admin_groups="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/admin/groups?edit=1")"
 printf "%s" "$admin_groups" | grep -q "assignment-picker"
