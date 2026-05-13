@@ -1804,6 +1804,7 @@ final class App
                 'lat' => (float)$camera['latitude'],
                 'lng' => (float)$camera['longitude'],
                 'direction' => (int)$camera['direction_deg'],
+                'viewAngle' => (int)$camera['view_angle_deg'],
                 'favorite' => isset($favorites[(int)$camera['id']]),
                 'player' => self::playerUrl($camera),
                 'preview' => self::previewUrl($camera, $token),

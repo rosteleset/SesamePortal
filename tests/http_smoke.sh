@@ -119,6 +119,8 @@ curl -fsS "http://127.0.0.1:$PORT/assets/styles.css" | grep -q "aspect-ratio: 16
 map_page="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/viewer/map")"
 printf "%s" "$map_page" | grep -q "preview.jpg"
 printf "%s" "$map_page" | grep -q "direction"
+printf "%s" "$map_page" | grep -q "viewAngle"
+curl -fsS "http://127.0.0.1:$PORT/assets/app.js" | grep -q "camera-view-cone"
 player_page="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/viewer/player?id=1")"
 printf "%s" "$player_page" | grep -q "back_url="
 printf "%s" "$player_page" | grep -q "back_label="

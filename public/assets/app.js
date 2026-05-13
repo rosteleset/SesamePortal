@@ -19,7 +19,7 @@
     }).addTo(map);
 
     visibleCameras.forEach((camera) => {
-      const marker = L.marker([camera.lat, camera.lng], { icon: cameraIcon(camera.direction) }).addTo(map);
+      const marker = L.marker([camera.lat, camera.lng], { icon: cameraIcon(camera.direction, camera.viewAngle) }).addTo(map);
       marker.bindPopup(cameraPopupHtml(camera), { className: "camera-popup", maxWidth: 280 });
     });
 
@@ -323,14 +323,21 @@
     return ((Math.round(number) % 360) + 360) % 360;
   }
 
-  function cameraIcon(direction) {
-    const angle = Number(direction) || 0;
+  function cameraIcon(direction, viewAngle = 60) {
+    const angle = normalizeDirection(direction);
+    const fov = clamp(Number(viewAngle) || 60, 12, 170);
+    const coneLength = 72;
+    const coneWidth = Math.round(clamp(2 * Math.tan(fov * Math.PI / 360) * coneLength, 34, 132));
     return L.divIcon({
-      className: "",
-      html: `<div class="camera-marker" style="transform: rotate(${angle}deg)"><span style="transform: rotate(${-1 * angle}deg)">●</span></div>`,
-      iconSize: [28, 28],
-      iconAnchor: [14, 14]
+      className: "camera-marker-icon",
+      html: `<div class="camera-marker" style="--camera-direction:${angle}deg;--camera-cone-width:${coneWidth}px;--camera-cone-length:${coneLength}px"><span class="camera-view-cone"></span><span class="camera-marker-dot">●</span></div>`,
+      iconSize: [132, 132],
+      iconAnchor: [66, 66]
     });
+  }
+
+  function clamp(value, min, max) {
+    return Math.min(max, Math.max(min, value));
   }
 
   function directionHandleIcon() {

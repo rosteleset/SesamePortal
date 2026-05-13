@@ -560,8 +560,31 @@ tr:last-child td {
   background: #F2EFE8;
 }
 .camera-marker {
+  position: relative;
+  width: 132px;
+  height: 132px;
+}
+.camera-view-cone {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: var(--camera-cone-width, 84px);
+  height: var(--camera-cone-length, 72px);
+  transform: translate(-50%, -100%) rotate(var(--camera-direction, 0deg));
+  transform-origin: 50% 100%;
+  clip-path: polygon(50% 100%, 100% 0, 0 0);
+  background: linear-gradient(180deg, rgba(193,150,78,.52), rgba(193,150,78,.12) 72%, rgba(193,150,78,0));
+  filter: drop-shadow(0 4px 12px rgba(138,92,12,.35));
+  pointer-events: none;
+  z-index: 1;
+}
+.camera-marker-dot {
+  position: absolute;
+  left: 50%;
+  top: 50%;
   width: 30px;
   height: 30px;
+  transform: translate(-50%, -50%);
   border-radius: 50%;
   display: grid;
   place-items: center;
@@ -569,23 +592,9 @@ tr:last-child td {
   background: var(--gold);
   border: 3px solid #fff;
   box-shadow: 0 8px 18px rgba(0,0,0,.25);
-}
-.camera-marker::after {
-  content: "";
-  position: absolute;
-  top: -18px;
-  left: 50%;
-  width: 42px;
-  height: 44px;
-  transform: translateX(-50%);
-  background: radial-gradient(ellipse at 50% 0%, rgba(193,150,78,.35), rgba(193,150,78,0) 68%);
-  clip-path: polygon(50% 0, 100% 100%, 0 100%);
-  z-index: -1;
-}
-.camera-marker span {
-  color: #111;
   font-size: 14px;
   line-height: 1;
+  z-index: 2;
 }
 .camera-position-field {
   display: grid;
