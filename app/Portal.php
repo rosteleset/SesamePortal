@@ -1348,8 +1348,10 @@ final class App
         }
 
         self::layout(self::t('login.title', 'Вход'), function () use ($error) {
-            echo '<section class="login-panel">';
-            echo '<div class="login-brand"><img src="/assets/brand-mark.svg" alt="" aria-hidden="true"><div><h1>SesamePortal</h1><p>' . self::t('login.subtitle', 'Портал видеонаблюдения SesameWare') . '</p></div></div>';
+            echo '<section class="login-visual"><div><img src="/assets/logo-sesameportal-inverse.svg" alt="SesamePortal"><p>' . self::t('login.subtitle', 'Портал видеонаблюдения SesameWare') . '</p></div>';
+            echo '<div class="login-features"><span>Secure</span><span>Reliable</span><span>Efficient</span></div></section>';
+            echo '<section class="login-panel login-card">';
+            echo '<div class="login-brand"><img src="/assets/logo-sesameportal.svg" alt="SesamePortal"><img class="brand-mark-compat" src="/assets/brand-mark.svg" alt="" aria-hidden="true"></div>';
             if ($error) {
                 echo '<div class="alert danger">' . Util::h($error) . '</div>';
             }
@@ -1804,19 +1806,62 @@ final class App
         echo '<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">';
         echo '</head><body' . ($bodyClass !== '' ? ' class="' . Util::h($bodyClass) . '"' : '') . '>';
         if ($user && $showChrome) {
-            echo '<header class="topbar"><div class="brand"><img class="brand-mark" src="/assets/brand-mark.svg" alt="" aria-hidden="true"><div><strong>SesamePortal</strong><small>' . Util::h($title) . '</small></div></div><nav>';
-            echo '<a href="/">' . self::t('nav.mosaic', 'Мозаика') . '</a><a href="/viewer/map">' . self::t('nav.map', 'Карта') . '</a>';
+            echo '<div class="shell"><aside class="sidebar">';
+            echo '<a class="brand-logo-link" href="/"><img class="brand-logo-full" src="/assets/logo-sesameportal-inverse.svg" alt="SesamePortal"></a>';
+            echo '<div class="nav-section">View</div><nav class="nav">';
+            $viewerFilter = (string)($_GET['filter'] ?? 'all');
+            self::navLink('/', self::t('nav.mosaic', 'Мозаика'), 'grid', Util::path() === '/' && $viewerFilter !== 'favorites');
+            self::navLink('/viewer/map', self::t('nav.map', 'Карта'), 'map');
+            self::navLink('/?filter=favorites', self::t('filter.favorites', 'Избранное'), 'star', ($_GET['filter'] ?? '') === 'favorites' && Util::path() === '/');
+            echo '</nav>';
             if ($user['role'] === 'admin') {
-                echo '<a href="/admin/dashboard">' . self::t('nav.dashboard', 'Dashboard') . '</a><a href="/admin/users">' . self::t('nav.users', 'Пользователи') . '</a><a href="/admin/groups">' . self::t('nav.groups', 'Группы') . '</a><a href="/admin/cameras">' . self::t('nav.cameras', 'Камеры') . '</a><a href="/admin/servers">' . self::t('nav.dvr', 'DVR') . '</a><a href="/admin/audit">' . self::t('nav.audit', 'Журнал') . '</a>';
+                echo '<div class="nav-section">Admin</div><nav class="nav">';
+                self::navLink('/admin/dashboard', self::t('nav.dashboard', 'Dashboard'), 'dashboard');
+                self::navLink('/admin/users', self::t('nav.users', 'Пользователи'), 'user');
+                self::navLink('/admin/groups', self::t('nav.groups', 'Группы'), 'group');
+                self::navLink('/admin/cameras', self::t('nav.cameras', 'Камеры'), 'camera');
+                self::navLink('/admin/servers', self::t('nav.dvr', 'DVR'), 'server');
+                self::navLink('/admin/audit', self::t('nav.audit', 'Журнал'), 'audit');
+                echo '</nav>';
             }
-            echo '<a href="/logout">' . self::t('nav.logout', 'Выход') . '</a>' . I18n::languageLinks() . '</nav></header>';
+            echo '<div class="sidebar-foot">' . I18n::languageLinks() . '<a class="logout-link" href="/logout">' . self::icon('logout') . self::t('nav.logout', 'Выход') . '</a></div></aside>';
+            $initial = strtoupper(substr((string)$user['login'], 0, 1) ?: 'U');
+            echo '<main class="main workspace"><div class="topbar"><div><div class="crumb">SesamePortal</div><h1>' . Util::h($title) . '</h1></div><div class="user">' . Util::h($initial) . '</div></div>';
+            $body();
+            echo '</main></div>';
+        } else {
+            echo '<main class="' . ($user ? 'workspace' : 'login-page') . '">';
+            $body();
+            echo '</main>';
         }
-        echo '<main class="' . ($user ? 'workspace' : 'login-page') . '">';
-        $body();
-        echo '</main>';
         echo '<script>window.SESAME_I18N = ' . json_encode(I18n::js(), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . ';</script>';
         echo '<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script><script src="/assets/app.js"></script>';
         echo '</body></html>';
+    }
+
+    private static function navLink(string $href, string $label, string $icon, ?bool $activeOverride = null): void
+    {
+        $path = Util::path();
+        $hrefPath = (string)(parse_url($href, PHP_URL_PATH) ?: '/');
+        $active = $activeOverride ?? ($path === $hrefPath);
+        echo '<a class="' . ($active ? 'active' : '') . '" href="' . Util::h($href) . '">' . self::icon($icon) . '<span>' . Util::h($label) . '</span></a>';
+    }
+
+    private static function icon(string $name): string
+    {
+        $paths = [
+            'grid' => '<path d="M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z"/>',
+            'map' => '<path d="m3 6 6-2 6 2 6-2v14l-6 2-6-2-6 2V6z"/><path d="M9 4v14M15 6v14"/>',
+            'star' => '<path d="m12 3 2.7 5.5 6.1.9-4.4 4.3 1 6.1-5.4-2.9-5.4 2.9 1-6.1-4.4-4.3 6.1-.9L12 3z"/>',
+            'dashboard' => '<path d="M4 13h7V4H4v9zM13 20h7V4h-7v16zM4 20h7v-5H4v5z"/>',
+            'user' => '<path d="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8z"/><path d="M4 20a8 8 0 0 1 16 0"/>',
+            'group' => '<path d="M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM17 12a3 3 0 1 0 0-6"/><path d="M2 21a7 7 0 0 1 14 0M14 20a5 5 0 0 1 8 0"/>',
+            'camera' => '<path d="M4 7h11a3 3 0 0 1 3 3v7H4V7z"/><path d="m18 11 4-3v8l-4-3"/>',
+            'server' => '<path d="M4 6h16v5H4zM4 13h16v5H4z"/><path d="M8 8h.01M8 15h.01"/>',
+            'audit' => '<path d="M6 3h12v18H6z"/><path d="M9 7h6M9 11h6M9 15h4"/>',
+            'logout' => '<path d="M10 4H5v16h5"/><path d="M14 8l4 4-4 4M18 12H9"/>',
+        ];
+        return '<svg viewBox="0 0 24 24" aria-hidden="true">' . ($paths[$name] ?? $paths['grid']) . '</svg>';
     }
 
     private static function filters(string $mode, array $groups, string $filter): void
