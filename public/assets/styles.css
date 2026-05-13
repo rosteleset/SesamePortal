@@ -456,12 +456,18 @@ tr:last-child td {
   display: inline-flex;
   gap: 8px;
   align-items: center;
-  min-width: min(420px, 100%);
+  flex: 1 1 360px;
+  min-width: min(360px, 100%);
+  max-width: min(560px, 100%);
 }
-.group-filter input {
-  min-width: 220px;
+.group-filter select {
+  flex: 1 1 220px;
+  min-width: 0;
+  width: auto;
+  font-weight: 800;
 }
 .group-filter button {
+  flex: 0 0 auto;
   min-width: 112px;
   white-space: nowrap;
 }
