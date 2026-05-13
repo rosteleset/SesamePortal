@@ -1749,7 +1749,7 @@ final class App
             echo '<div class="player-stage"><iframe class="player-frame" src="' . Util::h($embed) . '" allow="autoplay; fullscreen; picture-in-picture" allowfullscreen webkitallowfullscreen referrerpolicy="no-referrer-when-downgrade"></iframe>';
             echo '<div class="player-edge-swipe" aria-hidden="true"></div></div>';
             echo '</section>';
-        }, [], 'player-view');
+        }, [], 'player-view', false);
     }
 
     private static function toggleFavorite(): void
@@ -1797,7 +1797,7 @@ final class App
         echo "ok\n";
     }
 
-    private static function layout(string $title, callable $body, ?array $userOverride = [], string $bodyClass = ''): void
+    private static function layout(string $title, callable $body, ?array $userOverride = [], string $bodyClass = '', bool $showChrome = true): void
     {
         $user = $userOverride === null ? null : Auth::user();
         echo '<!doctype html><html lang="' . Util::h(I18n::locale()) . '"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">';
@@ -1806,7 +1806,7 @@ final class App
         echo '<link rel="stylesheet" href="/assets/styles.css">';
         echo '<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">';
         echo '</head><body' . ($bodyClass !== '' ? ' class="' . Util::h($bodyClass) . '"' : '') . '>';
-        if ($user) {
+        if ($user && $showChrome) {
             echo '<header class="topbar"><div class="brand"><img class="brand-mark" src="/assets/brand-mark.svg" alt="" aria-hidden="true"><div><strong>SesamePortal</strong><small>' . Util::h($title) . '</small></div></div><nav>';
             echo '<a href="/">' . self::t('nav.mosaic', 'Мозаика') . '</a><a href="/viewer/map">' . self::t('nav.map', 'Карта') . '</a>';
             if ($user['role'] === 'admin') {

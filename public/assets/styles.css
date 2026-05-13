@@ -700,6 +700,71 @@ legend {
   transform: translateY(-50%);
 }
 
+body.player-view {
+  overflow: hidden;
+  background: #050607;
+}
+
+body.player-view .workspace {
+  max-width: none;
+  min-height: 100dvh;
+  margin: 0;
+  padding: 0;
+}
+
+body.player-view .player-page {
+  position: relative;
+  display: block;
+  min-height: 100dvh;
+}
+
+body.player-view .player-toolbar {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  left: 10px;
+  z-index: 4;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  border-color: rgba(255, 255, 255, 0.16);
+  background: rgba(16, 18, 22, 0.72);
+  color: #fff;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.32);
+  backdrop-filter: blur(10px);
+}
+
+body.player-view .player-title {
+  color: #fff;
+  text-align: center;
+}
+
+body.player-view .player-title span {
+  color: rgba(255, 255, 255, 0.68);
+}
+
+body.player-view .back-link,
+body.player-view .player-fullscreen {
+  border-color: rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+}
+
+body.player-view .back-link:hover,
+body.player-view .player-fullscreen:hover {
+  border-color: rgba(255, 255, 255, 0.42);
+}
+
+body.player-view .player-stage,
+body.player-view .player-frame {
+  height: 100dvh;
+  min-height: 100dvh;
+}
+
+body.player-view .player-stage {
+  border: 0;
+  border-radius: 0;
+}
+
 code {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   word-break: break-all;

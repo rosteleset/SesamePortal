@@ -98,6 +98,7 @@ player_page="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/viewer/player?
 printf "%s" "$player_page" | grep -Eq "Назад|Back"
 printf "%s" "$player_page" | grep -q "player-fullscreen"
 printf "%s" "$player_page" | grep -q "player-edge-swipe"
+! printf "%s" "$player_page" | grep -q 'class="topbar"'
 
 denied="$(
   curl -sS -o /dev/null -w '%{http_code}' \
