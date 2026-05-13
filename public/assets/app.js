@@ -5,6 +5,7 @@
   initPlayer();
   initPreviewRefresh();
   initAssignmentPickers();
+  initLocalTimes();
 
   function initMap() {
     if (!window.L || !window.SESAME_CAMERAS || !document.getElementById("map")) return;
@@ -474,6 +475,33 @@
       });
       rows.forEach((row) => row.querySelector('input[type="checkbox"]')?.addEventListener("change", update));
       update();
+    });
+  }
+
+  function initLocalTimes(root = document) {
+    const times = Array.from(root.querySelectorAll("time.local-time[datetime]"));
+    if (!times.length) return;
+
+    const locale = document.documentElement.lang || undefined;
+    const formatter = new Intl.DateTimeFormat(locale, {
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit"
+    });
+    const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || "";
+
+    times.forEach((time) => {
+      if (time.dataset.localTimeBound === "1") return;
+      const date = new Date(time.dateTime || time.getAttribute("datetime") || "");
+      if (Number.isNaN(date.getTime())) return;
+      time.dataset.localTimeBound = "1";
+      time.textContent = formatter.format(date);
+      if (timeZone) {
+        time.title = `${time.getAttribute("datetime")} -> ${timeZone}`;
+      }
     });
   }
 

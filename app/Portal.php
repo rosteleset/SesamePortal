@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace SesamePortal;
 
 use DateTimeImmutable;
+use DateTimeInterface;
 use DateTimeZone;
 use PDO;
 use RuntimeException;
@@ -1786,7 +1787,7 @@ final class App
             echo '</select><button>' . self::t('action.show', 'Показать') . '</button></form>';
             echo '<div class="table-wrap"><table class="data-table table-audit"><thead><tr><th>' . self::t('audit.time', 'Время') . '</th><th>' . self::t('audit.user', 'Пользователь') . '</th><th>' . self::t('audit.action', 'Действие') . '</th><th>' . self::t('audit.details', 'Детали') . '</th></tr></thead><tbody>';
             foreach ($list['rows'] as $row) {
-                echo '<tr><td>' . Util::h($row['created_at']) . '</td><td>' . Util::h($row['login'] ?? '-') . '</td><td><code class="audit-action">' . Util::h($row['action']) . '</code></td><td>';
+                echo '<tr><td>' . self::localTime($row['created_at'] ?? '') . '</td><td>' . Util::h($row['login'] ?? '-') . '</td><td><code class="audit-action">' . Util::h($row['action']) . '</code></td><td>';
                 self::auditDetails((string)$row['details']);
                 echo '</td></tr>';
             }
@@ -2062,7 +2063,7 @@ final class App
         echo '<dt>CPU</dt><dd>' . Util::h($cpu ?? '-') . '</dd>';
         echo '<dt>RAM</dt><dd>' . Util::h($memory ?? '-') . '</dd>';
         echo '<dt>' . self::t('server.streams', 'Потоки') . '</dt><dd>' . Util::h($streams ?? '-') . '</dd>';
-        echo '<dt>' . self::t('server.check', 'Проверка') . '</dt><dd>' . Util::h($server['last_metrics_at'] ?: $server['last_check_at'] ?: '-') . '</dd>';
+        echo '<dt>' . self::t('server.check', 'Проверка') . '</dt><dd>' . self::localTime($server['last_metrics_at'] ?: $server['last_check_at'] ?: '') . '</dd>';
         echo '</dl>';
         if ($metricExplanation !== null) {
             echo '<div class="server-metric-explain">' . Util::h($metricExplanation) . '</div>';
@@ -2407,7 +2408,28 @@ final class App
             return;
         }
 
+        if (str_ends_with($column, '_at')) {
+            echo '<td class="time-cell">' . self::localTime($value) . '</td>';
+            return;
+        }
+
         echo '<td>' . Util::h($value) . '</td>';
+    }
+
+    private static function localTime(mixed $value): string
+    {
+        $text = trim((string)$value);
+        if ($text === '') {
+            return '<span class="muted">-</span>';
+        }
+
+        try {
+            $time = new DateTimeImmutable($text);
+        } catch (\Throwable) {
+            return Util::h($text);
+        }
+
+        return '<time class="local-time" datetime="' . Util::h($time->format(DateTimeInterface::ATOM)) . '">' . Util::h($text) . '</time>';
     }
 
     private static function technicalResult(string $text): void
