@@ -2084,7 +2084,12 @@ final class App
             echo '<button>' . self::t('action.find', 'Найти') . '</button>';
             echo '</form>';
         }
-        echo '</div><table><thead><tr>';
+        $tableClass = 'data-table';
+        if (str_starts_with($base, '/admin/')) {
+            $tableClass .= ' table-' . str_replace(['/', '_'], '-', trim(substr($base, strlen('/admin/')), '/'));
+        }
+
+        echo '</div><div class="table-wrap"><table class="' . Util::h($tableClass) . '"><thead><tr>';
         foreach ($columns as $column) {
             echo '<th>' . Util::h($column) . '</th>';
         }
@@ -2094,7 +2099,7 @@ final class App
             foreach ($columns as $column) {
                 self::tableCell($column, $row[$column] ?? '');
             }
-            echo '<td class="row-actions"><a href="' . $base . '?edit=' . (int)$row['id'] . '">' . self::t('action.edit', 'Изменить') . '</a>';
+            echo '<td><div class="row-actions"><a href="' . $base . '?edit=' . (int)$row['id'] . '">' . self::t('action.edit', 'Изменить') . '</a>';
             if ($actions && str_contains($base, 'servers')) {
                 self::smallPost($base, ['action' => 'check', 'id' => $row['id']], self::t('action.check', 'Проверить'));
             }
@@ -2106,9 +2111,9 @@ final class App
                 self::smallPost($base, ['action' => 'issue_static', 'id' => $row['id']], 'Static token');
                 self::smallPost($base, ['action' => 'revoke_static', 'id' => $row['id']], 'Revoke');
             }
-            echo '</td></tr>';
+            echo '</div></td></tr>';
         }
-        echo '</tbody></table>';
+        echo '</tbody></table></div>';
         if ($pager) {
             self::pager($base, $pager);
         }
