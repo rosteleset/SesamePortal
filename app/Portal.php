@@ -2090,7 +2090,7 @@ final class App
         foreach ($rows as $row) {
             echo '<tr>';
             foreach ($columns as $column) {
-                echo '<td>' . Util::h($row[$column] ?? '') . '</td>';
+                self::tableCell($column, $row[$column] ?? '');
             }
             echo '<td class="row-actions"><a href="' . $base . '?edit=' . (int)$row['id'] . '">' . self::t('action.edit', 'Изменить') . '</a>';
             if ($actions && str_contains($base, 'servers')) {
@@ -2111,6 +2111,32 @@ final class App
             self::pager($base, $pager);
         }
         echo '</section>';
+    }
+
+    private static function tableCell(string $column, mixed $value): void
+    {
+        if ($column === 'last_check_result') {
+            $text = trim((string)$value);
+            if ($text === '') {
+                echo '<td class="muted">-</td>';
+                return;
+            }
+            echo '<td class="table-technical"><details class="technical-result"><summary>' . Util::h(self::technicalSummary($text)) . '</summary><pre>' . Util::h($text) . '</pre></details></td>';
+            return;
+        }
+
+        echo '<td>' . Util::h($value) . '</td>';
+    }
+
+    private static function technicalSummary(string $text): string
+    {
+        if (preg_match('/^HTTP\\s+\\d+/', $text, $match)) {
+            return $match[0];
+        }
+        if (strlen($text) <= 80) {
+            return $text;
+        }
+        return rtrim(substr($text, 0, 77)) . '...';
     }
 
     private static function pager(string $base, array $pager, array $extraParams = []): void
