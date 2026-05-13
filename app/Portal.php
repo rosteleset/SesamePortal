@@ -2117,7 +2117,7 @@ final class App
 
     private static function tableCell(string $column, mixed $value): void
     {
-        if ($column === 'last_check_result') {
+        if (in_array($column, ['last_check_result', 'last_sync_message'], true)) {
             $text = trim((string)$value);
             if ($text === '') {
                 echo '<td class="muted">-</td>';

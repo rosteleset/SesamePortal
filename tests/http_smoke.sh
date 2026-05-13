@@ -94,6 +94,7 @@ curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/admin/servers" | grep -q "tec
 admin_cameras="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/admin/cameras?q=Read")"
 printf "%s" "$admin_cameras" | grep -q "read_only"
 printf "%s" "$admin_cameras" | grep -q "Read-only mode"
+printf "%s" "$admin_cameras" | grep -q "technical-result"
 printf "%s" "$admin_cameras" | grep -q "camera-position-map"
 printf "%s" "$admin_cameras" | grep -q "camera-direction"
 curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/admin/audit?q=camera&action=camera.save&actor=1" | grep -q "camera_id"
