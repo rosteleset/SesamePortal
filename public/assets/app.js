@@ -384,7 +384,7 @@
 
   function cameraPopupHtml(camera) {
     const preview = camera.preview
-      ? `<a class="map-popup-preview" href="${escapeHtml(camera.player)}"><img src="${escapeHtml(camera.preview)}" data-preview-src="${escapeHtml(camera.preview)}" data-preview-refresh="off" alt="" loading="lazy"><span class="map-popup-preview-state">${escapeHtml(tr("previewUnavailable", "Превью недоступно"))}</span></a>`
+      ? `<a class="map-popup-preview" href="${escapeHtml(camera.player)}"><img data-preview-src="${escapeHtml(camera.preview)}" data-preview-refresh="off" alt="" loading="lazy" decoding="async" hidden><span class="map-popup-preview-state">${escapeHtml(tr("previewUnavailable", "Превью недоступно"))}</span></a>`
       : `<div class="map-popup-preview no-preview"><span class="map-popup-preview-state">${escapeHtml(tr("previewUnavailable", "Превью недоступно"))}</span></div>`;
     const favoriteTitle = camera.favorite
       ? tr("removeFavorite", "Удалить из избранного")
@@ -418,7 +418,9 @@
       image.dataset.previewRefreshBound = "1";
       image.addEventListener("load", () => markPreviewReady(image));
       image.addEventListener("error", () => markPreviewMissing(image));
-      if (image.complete) {
+      if (!image.getAttribute("src")) {
+        loadPreviewImage(image, image.dataset.previewSrc, { markMissingOnError: true });
+      } else if (image.complete) {
         if (image.naturalWidth > 0) {
           markPreviewReady(image);
         } else {
@@ -482,7 +484,13 @@
 
     const separator = source.includes("?") ? "&" : "?";
     const nextSrc = `${source}${separator}_=${Date.now()}`;
+    loadPreviewImage(image, nextSrc, { markMissingOnError: false });
+  }
+
+  function loadPreviewImage(image, nextSrc, options = {}) {
+    if (!nextSrc) return;
     const preloader = new Image();
+    preloader.decoding = "async";
     image.dataset.previewLoading = "1";
 
     const finish = () => {
@@ -502,7 +510,12 @@
       markPreviewReady(image);
       finish();
     };
-    preloader.onerror = finish;
+    preloader.onerror = () => {
+      if (options.markMissingOnError && image.isConnected) {
+        markPreviewMissing(image);
+      }
+      finish();
+    };
     preloader.src = nextSrc;
   }
 

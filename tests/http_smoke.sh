@@ -142,6 +142,9 @@ printf "%s" "$audit_page" | grep -q "audit-action"
 mosaic_page="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/")"
 printf "%s" "$mosaic_page" | grep -q "/viewer/player"
 printf "%s" "$mosaic_page" | grep -q "data-preview-refresh-ms"
+printf "%s" "$mosaic_page" | grep -q 'data-preview-src='
+printf "%s" "$mosaic_page" | grep -q 'decoding="async" hidden'
+! printf "%s" "$mosaic_page" | grep -E -q '<img src="[^"]*preview\.jpg'
 printf "%s" "$mosaic_page" | grep -q "group-filter"
 printf "%s" "$mosaic_page" | grep -q "Smoke Group"
 printf "%s" "$mosaic_page" | grep -q 'name="filter"'

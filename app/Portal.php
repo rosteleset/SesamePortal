@@ -1824,7 +1824,7 @@ final class App
             echo '<article class="camera-card">';
             echo '<a class="preview' . ($preview ? '' : ' no-preview') . '" href="' . Util::h($player) . '">';
             if ($preview) {
-                echo '<img src="' . Util::h($preview) . '" data-preview-src="' . Util::h($preview) . '" data-preview-refresh-ms="30000" alt="" loading="lazy">';
+                echo '<img data-preview-src="' . Util::h($preview) . '" data-preview-refresh-ms="30000" alt="" loading="lazy" decoding="async" hidden>';
             }
             echo '<span class="preview-label">' . self::t('viewer.openPlayer', 'Открыть плеер') . '</span></a><div class="camera-meta"><strong>' . Util::h($camera['name']) . '</strong><span>' . Util::h($camera['server_name'] ?? self::t('common.noServer', 'Без сервера')) . '</span></div>';
             self::favoriteButton((int)$camera['id'], isset($favorites[(int)$camera['id']]));
