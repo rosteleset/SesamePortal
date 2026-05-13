@@ -61,8 +61,11 @@
 
       const syncFullscreenState = () => {
         const active = fullscreenElement() === fullscreenTarget;
+        const label = active ? tr("collapse", "Свернуть") : tr("fullscreen", "На весь экран");
         page.classList.toggle("is-fullscreen", active);
-        button.textContent = active ? tr("collapse", "Свернуть") : tr("fullscreen", "На весь экран");
+        button.textContent = label;
+        button.setAttribute("aria-label", label);
+        button.setAttribute("title", label);
       };
       document.addEventListener("fullscreenchange", syncFullscreenState);
       document.addEventListener("webkitfullscreenchange", syncFullscreenState);

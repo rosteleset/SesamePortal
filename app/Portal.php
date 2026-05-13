@@ -1745,7 +1745,8 @@ final class App
             echo '<section class="player-page" data-back-url="' . Util::h($back) . '">';
             echo '<div class="player-toolbar"><a class="back-link" href="' . Util::h($back) . '">' . self::t('action.back', 'Назад') . '</a>';
             echo '<div class="player-title"><strong>' . Util::h($camera['name']) . '</strong><span>' . Util::h($camera['server_name'] ?? self::t('common.noServer', 'Без сервера')) . '</span></div>';
-            echo '<button class="player-fullscreen" type="button">' . self::t('player.fullscreen', 'На весь экран') . '</button></div>';
+            $fullscreenLabel = self::t('player.fullscreen', 'На весь экран');
+            echo '<button class="player-fullscreen" type="button" aria-label="' . Util::h($fullscreenLabel) . '" title="' . Util::h($fullscreenLabel) . '">' . $fullscreenLabel . '</button></div>';
             echo '<div class="player-stage"><iframe class="player-frame" src="' . Util::h($embed) . '" allow="autoplay; fullscreen; picture-in-picture" allowfullscreen webkitallowfullscreen referrerpolicy="no-referrer-when-downgrade"></iframe>';
             echo '<div class="player-edge-swipe" aria-hidden="true"></div></div>';
             echo '</section>';
