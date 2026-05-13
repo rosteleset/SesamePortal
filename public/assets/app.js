@@ -452,9 +452,32 @@
   function refreshPreview(image) {
     const source = image.dataset.previewSrc;
     if (!source) return;
+    if (image.dataset.previewLoading === "1") return;
 
     const separator = source.includes("?") ? "&" : "?";
-    image.src = `${source}${separator}_=${Date.now()}`;
+    const nextSrc = `${source}${separator}_=${Date.now()}`;
+    const preloader = new Image();
+    image.dataset.previewLoading = "1";
+
+    const finish = () => {
+      delete image.dataset.previewLoading;
+    };
+    preloader.onload = async () => {
+      try {
+        await preloader.decode?.();
+      } catch {
+        // The image is already loaded; decode is only used to avoid visible swaps.
+      }
+      if (!image.isConnected) {
+        finish();
+        return;
+      }
+      image.src = nextSrc;
+      markPreviewReady(image);
+      finish();
+    };
+    preloader.onerror = finish;
+    preloader.src = nextSrc;
   }
 
   function markPreviewReady(image) {
