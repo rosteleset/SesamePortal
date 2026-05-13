@@ -1822,7 +1822,7 @@ final class App
             $player = self::playerUrl($camera);
             $preview = self::previewUrl($camera, $token);
             echo '<article class="camera-card">';
-            echo '<a class="preview' . ($preview ? '' : ' no-preview') . '" href="' . Util::h($player) . '">';
+            echo '<a class="preview' . ($preview ? ' is-loading' : ' no-preview') . '" href="' . Util::h($player) . '">';
             if ($preview) {
                 echo '<img data-preview-src="' . Util::h($preview) . '" data-preview-refresh-ms="30000" alt="" loading="lazy" decoding="async" hidden>';
             }

@@ -584,6 +584,32 @@ tr:last-child td {
   height: auto;
   aspect-ratio: 16 / 9;
 }
+.preview.is-loading::before,
+.map-popup-preview.is-loading::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background: linear-gradient(135deg,#171717,#35322d);
+}
+.preview.is-loading::after,
+.map-popup-preview.is-loading::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  z-index: 1;
+  width: 34px;
+  height: 34px;
+  margin: -17px 0 0 -17px;
+  border: 3px solid rgba(255,255,255,.24);
+  border-top-color: var(--gold);
+  border-radius: 50%;
+  animation: preview-spin .8s linear infinite;
+}
+@keyframes preview-spin {
+  to { transform: rotate(360deg); }
+}
 .preview.no-preview::before {
   content: "";
   position: absolute;
@@ -603,7 +629,7 @@ tr:last-child td {
   position: absolute;
   left: 10px;
   bottom: 10px;
-  z-index: 1;
+  z-index: 2;
   border-radius: 999px;
   padding: 5px 9px;
   background: rgba(17,17,17,.78);

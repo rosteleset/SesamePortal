@@ -143,6 +143,7 @@ mosaic_page="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/")"
 printf "%s" "$mosaic_page" | grep -q "/viewer/player"
 printf "%s" "$mosaic_page" | grep -q "data-preview-refresh-ms"
 printf "%s" "$mosaic_page" | grep -q 'data-preview-src='
+printf "%s" "$mosaic_page" | grep -q 'class="preview is-loading"'
 printf "%s" "$mosaic_page" | grep -q 'decoding="async" hidden'
 ! printf "%s" "$mosaic_page" | grep -E -q '<img src="[^"]*preview\.jpg'
 printf "%s" "$mosaic_page" | grep -q "group-filter"
@@ -165,6 +166,8 @@ curl -fsS "http://127.0.0.1:$PORT/assets/app.js" | grep -q "map-popup-actions"
 curl -fsS "http://127.0.0.1:$PORT/assets/app.js" | grep -q "/favorite/toggle"
 curl -fsS "http://127.0.0.1:$PORT/assets/app.js" | grep -q "new Image"
 curl -fsS "http://127.0.0.1:$PORT/assets/app.js" | grep -q "previewLoading"
+curl -fsS "http://127.0.0.1:$PORT/assets/app.js" | grep -q "is-loading"
+curl -fsS "http://127.0.0.1:$PORT/assets/styles.css" | grep -q "preview-spin"
 player_page="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/viewer/player?id=1")"
 printf "%s" "$player_page" | grep -q "back_url="
 printf "%s" "$player_page" | grep -q "back_label="

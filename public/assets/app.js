@@ -384,7 +384,7 @@
 
   function cameraPopupHtml(camera) {
     const preview = camera.preview
-      ? `<a class="map-popup-preview" href="${escapeHtml(camera.player)}"><img data-preview-src="${escapeHtml(camera.preview)}" data-preview-refresh="off" alt="" loading="lazy" decoding="async" hidden><span class="map-popup-preview-state">${escapeHtml(tr("previewUnavailable", "Превью недоступно"))}</span></a>`
+      ? `<a class="map-popup-preview is-loading" href="${escapeHtml(camera.player)}"><img data-preview-src="${escapeHtml(camera.preview)}" data-preview-refresh="off" alt="" loading="lazy" decoding="async" hidden><span class="map-popup-preview-state">${escapeHtml(tr("previewUnavailable", "Превью недоступно"))}</span></a>`
       : `<div class="map-popup-preview no-preview"><span class="map-popup-preview-state">${escapeHtml(tr("previewUnavailable", "Превью недоступно"))}</span></div>`;
     const favoriteTitle = camera.favorite
       ? tr("removeFavorite", "Удалить из избранного")
@@ -492,9 +492,15 @@
     const preloader = new Image();
     preloader.decoding = "async";
     image.dataset.previewLoading = "1";
+    const container = image.closest(".preview, .map-popup-preview");
+    const showLoader = options.showLoader ?? (image.hidden || !image.getAttribute("src"));
+    if (showLoader) {
+      container?.classList.add("is-loading");
+    }
 
     const finish = () => {
       delete image.dataset.previewLoading;
+      container?.classList.remove("is-loading");
     };
     preloader.onload = async () => {
       try {
@@ -521,12 +527,14 @@
 
   function markPreviewReady(image) {
     image.hidden = false;
-    image.closest(".preview, .map-popup-preview")?.classList.remove("no-preview");
+    image.closest(".preview, .map-popup-preview")?.classList.remove("no-preview", "is-loading");
   }
 
   function markPreviewMissing(image) {
     image.hidden = true;
-    image.closest(".preview, .map-popup-preview")?.classList.add("no-preview");
+    const container = image.closest(".preview, .map-popup-preview");
+    container?.classList.remove("is-loading");
+    container?.classList.add("no-preview");
   }
 
   function toNumber(value) {
