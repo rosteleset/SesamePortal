@@ -1110,14 +1110,19 @@ final class DvrClient
         $base = rtrim($server['base_url'], '/');
         $version = self::request('GET', $base . '/api/system/version', $token, null);
         $status = self::request('GET', $base . '/api/system/status', $token, null);
-        $ok = $version['status'] >= 200 && $version['status'] < 300 && $status['status'] >= 200 && $status['status'] < 300;
+        $streams = self::request('GET', $base . '/api/streams', $token, null);
+        $ok = $version['status'] >= 200 && $version['status'] < 300
+            && $status['status'] >= 200 && $status['status'] < 300
+            && $streams['status'] >= 200 && $streams['status'] < 300;
         $payload = [
             'version' => self::jsonOrBody($version),
             'status' => self::jsonOrBody($status),
+            'streams' => self::jsonOrBody($streams),
             'fetchedAt' => Util::now(),
         ];
         $message = self::responseSummary($version, $base . '/api/system/version') . '; ' .
-            self::responseSummary($status, $base . '/api/system/status');
+            self::responseSummary($status, $base . '/api/system/status') . '; ' .
+            self::responseSummary($streams, $base . '/api/streams');
         DB::pdo()->prepare('UPDATE dvr_servers SET last_check_at = ?, last_check_result = ?, last_metrics_at = ?, last_metrics_json = ? WHERE id = ?')
             ->execute([Util::now(), $message, Util::now(), json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES), $serverId]);
         return ['ok' => $ok, 'message' => $message, 'metrics' => $payload];
@@ -1946,12 +1951,13 @@ final class App
     private static function serverMetricCard(array $server): void
     {
         $metrics = json_decode((string)($server['last_metrics_json'] ?? ''), true);
+        $metrics = is_array($metrics) ? $metrics : [];
         $version = is_array($metrics['version'] ?? null) ? $metrics['version'] : [];
         $status = is_array($metrics['status'] ?? null) ? $metrics['status'] : [];
-        $versionText = $version['version'] ?? $version['buildId'] ?? $version['sourceCommit'] ?? 'unknown';
-        $cpu = self::firstMetric($status, ['cpu.totalPercent', 'cpu.percent', 'system.cpuPercent', 'cpu']);
-        $memory = self::firstMetric($status, ['memory.usedPercent', 'system.memoryUsedPercent', 'ram.usedPercent']);
-        $streams = self::firstMetric($status, ['streams.total', 'streamCount', 'cameras.total']);
+        $versionText = self::serverVersionText($version);
+        $cpu = self::serverCpuText($status);
+        $memory = self::serverMemoryText($status);
+        $streams = self::serverStreamsText($metrics, $status);
 
         echo '<article class="server-card">';
         echo '<div><strong>' . Util::h($server['name']) . '</strong><span>' . Util::h($server['base_url']) . '</span></div>';
@@ -1971,15 +1977,101 @@ final class App
         echo '</article>';
     }
 
-    private static function firstMetric(array $data, array $paths): mixed
+    private static function serverVersionText(array $version): string
+    {
+        $info = $version;
+        if (isset($info['version']) && is_array($info['version'])) {
+            $info = $info['version'];
+        }
+
+        foreach (['appVersion', 'version', 'buildId', 'commit', 'sourceCommit'] as $key) {
+            $value = self::scalarText($info[$key] ?? null);
+            if ($value !== null) {
+                return $value;
+            }
+        }
+
+        return 'unknown';
+    }
+
+    private static function serverCpuText(array $status): ?string
+    {
+        $value = self::numericMetric($status, [
+            'cpu.aggregate.usagePercent',
+            'cpu.totalPercent',
+            'cpu.percent',
+            'system.cpuPercent',
+        ]);
+        return $value === null ? null : self::formatPercent($value);
+    }
+
+    private static function serverMemoryText(array $status): ?string
+    {
+        $value = self::numericMetric($status, [
+            'memory.usedPercent',
+            'system.memoryUsedPercent',
+            'ram.usedPercent',
+        ]);
+        if ($value !== null) {
+            return self::formatPercent($value);
+        }
+
+        $used = self::numericMetric($status, ['memory.usedBytes', 'ram.usedBytes']);
+        $total = self::numericMetric($status, ['memory.totalBytes', 'ram.totalBytes']);
+        if ($used !== null && $total !== null && $total > 0) {
+            return self::formatPercent(($used / $total) * 100);
+        }
+
+        return null;
+    }
+
+    private static function serverStreamsText(array $metrics, array $status): ?string
+    {
+        $streams = $metrics['streams'] ?? null;
+        if (is_array($streams)) {
+            if (isset($streams['streams']) && is_array($streams['streams'])) {
+                return (string)count($streams['streams']);
+            }
+            if (array_is_list($streams)) {
+                return (string)count($streams);
+            }
+        }
+
+        $value = self::numericMetric($status, [
+            'streams.total',
+            'streamCount',
+            'cameras.total',
+            'archiveOrphans.activeCameraCount',
+        ]);
+        return $value === null ? null : (string)(int)$value;
+    }
+
+    private static function numericMetric(array $data, array $paths): ?float
     {
         foreach ($paths as $path) {
             $value = self::arrayPath($data, $path);
-            if ($value !== null && $value !== '') {
-                return is_float($value) ? round($value, 2) : $value;
+            if (is_int($value) || is_float($value) || (is_string($value) && is_numeric($value))) {
+                return (float)$value;
             }
         }
         return null;
+    }
+
+    private static function scalarText(mixed $value): ?string
+    {
+        if (is_int($value) || is_float($value)) {
+            return (string)$value;
+        }
+        if (is_string($value) && trim($value) !== '') {
+            return $value;
+        }
+        return null;
+    }
+
+    private static function formatPercent(float $value): string
+    {
+        $formatted = number_format($value, 2, '.', '');
+        return rtrim(rtrim($formatted, '0'), '.') . '%';
     }
 
     private static function arrayPath(array $data, string $path): mixed

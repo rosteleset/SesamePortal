@@ -35,8 +35,18 @@ $iv = random_bytes(12);
 $tag = '';
 $cipher = openssl_encrypt('legacy-management-secret', 'aes-256-gcm', $key, OPENSSL_RAW_DATA, $iv, $tag);
 $legacy = base64_encode($iv . $tag . $cipher);
-$pdo->prepare('INSERT INTO dvr_servers(name, base_url, management_token_enc, last_check_result, created_at) VALUES(?, ?, ?, ?, ?)')
-    ->execute(['Smoke DVR', 'https://dvr.example.invalid', $legacy, 'HTTP 200 {"version":{"sourceCommit":"abcdef1234567890"}}', $now]);
+$metrics = json_encode([
+    'version' => ['version' => ['appVersion' => '0.1.0', 'buildId' => 'smoke-build']],
+    'status' => [
+        'cpu' => ['aggregate' => ['usagePercent' => 12.345]],
+        'memory' => ['usedBytes' => 1, 'totalBytes' => 4],
+        'archiveOrphans' => ['activeCameraCount' => 2],
+    ],
+    'streams' => ['streams' => [['name' => 'smoke-cam'], ['name' => 'readonly-cam']]],
+    'fetchedAt' => $now,
+], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+$pdo->prepare('INSERT INTO dvr_servers(name, base_url, management_token_enc, last_check_result, last_metrics_at, last_metrics_json, created_at) VALUES(?, ?, ?, ?, ?, ?, ?)')
+    ->execute(['Smoke DVR', 'https://dvr.example.invalid', $legacy, 'HTTP 200 {"version":{"sourceCommit":"abcdef1234567890"}}', $now, $metrics, $now]);
 $pdo->prepare('INSERT INTO cameras(name, source_url, server_id, server_selection, retention_days, dvr_stream_name, latitude, longitude, direction_deg, created_at, updated_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
     ->execute(['Smoke Cam', 'rtsp://example.invalid/smoke', 1, 'manual', '1d', 'smoke-cam', 25.2048, 55.2708, 90, $now, $now]);
 $pdo->prepare('INSERT INTO cameras(name, source_url, server_id, server_selection, retention_days, dvr_control_mode, dvr_stream_name, created_at, updated_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)')
@@ -92,6 +102,10 @@ test "$status" = "303"
 dashboard_page="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/admin/dashboard")"
 printf "%s" "$dashboard_page" | grep -q "SesameDVR серверы"
 printf "%s" "$dashboard_page" | grep -q "technical-result"
+printf "%s" "$dashboard_page" | grep -q "0.1.0"
+printf "%s" "$dashboard_page" | grep -q "12.35%"
+printf "%s" "$dashboard_page" | grep -q "25%"
+! printf "%s" "$dashboard_page" | grep -q ">Array<"
 curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/admin/dashboard?lang=en" | grep -q "SesameDVR servers"
 curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/admin/users?q=admin" | grep -q "admin"
 admin_groups="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/admin/groups?edit=1")"
