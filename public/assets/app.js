@@ -20,10 +20,13 @@
       attribution: "&copy; OpenStreetMap"
     }).addTo(map);
 
+    const markerLayer = cameraMarkerLayer();
     visibleCameras.forEach((camera) => {
-      const marker = L.marker([camera.lat, camera.lng], { icon: cameraIcon(camera.direction, camera.viewAngle) }).addTo(map);
+      const marker = L.marker([camera.lat, camera.lng], { icon: cameraIcon(camera.direction, camera.viewAngle) });
       marker.bindPopup(cameraPopupHtml(camera), { className: "camera-popup", maxWidth: 280 });
+      markerLayer.addLayer(marker);
     });
+    markerLayer.addTo(map);
 
     fitMapToCameras(map, visibleCameras);
     map.on("popupopen", (event) => initPreviewRefresh(event.popup.getElement()));
@@ -286,6 +289,29 @@
 
   function setPlainLeafletAttribution(map) {
     map.attributionControl?.setPrefix('<a href="https://leafletjs.com" title="A JavaScript library for interactive maps">Leaflet</a>');
+  }
+
+  function cameraMarkerLayer() {
+    if (typeof L.markerClusterGroup !== "function") {
+      return L.layerGroup();
+    }
+
+    return L.markerClusterGroup({
+      showCoverageOnHover: false,
+      removeOutsideVisibleBounds: true,
+      spiderfyOnMaxZoom: true,
+      disableClusteringAtZoom: 18,
+      maxClusterRadius: 56,
+      iconCreateFunction(cluster) {
+        const count = cluster.getChildCount();
+        return L.divIcon({
+          className: "camera-cluster-icon",
+          html: `<div class="camera-cluster" data-digits="${String(count).length}"><span>${escapeHtml(count)}</span></div>`,
+          iconSize: [52, 52],
+          iconAnchor: [26, 26]
+        });
+      }
+    });
   }
 
   function normalizeEditorState(state) {

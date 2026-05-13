@@ -1944,6 +1944,7 @@ final class App
         echo '<link rel="icon" href="/assets/favicon.svg" type="image/svg+xml">';
         echo '<link rel="stylesheet" href="' . Util::h(self::assetUrl('/assets/styles.css')) . '">';
         echo '<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">';
+        echo '<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css">';
         echo '</head><body' . ($bodyClass !== '' ? ' class="' . Util::h($bodyClass) . '"' : '') . '>';
         if ($user && $showChrome) {
             echo '<div class="shell"><aside class="sidebar">';
@@ -1975,7 +1976,7 @@ final class App
             echo '</main>';
         }
         echo '<script>window.SESAME_I18N = ' . json_encode(I18n::js(), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . '; window.SESAME_CSRF = ' . json_encode(Csrf::token(), JSON_UNESCAPED_SLASHES) . ';</script>';
-        echo '<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script><script src="' . Util::h(self::assetUrl('/assets/app.js')) . '"></script>';
+        echo '<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script><script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script><script src="' . Util::h(self::assetUrl('/assets/app.js')) . '"></script>';
         echo '</body></html>';
     }
 
