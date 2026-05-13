@@ -37,8 +37,8 @@ $cipher = openssl_encrypt('legacy-management-secret', 'aes-256-gcm', $key, OPENS
 $legacy = base64_encode($iv . $tag . $cipher);
 $pdo->prepare('INSERT INTO dvr_servers(name, base_url, management_token_enc, created_at) VALUES(?, ?, ?, ?)')
     ->execute(['Smoke DVR', 'https://dvr.example.invalid', $legacy, $now]);
-$pdo->prepare('INSERT INTO cameras(name, source_url, server_id, server_selection, retention_days, dvr_stream_name, created_at, updated_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?)')
-    ->execute(['Smoke Cam', 'rtsp://example.invalid/smoke', 1, 'manual', '1d', 'smoke-cam', $now, $now]);
+$pdo->prepare('INSERT INTO cameras(name, source_url, server_id, server_selection, retention_days, dvr_stream_name, latitude, longitude, direction_deg, created_at, updated_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+    ->execute(['Smoke Cam', 'rtsp://example.invalid/smoke', 1, 'manual', '1d', 'smoke-cam', 25.2048, 55.2708, 90, $now, $now]);
 $pdo->prepare('INSERT INTO cameras(name, source_url, server_id, server_selection, retention_days, dvr_control_mode, dvr_stream_name, created_at, updated_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)')
     ->execute(['Read Only Cam', '', 1, 'manual', '1d', 'read_only', 'readonly-cam', $now, $now]);
 \SesamePortal\DvrClient::syncCamera(2);
@@ -88,12 +88,18 @@ test "$status" = "303"
 curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/admin/dashboard" | grep -q "SesameDVR серверы"
 curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/admin/dashboard?lang=en" | grep -q "SesameDVR servers"
 curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/admin/users?q=admin" | grep -q "admin"
-curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/admin/cameras?q=Read" | grep -q "read_only"
-curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/admin/cameras?q=Read" | grep -q "Read-only mode"
+admin_cameras="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/admin/cameras?q=Read")"
+printf "%s" "$admin_cameras" | grep -q "read_only"
+printf "%s" "$admin_cameras" | grep -q "Read-only mode"
+printf "%s" "$admin_cameras" | grep -q "camera-position-map"
+printf "%s" "$admin_cameras" | grep -q "camera-direction"
 curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/admin/audit?q=camera&action=camera.save&actor=1" | grep -q "camera_id"
 mosaic_page="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/")"
 printf "%s" "$mosaic_page" | grep -q "/viewer/player"
 printf "%s" "$mosaic_page" | grep -q "data-preview-refresh-ms"
+map_page="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/viewer/map")"
+printf "%s" "$map_page" | grep -q "preview.jpg"
+printf "%s" "$map_page" | grep -q "direction"
 player_page="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/viewer/player?id=1")"
 printf "%s" "$player_page" | grep -q "back_url="
 printf "%s" "$player_page" | grep -q "back_label="

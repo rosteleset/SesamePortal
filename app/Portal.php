@@ -570,6 +570,10 @@ final class I18n
     {
         return [
             'openVideo' => self::t('js.openVideo', 'Открыть видео'),
+            'previewUnavailable' => self::t('js.previewUnavailable', 'Превью недоступно'),
+            'mapChangePending' => self::t('js.mapChangePending', 'Подтвердите изменение на карте'),
+            'apply' => self::t('action.apply', 'Применить'),
+            'cancel' => self::t('action.cancel', 'Отменить'),
             'fullscreen' => self::t('player.fullscreen', 'На весь экран'),
             'collapse' => self::t('player.collapse', 'Свернуть'),
         ];
@@ -619,6 +623,8 @@ final class I18n
                 'action.update' => 'Refresh',
                 'action.updateAll' => 'Refresh all',
                 'action.back' => 'Back',
+                'action.apply' => 'Apply',
+                'action.cancel' => 'Cancel',
                 'filter.all' => 'All',
                 'filter.favorites' => 'Favorites',
                 'viewer.openPlayer' => 'Open player',
@@ -626,6 +632,8 @@ final class I18n
                 'player.fullscreen' => 'Fullscreen',
                 'player.collapse' => 'Exit fullscreen',
                 'js.openVideo' => 'Open video',
+                'js.previewUnavailable' => 'Preview unavailable',
+                'js.mapChangePending' => 'Confirm map change',
                 'dashboard.users' => 'Users',
                 'dashboard.groups' => 'Groups',
                 'dashboard.cameras' => 'Cameras',
@@ -657,6 +665,8 @@ final class I18n
                 'cameras.selectionManual' => 'specific',
                 'cameras.selectionAuto' => 'automatic random',
                 'cameras.streamName' => 'SesameDVR stream name',
+                'cameras.position' => 'Position on map',
+                'cameras.clearPosition' => 'Clear point',
                 'cameras.direction' => 'Direction',
                 'cameras.viewAngle' => 'View angle',
                 'cameras.retention' => 'Archive depth',
@@ -1616,8 +1626,12 @@ final class App
             echo '</select></label>';
             echo '<label>' . self::t('cameras.serverSelection', 'Выбор сервера') . '<select name="server_selection"><option value="manual">' . self::t('cameras.selectionManual', 'конкретный') . '</option><option value="auto" ' . (($edit['server_selection'] ?? '') === 'auto' ? 'selected' : '') . '>' . self::t('cameras.selectionAuto', 'автоматический случайный') . '</option></select></label>';
             echo '<label>' . self::t('cameras.streamName', 'Имя потока SesameDVR') . '<input name="dvr_stream_name" value="' . Util::h($edit['dvr_stream_name'] ?? '') . '"></label>';
-            echo '<div class="form-row"><label>Latitude<input name="latitude" value="' . Util::h($edit['latitude'] ?? '') . '"></label><label>Longitude<input name="longitude" value="' . Util::h($edit['longitude'] ?? '') . '"></label></div>';
-            echo '<div class="form-row"><label>' . self::t('cameras.direction', 'Направление') . '<input name="direction_deg" type="number" min="0" max="359" value="' . Util::h($edit['direction_deg'] ?? 0) . '"></label><label>' . self::t('cameras.viewAngle', 'Угол обзора') . '<input name="view_angle_deg" type="number" min="1" max="180" value="' . Util::h($edit['view_angle_deg'] ?? 60) . '"></label></div>';
+            $lat = $edit['latitude'] ?? '';
+            $lng = $edit['longitude'] ?? '';
+            echo '<div class="form-row"><label>Latitude<input id="camera-latitude" name="latitude" value="' . Util::h($lat) . '"></label><label>Longitude<input id="camera-longitude" name="longitude" value="' . Util::h($lng) . '"></label></div>';
+            echo '<div class="camera-position-field"><div class="camera-position-head"><strong>' . self::t('cameras.position', 'Положение на карте') . '</strong><button type="button" class="camera-map-clear">' . self::t('cameras.clearPosition', 'Очистить точку') . '</button></div>';
+            echo '<div id="camera-position-map" class="camera-position-map" data-lat="' . Util::h($lat) . '" data-lng="' . Util::h($lng) . '"></div></div>';
+            echo '<div class="form-row"><label>' . self::t('cameras.direction', 'Направление') . '<input id="camera-direction" name="direction_deg" type="number" min="0" max="359" value="' . Util::h($edit['direction_deg'] ?? 0) . '"></label><label>' . self::t('cameras.viewAngle', 'Угол обзора') . '<input name="view_angle_deg" type="number" min="1" max="180" value="' . Util::h($edit['view_angle_deg'] ?? 60) . '"></label></div>';
             echo '<label>' . self::t('cameras.retention', 'Глубина архива') . '<input name="retention_days" value="' . Util::h($edit['retention_days'] ?? '7d') . '"></label>';
             echo '<label class="check"><input type="checkbox" name="blocked" ' . (!empty($edit['blocked']) ? 'checked' : '') . '> ' . self::t('cameras.blocked', 'Заблокирована') . '</label>';
             self::checkboxList(self::t('cameras.groups', 'Группы'), 'group_ids[]', $groups, $linkedGroups, 'name');
@@ -1712,6 +1726,8 @@ final class App
                 'direction' => (int)$camera['direction_deg'],
                 'favorite' => isset($favorites[(int)$camera['id']]),
                 'player' => self::playerUrl($camera),
+                'preview' => self::previewUrl($camera, $token),
+                'server' => $camera['server_name'] ?? self::t('common.noServer', 'Без сервера'),
             ];
         }
         echo '<script>window.SESAME_CAMERAS = ' . json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . ';</script>';
