@@ -245,6 +245,9 @@ code {
   gap: 16px;
   align-items: start;
 }
+.group-admin-grid {
+  grid-template-columns: minmax(360px, 520px) minmax(0, 1fr);
+}
 .admin-grid > .panel {
   min-width: 0;
 }
@@ -279,6 +282,77 @@ legend {
 .check-list {
   display: grid;
   gap: 8px;
+}
+.assignment-picker {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+}
+.assignment-toolbar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 8px;
+  align-items: center;
+}
+.assignment-toolbar input {
+  height: 36px;
+}
+.assignment-selected-only {
+  min-height: 36px;
+  white-space: nowrap;
+}
+.assignment-selected-only.active {
+  color: #8A5C0C;
+  background: #F9F0DE;
+  border-color: #DEBD78;
+}
+.assignment-count {
+  justify-self: end;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+.assignment-list {
+  display: grid;
+  gap: 4px;
+  max-height: 260px;
+  overflow: auto;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #FAF9F6;
+  scrollbar-width: thin;
+}
+.assignment-row {
+  display: flex;
+  grid-template-columns: none;
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+  padding: 6px 8px;
+  border-radius: 9px;
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 800;
+}
+.assignment-row:hover {
+  background: #fff;
+}
+.assignment-row input:checked + span {
+  color: #8A5C0C;
+}
+.assignment-row span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.assignment-empty {
+  padding: 12px;
+  color: var(--muted);
+  font-weight: 800;
+  text-align: center;
 }
 .table-search,
 .audit-filters {
@@ -725,6 +799,16 @@ tr:last-child td {
   display: grid;
   place-items: center;
 }
+.map-popup-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.map-popup-actions .favorite-form {
+  position: static;
+  flex: 0 0 auto;
+}
 .leaflet-popup-content a {
   color: #8A5C0C;
   font-weight: 800;
@@ -913,6 +997,12 @@ body.player-view .player-frame {
   }
   .section-head {
     display: grid;
+  }
+  .assignment-toolbar {
+    grid-template-columns: 1fr;
+  }
+  .assignment-count {
+    justify-self: start;
   }
   .panel:not(.map-panel) {
     padding: 16px;

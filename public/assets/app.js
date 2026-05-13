@@ -4,6 +4,7 @@
   initCameraPositionEditor();
   initPlayer();
   initPreviewRefresh();
+  initAssignmentPickers();
 
   function initMap() {
     if (!window.L || !window.SESAME_CAMERAS || !document.getElementById("map")) return;
@@ -359,13 +360,25 @@
     const preview = camera.preview
       ? `<a class="map-popup-preview" href="${escapeHtml(camera.player)}"><img src="${escapeHtml(camera.preview)}" data-preview-src="${escapeHtml(camera.preview)}" data-preview-refresh="off" alt="" loading="lazy"><span class="map-popup-preview-state">${escapeHtml(tr("previewUnavailable", "Превью недоступно"))}</span></a>`
       : `<div class="map-popup-preview no-preview"><span class="map-popup-preview-state">${escapeHtml(tr("previewUnavailable", "Превью недоступно"))}</span></div>`;
+    const favoriteTitle = camera.favorite
+      ? tr("removeFavorite", "Удалить из избранного")
+      : tr("addFavorite", "Добавить в избранное");
+    const favoriteClass = camera.favorite ? "favorite active" : "favorite";
+    const favoriteIcon = camera.favorite ? "★" : "☆";
 
     return `
       <div class="map-popup-card">
         ${preview}
         <strong>${escapeHtml(camera.name)}</strong>
         <span>${escapeHtml(camera.server || "")}</span>
-        <a href="${escapeHtml(camera.player)}">${escapeHtml(tr("openVideo", "Открыть видео"))}</a>
+        <div class="map-popup-actions">
+          <a href="${escapeHtml(camera.player)}">${escapeHtml(tr("openVideo", "Открыть видео"))}</a>
+          <form method="post" action="/favorite/toggle" class="favorite-form">
+            <input type="hidden" name="csrf" value="${escapeHtml(window.SESAME_CSRF || "")}">
+            <input type="hidden" name="camera_id" value="${escapeHtml(camera.id)}">
+            <button title="${escapeHtml(favoriteTitle)}" aria-label="${escapeHtml(favoriteTitle)}" class="${favoriteClass}">${favoriteIcon}</button>
+          </form>
+        </div>
       </div>
     `;
   }
@@ -392,6 +405,47 @@
         refreshPreview(image);
         window.setTimeout(refreshLoop, intervalMs);
       }, intervalMs + Math.min(index * 1200, intervalMs));
+    });
+  }
+
+  function initAssignmentPickers() {
+    document.querySelectorAll("[data-assignment-picker]").forEach((picker) => {
+      const search = picker.querySelector(".assignment-search");
+      const selectedOnly = picker.querySelector(".assignment-selected-only");
+      const count = picker.querySelector(".assignment-count");
+      const empty = picker.querySelector(".assignment-empty");
+      const rows = Array.from(picker.querySelectorAll(".assignment-row"));
+      const update = () => {
+        const query = String(search?.value || "").trim().toLowerCase();
+        const selectedOnlyMode = selectedOnly?.getAttribute("aria-pressed") === "true";
+        let selected = 0;
+        let visible = 0;
+        rows.forEach((row) => {
+          const checkbox = row.querySelector('input[type="checkbox"]');
+          const checked = Boolean(checkbox?.checked);
+          const matches = row.textContent.toLowerCase().includes(query);
+          const show = matches && (!selectedOnlyMode || checked);
+          if (checked) selected += 1;
+          if (show) visible += 1;
+          row.hidden = !show;
+        });
+        if (count) {
+          count.textContent = `${tr("selectedCount", "Выбрано")}: ${selected} / ${rows.length}`;
+        }
+        if (empty) {
+          empty.hidden = visible > 0;
+        }
+      };
+
+      search?.addEventListener("input", update);
+      selectedOnly?.addEventListener("click", () => {
+        const active = selectedOnly.getAttribute("aria-pressed") === "true";
+        selectedOnly.setAttribute("aria-pressed", active ? "false" : "true");
+        selectedOnly.classList.toggle("active", !active);
+        update();
+      });
+      rows.forEach((row) => row.querySelector('input[type="checkbox"]')?.addEventListener("change", update));
+      update();
     });
   }
 

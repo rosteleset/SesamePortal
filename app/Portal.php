@@ -572,6 +572,10 @@ final class I18n
             'openVideo' => self::t('js.openVideo', 'Открыть видео'),
             'previewUnavailable' => self::t('js.previewUnavailable', 'Превью недоступно'),
             'mapChangePending' => self::t('js.mapChangePending', 'Подтвердите изменение на карте'),
+            'favorite' => self::t('filter.favorites', 'Избранное'),
+            'addFavorite' => self::t('js.addFavorite', 'Добавить в избранное'),
+            'removeFavorite' => self::t('js.removeFavorite', 'Удалить из избранного'),
+            'selectedCount' => self::t('js.selectedCount', 'Выбрано'),
             'apply' => self::t('action.apply', 'Применить'),
             'cancel' => self::t('action.cancel', 'Отменить'),
             'fullscreen' => self::t('player.fullscreen', 'На весь экран'),
@@ -637,6 +641,13 @@ final class I18n
                 'js.openVideo' => 'Open video',
                 'js.previewUnavailable' => 'Preview unavailable',
                 'js.mapChangePending' => 'Confirm map change',
+                'js.addFavorite' => 'Add to favorites',
+                'js.removeFavorite' => 'Remove from favorites',
+                'js.selectedCount' => 'Selected',
+                'assignment.selectedOnly' => 'Selected only',
+                'assignment.empty' => 'Nothing found',
+                'assignment.searchUsers' => 'Find user',
+                'assignment.searchCameras' => 'Find camera',
                 'dashboard.users' => 'Users',
                 'dashboard.groups' => 'Groups',
                 'dashboard.cameras' => 'Cameras',
@@ -1499,14 +1510,14 @@ final class App
         $list = self::filteredRows('portal_groups', ['name', 'description'], 'name ASC');
         $groups = $list['rows'];
         self::layout(self::t('groups.title', 'Группы'), function () use ($edit, $users, $cameras, $linkedUsers, $linkedCameras, $groups, $list) {
-            echo '<div class="admin-grid"><section class="panel"><h2>' . ($edit ? self::t('groups.edit', 'Изменить группу') : self::t('groups.new', 'Новая группа')) . '</h2>';
+            echo '<div class="admin-grid group-admin-grid"><section class="panel"><h2>' . ($edit ? self::t('groups.edit', 'Изменить группу') : self::t('groups.new', 'Новая группа')) . '</h2>';
             echo '<form method="post" class="form">' . Csrf::field();
             echo '<input type="hidden" name="action" value="save"><input type="hidden" name="id" value="' . Util::h($edit['id'] ?? 0) . '">';
             echo '<label>Название<input name="name" value="' . Util::h($edit['name'] ?? '') . '" required></label>';
             echo '<label>Описание<textarea name="description">' . Util::h($edit['description'] ?? '') . '</textarea></label>';
             echo '<label class="check"><input type="checkbox" name="blocked" ' . (!empty($edit['blocked']) ? 'checked' : '') . '> Заблокирована</label>';
-            self::checkboxList('Пользователи', 'user_ids[]', $users, $linkedUsers, 'login');
-            self::checkboxList('Камеры', 'camera_ids[]', $cameras, $linkedCameras, 'name');
+            self::assignmentPicker('Пользователи', 'user_ids[]', $users, $linkedUsers, 'login', self::t('assignment.searchUsers', 'Найти пользователя'));
+            self::assignmentPicker('Камеры', 'camera_ids[]', $cameras, $linkedCameras, 'name', self::t('assignment.searchCameras', 'Найти камеру'));
             echo '<button class="primary">' . self::t('action.save', 'Сохранить') . '</button></form></section>';
             self::table(self::t('groups.title', 'Группы'), ['name', 'blocked', 'description'], $groups, '/admin/groups', false, $list);
             echo '</div>';
@@ -1865,7 +1876,7 @@ final class App
             $body();
             echo '</main>';
         }
-        echo '<script>window.SESAME_I18N = ' . json_encode(I18n::js(), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . ';</script>';
+        echo '<script>window.SESAME_I18N = ' . json_encode(I18n::js(), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . '; window.SESAME_CSRF = ' . json_encode(Csrf::token(), JSON_UNESCAPED_SLASHES) . ';</script>';
         echo '<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script><script src="' . Util::h(self::assetUrl('/assets/app.js')) . '"></script>';
         echo '</body></html>';
     }
@@ -2235,6 +2246,42 @@ final class App
         foreach ($rows as $row) {
             echo '<label class="check"><input type="checkbox" name="' . Util::h($name) . '" value="' . (int)$row['id'] . '" ' . (in_array((int)$row['id'], $selected, true) ? 'checked' : '') . '> ' . Util::h($row[$labelKey]) . '</label>';
         }
+        echo '</div></fieldset>';
+    }
+
+    private static function assignmentPicker(string $title, string $name, array $rows, array $selected, string $labelKey, string $searchPlaceholder): void
+    {
+        $selectedSet = array_flip(array_map('intval', $selected));
+        $ordered = $rows;
+        usort($ordered, static function (array $left, array $right) use ($selectedSet, $labelKey): int {
+            $leftSelected = isset($selectedSet[(int)$left['id']]) ? 0 : 1;
+            $rightSelected = isset($selectedSet[(int)$right['id']]) ? 0 : 1;
+            if ($leftSelected !== $rightSelected) {
+                return $leftSelected <=> $rightSelected;
+            }
+
+            return strnatcasecmp((string)$left[$labelKey], (string)$right[$labelKey]);
+        });
+
+        $selectedCount = 0;
+        foreach ($rows as $row) {
+            if (isset($selectedSet[(int)$row['id']])) {
+                $selectedCount++;
+            }
+        }
+
+        echo '<fieldset class="assignment-picker" data-assignment-picker><legend>' . Util::h($title) . '</legend>';
+        echo '<div class="assignment-toolbar">';
+        echo '<input type="search" class="assignment-search" placeholder="' . Util::h($searchPlaceholder) . '" autocomplete="off">';
+        echo '<button type="button" class="assignment-selected-only" aria-pressed="false">' . self::t('assignment.selectedOnly', 'Только выбранные') . '</button>';
+        echo '<span class="assignment-count" data-total="' . count($rows) . '">' . self::t('js.selectedCount', 'Выбрано') . ': ' . $selectedCount . ' / ' . count($rows) . '</span>';
+        echo '</div>';
+        echo '<div class="assignment-list">';
+        foreach ($ordered as $row) {
+            $checked = isset($selectedSet[(int)$row['id']]);
+            echo '<label class="assignment-row"><input type="checkbox" name="' . Util::h($name) . '" value="' . (int)$row['id'] . '" ' . ($checked ? 'checked' : '') . '><span>' . Util::h($row[$labelKey]) . '</span></label>';
+        }
+        echo '<div class="assignment-empty" hidden>' . self::t('assignment.empty', 'Ничего не найдено') . '</div>';
         echo '</div></fieldset>';
     }
 
