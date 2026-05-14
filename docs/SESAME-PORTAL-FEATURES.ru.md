@@ -36,6 +36,26 @@ SesamePortal - локально устанавливаемый портал ви
 - резервное копирование и восстановление данных через CLI;
 - установщик для nginx, php-fpm, SQLite и Let's Encrypt SSL.
 
+## Скриншоты интерфейсов
+
+### SesameDVR
+
+| Потоки и player | Мониторинг | ONVIF |
+| --- | --- | --- |
+| <img src="screenshots/sesamedvr-streams.jpg" alt="SesameDVR: потоки и player" width="280"> | <img src="screenshots/sesamedvr-monitoring.jpg" alt="SesameDVR: мониторинг" width="280"> | <img src="screenshots/sesamedvr-onvif.jpg" alt="SesameDVR: ONVIF" width="280"> |
+
+### SesamePortal: desktop-версия
+
+| Dashboard | Мозаика | Карта | Player |
+| --- | --- | --- | --- |
+| <img src="screenshots/sesameportal-desktop-dashboard.jpg" alt="SesamePortal desktop: dashboard" width="220"> | <img src="screenshots/sesameportal-desktop-mosaic.jpg" alt="SesamePortal desktop: мозаика" width="220"> | <img src="screenshots/sesameportal-desktop-map.jpg" alt="SesamePortal desktop: карта" width="220"> | <img src="screenshots/sesameportal-desktop-player.jpg" alt="SesamePortal desktop: player" width="220"> |
+
+### SesamePortal: mobile-версия
+
+| Мозаика | Карта | Player |
+| --- | --- | --- |
+| <img src="screenshots/sesameportal-mobile-mosaic.jpg" alt="SesamePortal mobile: мозаика" width="180"> | <img src="screenshots/sesameportal-mobile-map.jpg" alt="SesamePortal mobile: карта" width="180"> | <img src="screenshots/sesameportal-mobile-player.jpg" alt="SesamePortal mobile: player" width="180"> |
+
 ## Административный интерфейс
 
 Администратор получает полный доступ к настройкам портала и может управлять

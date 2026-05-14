@@ -59,6 +59,26 @@ direction/FOV markers, and exposes the same favorite toggle as the mosaic.
 All UI timestamps are rendered in the browser timezone. The server stores and
 exchanges timestamps as absolute values.
 
+## Screenshots
+
+### SesameDVR
+
+| Streams and playback | Monitoring | ONVIF |
+| --- | --- | --- |
+| <img src="docs/screenshots/sesamedvr-streams.jpg" alt="SesameDVR streams and player" width="280"> | <img src="docs/screenshots/sesamedvr-monitoring.jpg" alt="SesameDVR monitoring" width="280"> | <img src="docs/screenshots/sesamedvr-onvif.jpg" alt="SesameDVR ONVIF devices" width="280"> |
+
+### SesamePortal: Desktop
+
+| Dashboard | Mosaic | Map | Player |
+| --- | --- | --- | --- |
+| <img src="docs/screenshots/sesameportal-desktop-dashboard.jpg" alt="SesamePortal desktop dashboard" width="220"> | <img src="docs/screenshots/sesameportal-desktop-mosaic.jpg" alt="SesamePortal desktop mosaic" width="220"> | <img src="docs/screenshots/sesameportal-desktop-map.jpg" alt="SesamePortal desktop map" width="220"> | <img src="docs/screenshots/sesameportal-desktop-player.jpg" alt="SesamePortal desktop player" width="220"> |
+
+### SesamePortal: Mobile
+
+| Mosaic | Map | Player |
+| --- | --- | --- |
+| <img src="docs/screenshots/sesameportal-mobile-mosaic.jpg" alt="SesamePortal mobile mosaic" width="180"> | <img src="docs/screenshots/sesameportal-mobile-map.jpg" alt="SesamePortal mobile map" width="180"> | <img src="docs/screenshots/sesameportal-mobile-player.jpg" alt="SesamePortal mobile player" width="180"> |
+
 ## Production Install
 
 ```bash
