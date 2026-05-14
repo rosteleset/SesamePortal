@@ -116,16 +116,6 @@ curl -fsSL https://license.sesameware.com/sesame-dvr-artifacts/bootstrap-trial-i
 Подробнее:
 [`docs/SESAME-DVR-TRIAL-INSTALL.ru.md`](docs/SESAME-DVR-TRIAL-INSTALL.ru.md).
 
-## Release artifact
-
-```bash
-bash scripts/package-release.sh --version 1.0.0
-```
-
-Скрипт сборки создаёт `_dist/sesame-portal-<version>.tar.gz`,
-`_dist/sesame-portal-<version>.tar.gz.sha256` и добавляет `RELEASE.json` внутрь
-архива.
-
 ## CLI
 
 ```bash
