@@ -258,6 +258,12 @@ MySQL или PostgreSQL через конфигурацию.
 - резервного копирования;
 - восстановления из backup.
 
+## Связанные документы
+
+- [Описание продукта SesameDVR для продаж](PRODUCT-SALES-DESCRIPTION.ru.md)
+- [Руководство пользователя SesameDVR](sesame-dvr-user-guide.ru.md)
+- [Установка SesameDVR Trial](SESAME-DVR-TRIAL-INSTALL.ru.md)
+
 Это позволяет автоматизировать обслуживание портала и интегрировать его в
 штатные процессы эксплуатации.
 
