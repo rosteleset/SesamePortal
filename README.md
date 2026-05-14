@@ -1,5 +1,7 @@
 # SesamePortal
 
+Languages: [English](README.md) | [Русский](README.ru.md)
+
 SesamePortal is a local PHP surveillance portal for SesameDVR installations. It
 manages DVR servers, users, groups, cameras, per-user playback tokens, favorites,
 and provides mosaic/map viewing pages backed by a SesameDVR auth backend.
