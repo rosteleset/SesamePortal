@@ -53,6 +53,10 @@ $pdo->prepare('INSERT INTO cameras(name, source_url, server_id, server_selection
     ->execute(['Smoke Cam', 'rtsp://example.invalid/smoke', 1, 'manual', '1d', 'smoke-cam', 25.2048, 55.2708, 90, $now, $now]);
 $pdo->prepare('INSERT INTO cameras(name, source_url, server_id, server_selection, retention_days, dvr_control_mode, dvr_stream_name, created_at, updated_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)')
     ->execute(['Read Only Cam', '', 1, 'manual', '1d', 'read_only', 'readonly-cam', $now, $now]);
+$extraCamera = $pdo->prepare('INSERT INTO cameras(name, source_url, server_id, server_selection, retention_days, dvr_stream_name, created_at, updated_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?)');
+for ($i = 1; $i <= 16; $i++) {
+    $extraCamera->execute([sprintf('Smoke Extra %02d', $i), 'rtsp://example.invalid/extra-' . $i, 1, 'manual', '1d', 'extra-cam-' . $i, $now, $now]);
+}
 $pdo->prepare('INSERT INTO portal_groups(name, description, blocked, created_at) VALUES(?, ?, ?, ?)')
     ->execute(['Smoke Group', 'smoke test group', 0, $now]);
 $pdo->prepare('INSERT INTO camera_groups(camera_id, group_id) VALUES(?, ?)')
@@ -103,6 +107,28 @@ status="$(
     "http://127.0.0.1:$PORT/login"
 )"
 test "$status" = "303"
+
+while IFS='|' read -r locale title; do
+  [[ -z "$locale" ]] && continue
+  localized_viewer="$(curl -fsS -b "$COOKIE_JAR" -c "$COOKIE_JAR" "http://127.0.0.1:$PORT/?lang=$locale")"
+  printf "%s" "$localized_viewer" | grep -F -q "<h1>$title</h1>"
+  ! printf "%s" "$localized_viewer" | grep -F -q "<h1>Камеры</h1>"
+done <<'LOCALES'
+en|Cameras
+de|Kameras
+fr|Caméras
+es|Cámaras
+it|Telecamere
+pt|Câmaras
+bg|Камери
+pl|Kamery
+zh|摄像机
+ja|カメラ
+ko|카메라
+ar|الكاميرات
+hy|Տեսախցիկներ
+LOCALES
+curl -fsS -b "$COOKIE_JAR" -c "$COOKIE_JAR" "http://127.0.0.1:$PORT/?lang=ru" >/dev/null
 
 dashboard_page="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/admin/dashboard")"
 printf "%s" "$dashboard_page" | grep -q "SesameDVR серверы"
@@ -157,7 +183,15 @@ printf "%s" "$mosaic_page" | grep -q 'decoding="async" hidden'
 printf "%s" "$mosaic_page" | grep -q "group-filter"
 printf "%s" "$mosaic_page" | grep -q "Smoke Group"
 printf "%s" "$mosaic_page" | grep -q 'name="filter"'
+printf "%s" "$mosaic_page" | grep -q "density-switch"
+printf "%s" "$mosaic_page" | grep -q "camera-grid cols-3"
+printf "%s" "$mosaic_page" | grep -q "cols=6"
+printf "%s" "$mosaic_page" | grep -q "pager"
 ! printf "%s" "$mosaic_page" | grep -q "group_q"
+cols_page="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/?cols=2&page=2")"
+printf "%s" "$cols_page" | grep -q "camera-grid cols-2"
+printf "%s" "$cols_page" | grep -q "Smoke Extra 11"
+printf "%s" "$cols_page" | grep -q 'class="active" href="/?page=2&amp;cols=2"'
 curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/?filter=group:1" | grep -q "Smoke Cam"
 curl -fsS "http://127.0.0.1:$PORT/assets/styles.css" | grep -q "aspect-ratio: 16 / 9"
 map_page="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/viewer/map")"

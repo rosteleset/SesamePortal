@@ -648,6 +648,7 @@ final class I18n
                 'column.last_check_result' => 'Проверка',
                 'column.dvr_control_mode' => 'Режим',
                 'column.retention_days' => 'Архив',
+                'viewer.columnsPerRow' => 'Камер в ряду',
             ],
             'en' => [
                 'language.label' => 'Language',
@@ -687,6 +688,7 @@ final class I18n
                 'filter.groupSelectPlaceholder' => 'Select group',
                 'filter.noGroups' => 'No groups found',
                 'viewer.openPlayer' => 'Open player',
+                'viewer.columnsPerRow' => 'Cameras per row',
                 'player.title' => 'Player',
                 'player.fullscreen' => 'Fullscreen',
                 'player.collapse' => 'Exit fullscreen',
@@ -824,6 +826,7 @@ final class I18n
                 'filter.groupSelectPlaceholder' => 'Gruppe auswählen',
                 'filter.noGroups' => 'Keine Gruppen gefunden',
                 'viewer.openPlayer' => 'Player öffnen',
+                'viewer.columnsPerRow' => 'Kameras pro Zeile',
                 'player.title' => 'Player',
                 'player.fullscreen' => 'Vollbild',
                 'player.collapse' => 'Vollbild verlassen',
@@ -919,6 +922,7 @@ final class I18n
                 'filter.groupSelectPlaceholder' => 'Choisir un groupe',
                 'filter.noGroups' => 'Aucun groupe trouvé',
                 'viewer.openPlayer' => 'Ouvrir le lecteur',
+                'viewer.columnsPerRow' => 'Caméras par ligne',
                 'player.title' => 'Lecteur',
                 'player.fullscreen' => 'Plein écran',
                 'player.collapse' => 'Quitter le plein écran',
@@ -1011,6 +1015,7 @@ final class I18n
                 'filter.favorites' => 'Favoritos',
                 'filter.groupSelectPlaceholder' => 'Seleccionar grupo',
                 'viewer.openPlayer' => 'Abrir reproductor',
+                'viewer.columnsPerRow' => 'Cámaras por fila',
                 'player.title' => 'Reproductor',
                 'dashboard.users' => 'Usuarios',
                 'dashboard.groups' => 'Grupos',
@@ -1071,6 +1076,7 @@ final class I18n
                 'filter.all' => 'Tutte',
                 'filter.favorites' => 'Preferiti',
                 'viewer.openPlayer' => 'Apri player',
+                'viewer.columnsPerRow' => 'Telecamere per riga',
                 'dashboard.users' => 'Utenti',
                 'dashboard.groups' => 'Gruppi',
                 'dashboard.cameras' => 'Telecamere',
@@ -1110,6 +1116,7 @@ final class I18n
                 'filter.all' => 'Tudo',
                 'filter.favorites' => 'Favoritos',
                 'viewer.openPlayer' => 'Abrir leitor',
+                'viewer.columnsPerRow' => 'Câmaras por linha',
                 'dashboard.users' => 'Utilizadores',
                 'dashboard.groups' => 'Grupos',
                 'dashboard.cameras' => 'Câmaras',
@@ -1148,6 +1155,7 @@ final class I18n
                 'filter.all' => 'Всички',
                 'filter.favorites' => 'Любими',
                 'viewer.openPlayer' => 'Отвори плеър',
+                'viewer.columnsPerRow' => 'Камери на ред',
                 'dashboard.users' => 'Потребители',
                 'dashboard.groups' => 'Групи',
                 'dashboard.cameras' => 'Камери',
@@ -1186,6 +1194,7 @@ final class I18n
                 'filter.all' => 'Wszystkie',
                 'filter.favorites' => 'Ulubione',
                 'viewer.openPlayer' => 'Otwórz odtwarzacz',
+                'viewer.columnsPerRow' => 'Kamery w wierszu',
                 'dashboard.users' => 'Użytkownicy',
                 'dashboard.groups' => 'Grupy',
                 'dashboard.cameras' => 'Kamery',
@@ -1224,6 +1233,7 @@ final class I18n
                 'filter.all' => '全部',
                 'filter.favorites' => '收藏',
                 'viewer.openPlayer' => '打开播放器',
+                'viewer.columnsPerRow' => '每行摄像机',
                 'dashboard.users' => '用户',
                 'dashboard.groups' => '组',
                 'dashboard.cameras' => '摄像机',
@@ -1262,6 +1272,7 @@ final class I18n
                 'filter.all' => 'すべて',
                 'filter.favorites' => 'お気に入り',
                 'viewer.openPlayer' => 'プレイヤーを開く',
+                'viewer.columnsPerRow' => '1行あたりのカメラ数',
                 'dashboard.users' => 'ユーザー',
                 'dashboard.groups' => 'グループ',
                 'dashboard.cameras' => 'カメラ',
@@ -1300,6 +1311,7 @@ final class I18n
                 'filter.all' => '전체',
                 'filter.favorites' => '즐겨찾기',
                 'viewer.openPlayer' => '플레이어 열기',
+                'viewer.columnsPerRow' => '행당 카메라',
                 'dashboard.users' => '사용자',
                 'dashboard.groups' => '그룹',
                 'dashboard.cameras' => '카메라',
@@ -1338,6 +1350,7 @@ final class I18n
                 'filter.all' => 'الكل',
                 'filter.favorites' => 'المفضلة',
                 'viewer.openPlayer' => 'فتح المشغل',
+                'viewer.columnsPerRow' => 'كاميرات في كل صف',
                 'dashboard.users' => 'المستخدمون',
                 'dashboard.groups' => 'المجموعات',
                 'dashboard.cameras' => 'الكاميرات',
@@ -1376,6 +1389,7 @@ final class I18n
                 'filter.all' => 'Բոլորը',
                 'filter.favorites' => 'Ընտրյալներ',
                 'viewer.openPlayer' => 'Բացել նվագարկիչը',
+                'viewer.columnsPerRow' => 'Տեսախցիկներ տողում',
                 'dashboard.users' => 'Օգտատերեր',
                 'dashboard.groups' => 'Խմբեր',
                 'dashboard.cameras' => 'Տեսախցիկներ',
@@ -1390,6 +1404,176 @@ final class I18n
                 'column.name' => 'Անուն',
                 'column.server_name' => 'Սերվեր',
             ],
+        ];
+
+        $messages['ru'] += [
+            'nav.section.view' => 'Просмотр',
+            'nav.section.admin' => 'Администрирование',
+            'action.sync' => 'Синхронизировать',
+            'action.revoke' => 'Отозвать',
+            'token.static' => 'Статический токен',
+            'geo.latitude' => 'Широта',
+            'geo.longitude' => 'Долгота',
+        ];
+        $messages['en'] += [
+            'nav.section.view' => 'View',
+            'nav.section.admin' => 'Admin',
+            'action.sync' => 'Sync',
+            'action.revoke' => 'Revoke',
+            'token.static' => 'Static token',
+            'geo.latitude' => 'Latitude',
+            'geo.longitude' => 'Longitude',
+        ];
+        $messages['de'] += [
+            'nav.section.view' => 'Ansicht',
+            'nav.section.admin' => 'Administration',
+            'nav.dvr' => 'DVR',
+            'js.openVideo' => 'Video öffnen',
+            'js.previewUnavailable' => 'Vorschau nicht verfügbar',
+            'js.mapChangePending' => 'Kartenänderung bestätigen',
+            'js.addFavorite' => 'Zu Favoriten hinzufügen',
+            'js.removeFavorite' => 'Aus Favoriten entfernen',
+            'js.selectedCount' => 'Ausgewählt',
+            'assignment.selectedOnly' => 'Nur ausgewählte',
+            'assignment.empty' => 'Nichts gefunden',
+            'assignment.searchUsers' => 'Benutzer suchen',
+            'assignment.searchCameras' => 'Kamera suchen',
+            'dashboard.metricsUpdated' => 'Statistik aktualisiert',
+            'dashboard.metricsRefreshFailed' => 'Statistik wurde nicht aktualisiert. Details stehen in der Serverkarte.',
+            'dashboard.refreshFinished' => 'Aktualisierung abgeschlossen',
+            'dashboard.refreshOk' => 'erfolgreich',
+            'dashboard.refreshErrors' => 'mit Fehlern',
+            'server.checkOk' => 'Serverprüfung abgeschlossen',
+            'server.managementTokenUnreadableNotice' => 'Management-Token kann nicht entschlüsselt werden. Speichern Sie ein neues Token in den DVR-Servereinstellungen.',
+            'server.managementUnauthorizedNotice' => 'SesameDVR hat HTTP 401 zurückgegeben. Prüfen Sie das Management-Token in den DVR-Servereinstellungen.',
+            'users.loginRequired' => 'Login ist erforderlich',
+            'users.passwordShort' => 'Das Passwort muss mindestens 6 Zeichen lang sein',
+            'users.passwordPlaceholderNew' => 'mindestens 6 Zeichen',
+            'users.passwordPlaceholderEdit' => 'leer lassen, um nicht zu ändern',
+            'users.blocked' => 'Gesperrt',
+            'cameras.serverAutoNone' => 'Automatisch/nicht ausgewählt',
+            'cameras.serverSelection' => 'Serverauswahl',
+            'cameras.selectionManual' => 'konkret',
+            'cameras.selectionAuto' => 'automatisch zufällig',
+            'cameras.streamName' => 'SesameDVR-Streamname',
+            'cameras.clearPosition' => 'Punkt löschen',
+            'cameras.viewAngle' => 'Blickwinkel',
+            'cameras.blocked' => 'Gesperrt',
+            'cameras.mode' => 'Kameramodus',
+            'cameras.modeManaged' => 'Vollständige DVR-Verwaltung',
+            'cameras.modeReadOnly' => 'Read-only DVR-Stream',
+            'cameras.sourceRequired' => 'Quell-URL ist für vollständige DVR-Verwaltung erforderlich',
+            'cameras.readOnlySyncSkipped' => 'Read-only-Modus: DVR-Verwaltung übersprungen',
+            'servers.managementKey' => 'Management-Token',
+            'servers.blocked' => 'Gesperrt',
+            'audit.search' => 'Aktion, Benutzer oder Details suchen',
+            'audit.allActions' => 'Alle Aktionen',
+            'audit.allUsers' => 'Alle Benutzer',
+            'audit.raw' => 'Volltext',
+            'action.sync' => 'Synchronisieren',
+            'action.revoke' => 'Widerrufen',
+            'token.static' => 'Statisches Token',
+            'geo.latitude' => 'Breite',
+            'geo.longitude' => 'Länge',
+        ];
+        $messages['fr'] += [
+            'nav.section.view' => 'Vue',
+            'nav.section.admin' => 'Admin',
+            'action.sync' => 'Synchroniser',
+            'action.revoke' => 'Révoquer',
+            'token.static' => 'Jeton statique',
+            'geo.latitude' => 'Latitude',
+            'geo.longitude' => 'Longitude',
+        ];
+        $messages['es'] += [
+            'nav.section.view' => 'Vista',
+            'nav.section.admin' => 'Admin',
+            'action.sync' => 'Sincronizar',
+            'action.revoke' => 'Revocar',
+            'token.static' => 'Token estático',
+            'geo.latitude' => 'Latitud',
+            'geo.longitude' => 'Longitud',
+        ];
+        $messages['it'] += [
+            'nav.section.view' => 'Vista',
+            'nav.section.admin' => 'Admin',
+            'action.sync' => 'Sincronizza',
+            'action.revoke' => 'Revoca',
+            'token.static' => 'Token statico',
+            'geo.latitude' => 'Latitudine',
+            'geo.longitude' => 'Longitudine',
+        ];
+        $messages['pt'] += [
+            'nav.section.view' => 'Vista',
+            'nav.section.admin' => 'Admin',
+            'action.sync' => 'Sincronizar',
+            'action.revoke' => 'Revogar',
+            'token.static' => 'Token estático',
+            'geo.latitude' => 'Latitude',
+            'geo.longitude' => 'Longitude',
+        ];
+        $messages['bg'] += [
+            'nav.section.view' => 'Изглед',
+            'nav.section.admin' => 'Админ',
+            'action.sync' => 'Синхронизирай',
+            'action.revoke' => 'Отмени',
+            'token.static' => 'Статичен token',
+            'geo.latitude' => 'Ширина',
+            'geo.longitude' => 'Дължина',
+        ];
+        $messages['pl'] += [
+            'nav.section.view' => 'Widok',
+            'nav.section.admin' => 'Admin',
+            'action.sync' => 'Synchronizuj',
+            'action.revoke' => 'Unieważnij',
+            'token.static' => 'Token statyczny',
+            'geo.latitude' => 'Szerokość',
+            'geo.longitude' => 'Długość',
+        ];
+        $messages['zh'] += [
+            'nav.section.view' => '查看',
+            'nav.section.admin' => '管理',
+            'action.sync' => '同步',
+            'action.revoke' => '撤销',
+            'token.static' => '静态令牌',
+            'geo.latitude' => '纬度',
+            'geo.longitude' => '经度',
+        ];
+        $messages['ja'] += [
+            'nav.section.view' => '表示',
+            'nav.section.admin' => '管理',
+            'action.sync' => '同期',
+            'action.revoke' => '取り消し',
+            'token.static' => '静的トークン',
+            'geo.latitude' => '緯度',
+            'geo.longitude' => '経度',
+        ];
+        $messages['ko'] += [
+            'nav.section.view' => '보기',
+            'nav.section.admin' => '관리자',
+            'action.sync' => '동기화',
+            'action.revoke' => '취소',
+            'token.static' => '정적 토큰',
+            'geo.latitude' => '위도',
+            'geo.longitude' => '경도',
+        ];
+        $messages['ar'] += [
+            'nav.section.view' => 'العرض',
+            'nav.section.admin' => 'الإدارة',
+            'action.sync' => 'مزامنة',
+            'action.revoke' => 'إلغاء',
+            'token.static' => 'رمز ثابت',
+            'geo.latitude' => 'خط العرض',
+            'geo.longitude' => 'خط الطول',
+        ];
+        $messages['hy'] += [
+            'nav.section.view' => 'Դիտում',
+            'nav.section.admin' => 'Ադմին',
+            'action.sync' => 'Համաժամացնել',
+            'action.revoke' => 'Չեղարկել',
+            'token.static' => 'Ստատիկ token',
+            'geo.latitude' => 'Լայնություն',
+            'geo.longitude' => 'Երկայնություն',
         ];
 
         foreach (array_keys(self::LOCALES) as $locale) {
@@ -1934,7 +2118,51 @@ final class Repo
 
     public static function accessibleCameras(array $user, string $filter = 'all'): array
     {
+        [$join, $where, $params] = self::accessibleCameraScope($user, $filter);
+        $sql = 'SELECT DISTINCT c.*, s.name AS server_name, s.base_url AS server_url
+                FROM cameras c ' . $join . '
+                WHERE ' . implode(' AND ', $where) . '
+                ORDER BY c.name ASC';
+        $stmt = DB::pdo()->prepare($sql);
+        $stmt->execute($params);
+        return $stmt->fetchAll();
+    }
+
+    public static function accessibleCamerasPage(array $user, string $filter, int $page, int $pageSize): array
+    {
+        [$join, $where, $params] = self::accessibleCameraScope($user, $filter);
         $pdo = DB::pdo();
+        $pageSize = max(1, $pageSize);
+        $count = $pdo->prepare('SELECT COUNT(DISTINCT c.id) FROM cameras c ' . $join . ' WHERE ' . implode(' AND ', $where));
+        $count->execute($params);
+        $total = (int)$count->fetchColumn();
+        $pages = max(1, (int)ceil($total / $pageSize));
+        $page = min(max(1, $page), $pages);
+
+        $stmt = $pdo->prepare(
+            'SELECT DISTINCT c.*, s.name AS server_name, s.base_url AS server_url
+             FROM cameras c ' . $join . '
+             WHERE ' . implode(' AND ', $where) . '
+             ORDER BY c.name ASC
+             LIMIT ? OFFSET ?'
+        );
+        $bind = [...$params, $pageSize, ($page - 1) * $pageSize];
+        foreach ($bind as $idx => $value) {
+            $stmt->bindValue($idx + 1, $value, is_int($value) ? PDO::PARAM_INT : PDO::PARAM_STR);
+        }
+        $stmt->execute();
+
+        return [
+            'rows' => $stmt->fetchAll(),
+            'total' => $total,
+            'page' => $page,
+            'pageSize' => $pageSize,
+            'filter' => $filter,
+        ];
+    }
+
+    private static function accessibleCameraScope(array $user, string $filter): array
+    {
         $params = [];
         $where = ['c.blocked = 0'];
         $join = 'LEFT JOIN dvr_servers s ON s.id = c.server_id';
@@ -1945,12 +2173,12 @@ final class Repo
                        JOIN portal_groups pg_access ON pg_access.id = cg_access.group_id';
             $where[] = 'ug_access.user_id = ?';
             $where[] = 'pg_access.blocked = 0';
-            $params[] = $user['id'];
+            $params[] = (int)$user['id'];
         }
 
         if ($filter === 'favorites') {
             $join .= ' JOIN favorites f ON f.camera_id = c.id AND f.user_id = ?';
-            $params[] = $user['id'];
+            $params[] = (int)$user['id'];
         } elseif (str_starts_with($filter, 'group:')) {
             $groupId = (int)substr($filter, 6);
             $join .= ' JOIN camera_groups cg_filter ON cg_filter.camera_id = c.id';
@@ -1968,13 +2196,7 @@ final class Repo
             }
         }
 
-        $sql = 'SELECT DISTINCT c.*, s.name AS server_name, s.base_url AS server_url
-                FROM cameras c ' . $join . '
-                WHERE ' . implode(' AND ', $where) . '
-                ORDER BY c.name ASC';
-        $stmt = $pdo->prepare($sql);
-        $stmt->execute($params);
-        return $stmt->fetchAll();
+        return [$join, $where, $params];
     }
 
     public static function groupsForUser(array $user): array
@@ -2089,7 +2311,7 @@ final class App
         $servers = Repo::all('dvr_servers', 'name ASC');
         $recentSync = DB::pdo()->query('SELECT c.*, s.name AS server_name FROM cameras c LEFT JOIN dvr_servers s ON s.id = c.server_id ORDER BY COALESCE(c.last_sync_at, "") DESC, c.name ASC LIMIT 12')->fetchAll();
 
-        self::layout('Dashboard', function () use ($counts, $servers, $recentSync, $message) {
+        self::layout(self::t('nav.dashboard', 'Dashboard'), function () use ($counts, $servers, $recentSync, $message) {
             self::notice($message);
             echo '<section class="summary-grid">';
             foreach ($counts as $label => $value) {
@@ -2237,7 +2459,7 @@ final class App
         self::layout(self::t('users.title', 'Пользователи'), function () use ($users, $edit, $message, $staticToken, $list) {
             self::notice($message);
             if ($staticToken) {
-                echo '<div class="alert">Static token: <code>' . Util::h($staticToken) . '</code></div>';
+                echo '<div class="alert">' . self::t('token.static', 'Статический token') . ': <code>' . Util::h($staticToken) . '</code></div>';
             }
             echo '<div class="admin-grid">';
             echo '<section class="panel"><h2>' . ($edit ? self::t('users.edit', 'Изменить пользователя') : self::t('users.new', 'Новый пользователь')) . '</h2>';
@@ -2245,7 +2467,7 @@ final class App
             echo '<input type="hidden" name="action" value="save"><input type="hidden" name="id" value="' . Util::h($edit['id'] ?? 0) . '">';
             echo '<label>' . self::t('field.login', 'Логин') . '<input name="login" value="' . Util::h($edit['login'] ?? '') . '" required></label>';
             echo '<label>' . self::t('field.password', 'Пароль') . '<input name="password" type="password" minlength="6" placeholder="' . ($edit ? self::t('users.passwordPlaceholderEdit', 'оставьте пустым, чтобы не менять') : self::t('users.passwordPlaceholderNew', 'минимум 6 символов')) . '"></label>';
-            echo '<label>Роль<select name="role"><option value="user">user</option><option value="admin" ' . (($edit['role'] ?? '') === 'admin' ? 'selected' : '') . '>admin</option></select></label>';
+            echo '<label>' . self::t('column.role', 'Роль') . '<select name="role"><option value="user">user</option><option value="admin" ' . (($edit['role'] ?? '') === 'admin' ? 'selected' : '') . '>admin</option></select></label>';
             echo '<label class="check"><input type="checkbox" name="blocked" ' . (!empty($edit['blocked']) ? 'checked' : '') . '> ' . self::t('users.blocked', 'Заблокирован') . '</label>';
             echo '<button class="primary">' . self::t('action.save', 'Сохранить') . '</button></form></section>';
             self::table(self::t('users.title', 'Пользователи'), ['login', 'role', 'blocked', 'last_login_at'], $users, '/admin/users', false, $list);
@@ -2290,9 +2512,9 @@ final class App
             echo '<div class="admin-grid group-admin-grid"><section class="panel"><h2>' . ($edit ? self::t('groups.edit', 'Изменить группу') : self::t('groups.new', 'Новая группа')) . '</h2>';
             echo '<form method="post" class="form">' . Csrf::field();
             echo '<input type="hidden" name="action" value="save"><input type="hidden" name="id" value="' . Util::h($edit['id'] ?? 0) . '">';
-            echo '<label>Название<input name="name" value="' . Util::h($edit['name'] ?? '') . '" required></label>';
-            echo '<label>Описание<textarea name="description">' . Util::h($edit['description'] ?? '') . '</textarea></label>';
-            echo '<label class="check"><input type="checkbox" name="blocked" ' . (!empty($edit['blocked']) ? 'checked' : '') . '> Заблокирована</label>';
+            echo '<label>' . self::t('column.name', 'Название') . '<input name="name" value="' . Util::h($edit['name'] ?? '') . '" required></label>';
+            echo '<label>' . self::t('column.description', 'Описание') . '<textarea name="description">' . Util::h($edit['description'] ?? '') . '</textarea></label>';
+            echo '<label class="check"><input type="checkbox" name="blocked" ' . (!empty($edit['blocked']) ? 'checked' : '') . '> ' . self::t('column.blocked', 'Заблокирована') . '</label>';
             self::assignmentPicker(self::t('groups.users', 'Пользователи'), 'user_ids[]', $users, $linkedUsers, 'login', self::t('assignment.searchUsers', 'Найти пользователя'));
             self::assignmentPicker(self::t('groups.cameras', 'Камеры'), 'camera_ids[]', $cameras, $linkedCameras, 'name', self::t('assignment.searchCameras', 'Найти камеру'));
             echo '<button class="primary">' . self::t('action.save', 'Сохранить') . '</button></form></section>';
@@ -2339,7 +2561,7 @@ final class App
             echo '<div class="admin-grid"><section class="panel"><h2>' . ($edit ? self::t('servers.edit', 'Изменить сервер') : self::t('servers.new', 'Новый сервер')) . '</h2>';
             echo '<form method="post" class="form">' . Csrf::field();
             echo '<input type="hidden" name="action" value="save"><input type="hidden" name="id" value="' . Util::h($edit['id'] ?? 0) . '">';
-            echo '<label>Название<input name="name" value="' . Util::h($edit['name'] ?? '') . '" required></label>';
+            echo '<label>' . self::t('column.name', 'Название') . '<input name="name" value="' . Util::h($edit['name'] ?? '') . '" required></label>';
             echo '<label>URL<input name="base_url" value="' . Util::h($edit['base_url'] ?? '') . '" placeholder="https://dvr.example.com" required></label>';
             echo '<label>' . self::t('servers.managementKey', 'Management key') . '<input name="management_token" placeholder="' . ($edit ? self::t('users.passwordPlaceholderEdit', 'оставьте пустым, чтобы не менять') : '') . '"></label>';
             echo '<label class="check"><input type="checkbox" name="blocked" ' . (!empty($edit['blocked']) ? 'checked' : '') . '> ' . self::t('servers.blocked', 'Заблокирован') . '</label>';
@@ -2431,7 +2653,7 @@ final class App
             echo '<label>' . self::t('cameras.streamName', 'Имя потока SesameDVR') . '<input name="dvr_stream_name" value="' . Util::h($edit['dvr_stream_name'] ?? '') . '"></label>';
             $lat = $edit['latitude'] ?? '';
             $lng = $edit['longitude'] ?? '';
-            echo '<div class="form-row"><label>Latitude<input id="camera-latitude" name="latitude" value="' . Util::h($lat) . '"></label><label>Longitude<input id="camera-longitude" name="longitude" value="' . Util::h($lng) . '"></label></div>';
+            echo '<div class="form-row"><label>' . self::t('geo.latitude', 'Широта') . '<input id="camera-latitude" name="latitude" value="' . Util::h($lat) . '"></label><label>' . self::t('geo.longitude', 'Долгота') . '<input id="camera-longitude" name="longitude" value="' . Util::h($lng) . '"></label></div>';
             echo '<div class="camera-position-field"><div class="camera-position-head"><strong>' . self::t('cameras.position', 'Положение на карте') . '</strong><button type="button" class="camera-map-clear">' . self::t('cameras.clearPosition', 'Очистить точку') . '</button></div>';
             echo '<div id="camera-position-map" class="camera-position-map" data-lat="' . Util::h($lat) . '" data-lng="' . Util::h($lng) . '"></div></div>';
             echo '<div class="form-row"><label>' . self::t('cameras.direction', 'Направление') . '<input id="camera-direction" name="direction_deg" type="number" min="0" max="359" value="' . Util::h($edit['direction_deg'] ?? 0) . '"></label><label>' . self::t('cameras.viewAngle', 'Угол обзора') . '<input name="view_angle_deg" type="number" min="1" max="180" value="' . Util::h($edit['view_angle_deg'] ?? 60) . '"></label></div>';
@@ -2481,23 +2703,37 @@ final class App
         $user = Auth::requireLogin();
         $filter = (string)($_GET['filter'] ?? 'all');
         $groups = Repo::groupsForUser($user);
-        $cameras = Repo::accessibleCameras($user, $filter);
+        $cols = self::viewerColumns();
+        $cameraPager = null;
+        if ($mode === 'map') {
+            $cameras = Repo::accessibleCameras($user, $filter);
+        } else {
+            $cameraPager = Repo::accessibleCamerasPage($user, $filter, (int)($_GET['page'] ?? 1), $cols * 4);
+            $cameras = $cameraPager['rows'];
+        }
         $favorites = Repo::favoritesMap((int)$user['id']);
         $token = $user['daily_token'] ?? '';
 
-        self::layout($mode === 'map' ? 'Карта' : 'Камеры', function () use ($mode, $groups, $filter, $cameras, $favorites, $token) {
-            self::filters($mode, $groups, $filter);
+        $title = $mode === 'map' ? self::t('nav.map', 'Карта') : self::t('cameras.title', 'Камеры');
+        self::layout($title, function () use ($mode, $groups, $filter, $cameras, $favorites, $token, $cameraPager, $cols) {
+            self::filters($mode, $groups, $filter, $cols);
             if ($mode === 'map') {
                 self::map($cameras, $favorites, $token);
             } else {
-                self::mosaic($cameras, $favorites, $token);
+                self::mosaic($cameras, $favorites, $token, $cameraPager ?? [], $cols);
             }
         });
     }
 
-    private static function mosaic(array $cameras, array $favorites, string $token): void
+    private static function viewerColumns(): int
     {
-        echo '<section class="camera-grid">';
+        $cols = (int)($_GET['cols'] ?? 3);
+        return min(6, max(2, $cols));
+    }
+
+    private static function mosaic(array $cameras, array $favorites, string $token, array $pager, int $cols): void
+    {
+        echo '<section class="camera-grid cols-' . Util::h($cols) . '">';
         foreach ($cameras as $camera) {
             $player = self::playerUrl($camera);
             $preview = self::previewUrl($camera, $token);
@@ -2511,6 +2747,10 @@ final class App
             echo '</article>';
         }
         echo '</section>';
+        self::pager('/', $pager, [
+            'filter' => ($pager['filter'] ?? 'all') === 'all' ? '' : ($pager['filter'] ?? ''),
+            'cols' => $cols,
+        ]);
     }
 
     private static function map(array $cameras, array $favorites, string $token): void
@@ -2629,14 +2869,14 @@ final class App
         if ($user && $showChrome) {
             echo '<div class="shell"><aside class="sidebar">';
             echo '<a class="brand-logo-link" href="/"><img class="brand-logo-full" src="/assets/logo-sesameportal-inverse.svg" alt="SesamePortal"></a>';
-            echo '<div class="nav-section">View</div><nav class="nav">';
+            echo '<div class="nav-section">' . Util::h(self::t('nav.section.view', 'Просмотр')) . '</div><nav class="nav">';
             $viewerFilter = (string)($_GET['filter'] ?? 'all');
             self::navLink('/', self::t('nav.mosaic', 'Мозаика'), 'grid', Util::path() === '/' && $viewerFilter !== 'favorites');
             self::navLink('/viewer/map', self::t('nav.map', 'Карта'), 'map');
             self::navLink('/?filter=favorites', self::t('filter.favorites', 'Избранное'), 'star', ($_GET['filter'] ?? '') === 'favorites' && Util::path() === '/');
             echo '</nav>';
             if ($user['role'] === 'admin') {
-                echo '<div class="nav-section">Admin</div><nav class="nav">';
+                echo '<div class="nav-section">' . Util::h(self::t('nav.section.admin', 'Администрирование')) . '</div><nav class="nav">';
                 self::navLink('/admin/dashboard', self::t('nav.dashboard', 'Dashboard'), 'dashboard');
                 self::navLink('/admin/users', self::t('nav.users', 'Пользователи'), 'user');
                 self::navLink('/admin/groups', self::t('nav.groups', 'Группы'), 'group');
@@ -2695,18 +2935,27 @@ final class App
         return '<svg viewBox="0 0 24 24" aria-hidden="true">' . ($paths[$name] ?? $paths['grid']) . '</svg>';
     }
 
-    private static function filters(string $mode, array $groups, string $filter): void
+    private static function filters(string $mode, array $groups, string $filter, int $cols = 3): void
     {
         $base = $mode === 'map' ? '/viewer/map' : '/';
         $url = static function (array $params = []) use ($base): string {
             $query = http_build_query(array_filter($params, fn($value) => $value !== '' && $value !== null));
             return $base . ($query ? '?' . $query : '');
         };
+        $viewParams = static function (array $params = []) use ($mode, $cols): array {
+            if ($mode !== 'map') {
+                $params['cols'] = $cols;
+            }
+            return $params;
+        };
 
         echo '<section class="filters viewer-filters">';
-        echo '<a class="' . ($filter === 'all' ? 'active' : '') . '" href="' . Util::h($base) . '">' . self::t('filter.all', 'Все') . '</a>';
-        echo '<a class="' . ($filter === 'favorites' ? 'active' : '') . '" href="' . Util::h($url(['filter' => 'favorites'])) . '">' . self::t('filter.favorites', 'Избранное') . '</a>';
+        echo '<a class="' . ($filter === 'all' ? 'active' : '') . '" href="' . Util::h($url($viewParams())) . '">' . self::t('filter.all', 'Все') . '</a>';
+        echo '<a class="' . ($filter === 'favorites' ? 'active' : '') . '" href="' . Util::h($url($viewParams(['filter' => 'favorites']))) . '">' . self::t('filter.favorites', 'Избранное') . '</a>';
         echo '<form method="get" action="' . Util::h($base) . '" class="group-filter">';
+        if ($mode !== 'map') {
+            echo '<input type="hidden" name="cols" value="' . Util::h($cols) . '">';
+        }
         echo '<select name="filter" aria-label="' . self::t('filter.groupSelect', 'Группа') . '" onchange="if (this.value) this.form.submit()">';
         echo '<option value="" disabled' . (str_starts_with($filter, 'group:') ? '' : ' selected') . '>' . self::t('filter.groupSelectPlaceholder', 'Выбрать группу') . '</option>';
         if ($groups) {
@@ -2719,7 +2968,26 @@ final class App
         }
         echo '</select>';
         echo '<button>' . self::t('action.show', 'Показать') . '</button>';
-        echo '</form></section>';
+        echo '</form>';
+        if ($mode !== 'map') {
+            self::densitySwitch($filter, $cols);
+        }
+        echo '</section>';
+    }
+
+    private static function densitySwitch(string $filter, int $cols): void
+    {
+        echo '<nav class="density-switch" aria-label="' . Util::h(self::t('viewer.columnsPerRow', 'Камер в ряду')) . '">';
+        echo '<span>' . Util::h(self::t('viewer.columnsPerRow', 'Камер в ряду')) . '</span>';
+        for ($candidate = 2; $candidate <= 6; $candidate++) {
+            $params = ['cols' => $candidate];
+            if ($filter !== 'all') {
+                $params['filter'] = $filter;
+            }
+            $href = '/?' . http_build_query($params);
+            echo '<a class="' . ($cols === $candidate ? 'active' : '') . '" href="' . Util::h($href) . '">' . $candidate . '</a>';
+        }
+        echo '</nav>';
     }
 
     private static function serverMetricCard(array $server): void
@@ -3057,12 +3325,12 @@ final class App
                 self::smallPost($base, ['action' => 'check', 'id' => $row['id']], self::t('action.check', 'Проверить'));
             }
             if ($actions && str_contains($base, 'cameras')) {
-                self::smallPost($base, ['action' => 'sync', 'id' => $row['id']], 'Sync');
+                self::smallPost($base, ['action' => 'sync', 'id' => $row['id']], self::t('action.sync', 'Синхронизировать'));
             }
             self::smallPost($base, ['action' => 'delete', 'id' => $row['id']], self::t('action.delete', 'Удалить'), 'danger');
             if ($base === '/admin/users') {
-                self::smallPost($base, ['action' => 'issue_static', 'id' => $row['id']], 'Static token');
-                self::smallPost($base, ['action' => 'revoke_static', 'id' => $row['id']], 'Revoke');
+                self::smallPost($base, ['action' => 'issue_static', 'id' => $row['id']], self::t('token.static', 'Статический token'));
+                self::smallPost($base, ['action' => 'revoke_static', 'id' => $row['id']], self::t('action.revoke', 'Отозвать'));
             }
             echo '</div></td></tr>';
         }
@@ -3134,20 +3402,54 @@ final class App
 
     private static function pager(string $base, array $pager, array $extraParams = []): void
     {
+        if (!$pager) {
+            return;
+        }
+        $total = (int)($pager['total'] ?? 0);
+        $pageSize = max(1, (int)($pager['pageSize'] ?? 1));
+        $currentPage = max(1, (int)($pager['page'] ?? 1));
+        $rowCount = count($pager['rows'] ?? []);
+        $from = $total === 0 ? 0 : (($currentPage - 1) * $pageSize) + 1;
+        $to = $total === 0 ? 0 : min($total, $from + $rowCount - 1);
+        $shown = $total === 0 ? '0' : $from . '-' . $to;
+
+        echo '<div class="pager-note">' . self::t('table.shown', 'Показано') . ' ' . Util::h($shown) . ' ' . self::t('table.of', 'из') . ' ' . Util::h($total) . '</div>';
         $pages = (int)ceil(max(1, (int)$pager['total']) / max(1, (int)$pager['pageSize']));
         if ($pages <= 1) {
-            echo '<div class="pager-note">' . self::t('table.shown', 'Показано') . ' ' . Util::h(count($pager['rows'])) . ' ' . self::t('table.of', 'из') . ' ' . Util::h($pager['total']) . '</div>';
             return;
         }
 
-        echo '<nav class="pager">';
-        for ($page = 1; $page <= $pages; $page++) {
+        $pageHref = static function (int $page) use ($base, $pager, $extraParams): string {
             $query = http_build_query(array_filter([
                 'q' => $pager['q'] ?? '',
                 'page' => $page,
                 ...$extraParams,
             ], fn($value) => $value !== '' && $value !== null && $value !== 0));
-            echo '<a class="' . ((int)$pager['page'] === $page ? 'active' : '') . '" href="' . Util::h($base . ($query ? '?' . $query : '')) . '">' . $page . '</a>';
+            return $base . ($query ? '?' . $query : '');
+        };
+        $visible = [1, $pages];
+        for ($page = $currentPage - 2; $page <= $currentPage + 2; $page++) {
+            if ($page >= 1 && $page <= $pages) {
+                $visible[] = $page;
+            }
+        }
+        $visible = array_values(array_unique($visible));
+        sort($visible);
+
+        echo '<nav class="pager">';
+        if ($currentPage > 1) {
+            echo '<a href="' . Util::h($pageHref($currentPage - 1)) . '">&lsaquo;</a>';
+        }
+        $previous = 0;
+        foreach ($visible as $page) {
+            if ($previous > 0 && $page > $previous + 1) {
+                echo '<span class="pager-gap">...</span>';
+            }
+            echo '<a class="' . ($currentPage === $page ? 'active' : '') . '" href="' . Util::h($pageHref($page)) . '">' . $page . '</a>';
+            $previous = $page;
+        }
+        if ($currentPage < $pages) {
+            echo '<a href="' . Util::h($pageHref($currentPage + 1)) . '">&rsaquo;</a>';
         }
         echo '</nav>';
     }
@@ -3210,7 +3512,8 @@ final class App
     {
         echo '<form method="post" action="/favorite/toggle" class="favorite-form">' . Csrf::field();
         echo '<input type="hidden" name="camera_id" value="' . $cameraId . '">';
-        echo '<button title="Избранное" class="' . ($isFavorite ? 'favorite active' : 'favorite') . '">' . ($isFavorite ? '★' : '☆') . '</button></form>';
+        $label = self::t('filter.favorites', 'Избранное');
+        echo '<button title="' . Util::h($label) . '" aria-label="' . Util::h($label) . '" class="' . ($isFavorite ? 'favorite active' : 'favorite') . '">' . ($isFavorite ? '★' : '☆') . '</button></form>';
     }
 
     private static function notice(string $message): void

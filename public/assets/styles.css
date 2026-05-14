@@ -551,9 +551,18 @@ tr:last-child td {
   gap: 6px;
   flex-wrap: wrap;
 }
-.pager a {
+.pager a,
+.pager-gap {
   min-width: 36px;
   padding: 0 10px;
+}
+.pager-gap {
+  min-height: 38px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+  font-weight: 800;
 }
 .filters a.active,
 .pager a.active {
@@ -563,6 +572,21 @@ tr:last-child td {
 }
 .viewer-filters {
   margin-bottom: 8px;
+}
+.density-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
+.density-switch span {
+  color: var(--muted);
+  font-weight: 800;
+  white-space: nowrap;
+}
+.density-switch a {
+  width: 38px;
+  padding: 0;
 }
 .group-filter {
   display: inline-flex;
@@ -598,9 +622,15 @@ tr:last-child td {
   min-width: 0;
 }
 .camera-grid {
-  grid-template-columns: repeat(auto-fill, minmax(min(100%, 360px), 420px));
+  --camera-cols: 3;
+  grid-template-columns: repeat(var(--camera-cols), minmax(0, 1fr));
   align-items: start;
 }
+.camera-grid.cols-2 { --camera-cols: 2; }
+.camera-grid.cols-3 { --camera-cols: 3; }
+.camera-grid.cols-4 { --camera-cols: 4; }
+.camera-grid.cols-5 { --camera-cols: 5; }
+.camera-grid.cols-6 { --camera-cols: 6; }
 .preview {
   display: block;
   height: auto;
@@ -1171,6 +1201,12 @@ body.player-view .player-frame {
   }
   .camera-grid {
     grid-template-columns: 1fr;
+  }
+  .density-switch {
+    width: 100%;
+    margin-left: 0;
+    overflow-x: auto;
+    padding-bottom: 2px;
   }
   .login-card {
     padding: 26px;

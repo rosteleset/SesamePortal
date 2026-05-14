@@ -43,6 +43,18 @@ Each camera can run in one of two modes:
 - `read_only`: SesamePortal does not change DVR configuration and only uses the
   selected DVR server plus `dvr_stream_name` for preview, auth, and playback.
 
+## Viewer UI
+
+The mosaic uses fixed 16:9 camera cards. Preview images are preloaded behind a
+loader and then swapped in, so refreshes do not show half-loaded images.
+
+The map view auto-fits the current camera filter, clusters nearby cameras at
+lower zoom levels, shows camera direction/FOV markers, and exposes the same
+favorite toggle as the mosaic.
+
+All UI timestamps are rendered in the browser timezone. The server stores and
+exchanges timestamps as absolute values.
+
 ## Production Install
 
 ```bash
@@ -53,9 +65,11 @@ sudo bash scripts/install.sh \
   --admin-password 'change-me-now'
 ```
 
-The installer creates an nginx site, configures php-fpm, initializes SQLite,
-creates the first admin user, and can issue a Let's Encrypt certificate through
-certbot.
+The installer creates an nginx site, connects the detected php-fpm socket,
+initializes SQLite, creates the first admin user, and can issue a Let's Encrypt
+certificate through `certbot certonly --webroot`. It writes only the
+SesamePortal site file and does not let certbot rewrite existing nginx site
+configs.
 
 For repair/update runs against an existing database:
 

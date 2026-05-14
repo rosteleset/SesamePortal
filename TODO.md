@@ -37,7 +37,13 @@
 ## Phase 3: Product Polish
 
 - [x] Replace text logo with final Sesame brand asset if provided.
-- [x] Add localized UI strings.
+- [x] Add localized UI strings for the SesameDVR language set.
+- [x] Replace RU/EN buttons with language dropdowns.
 - [x] Add mobile player gestures and fullscreen refinements.
 - [x] Add camera preview refresh scheduling.
+- [x] Add preview preload/loader so image refresh does not redraw visibly.
+- [x] Render UI timestamps in the browser timezone.
 - [x] Add optional MySQL/PostgreSQL adapter.
+- [x] Add camera map auto-fit and clustering.
+- [x] Add map popup favorite toggle.
+- [x] Add visual camera position/direction editor with confirmation.
