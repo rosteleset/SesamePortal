@@ -54,7 +54,7 @@ $pdo->prepare('INSERT INTO cameras(name, source_url, server_id, server_selection
 $pdo->prepare('INSERT INTO cameras(name, source_url, server_id, server_selection, retention_days, dvr_control_mode, dvr_stream_name, created_at, updated_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)')
     ->execute(['Read Only Cam', '', 1, 'manual', '1d', 'read_only', 'readonly-cam', $now, $now]);
 $extraCamera = $pdo->prepare('INSERT INTO cameras(name, source_url, server_id, server_selection, retention_days, dvr_stream_name, created_at, updated_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?)');
-for ($i = 1; $i <= 16; $i++) {
+for ($i = 1; $i <= 30; $i++) {
     $extraCamera->execute([sprintf('Smoke Extra %02d', $i), 'rtsp://example.invalid/extra-' . $i, 1, 'manual', '1d', 'extra-cam-' . $i, $now, $now]);
 }
 $pdo->prepare('INSERT INTO portal_groups(name, description, blocked, created_at) VALUES(?, ?, ?, ?)')
@@ -183,14 +183,23 @@ printf "%s" "$mosaic_page" | grep -q 'decoding="async" hidden'
 printf "%s" "$mosaic_page" | grep -q "group-filter"
 printf "%s" "$mosaic_page" | grep -q "Smoke Group"
 printf "%s" "$mosaic_page" | grep -q 'name="filter"'
+printf "%s" "$mosaic_page" | grep -q 'name="q"'
+printf "%s" "$mosaic_page" | grep -q "camera-search-input"
 printf "%s" "$mosaic_page" | grep -q "density-switch"
 printf "%s" "$mosaic_page" | grep -q "camera-grid cols-3"
+printf "%s" "$mosaic_page" | grep -q 'data-cols="6"'
 printf "%s" "$mosaic_page" | grep -q "cols=6"
 printf "%s" "$mosaic_page" | grep -q "pager"
 ! printf "%s" "$mosaic_page" | grep -q "group_q"
+search_page="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/?q=Smoke%20Extra%2030&cols=5")"
+printf "%s" "$search_page" | grep -q "camera-grid cols-5"
+printf "%s" "$search_page" | grep -q "Smoke Extra 30"
+! printf "%s" "$search_page" | grep -q "Smoke Extra 29"
+printf "%s" "$search_page" | grep -q 'value="Smoke Extra 30"'
+printf "%s" "$search_page" | grep -F -q "q=Smoke+Extra+30"
 cols_page="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/?cols=2&page=2")"
 printf "%s" "$cols_page" | grep -q "camera-grid cols-2"
-printf "%s" "$cols_page" | grep -q "Smoke Extra 11"
+printf "%s" "$cols_page" | grep -q "Smoke Extra 23"
 printf "%s" "$cols_page" | grep -q 'class="active" href="/?page=2&amp;cols=2"'
 curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/?filter=group:1" | grep -q "Smoke Cam"
 curl -fsS "http://127.0.0.1:$PORT/assets/styles.css" | grep -q "aspect-ratio: 16 / 9"
@@ -200,6 +209,9 @@ printf "%s" "$map_page" | grep -q "leaflet.markercluster"
 printf "%s" "$map_page" | grep -q "direction"
 printf "%s" "$map_page" | grep -q "viewAngle"
 printf "%s" "$map_page" | grep -q "window.SESAME_CSRF"
+map_search_page="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/viewer/map?q=Smoke%20Cam")"
+printf "%s" "$map_search_page" | grep -q "Smoke Cam"
+! printf "%s" "$map_search_page" | grep -q "Read Only Cam"
 curl -fsS "http://127.0.0.1:$PORT/assets/app.js" | grep -q "camera-view-cone"
 curl -fsS "http://127.0.0.1:$PORT/assets/app.js" | grep -q "markerClusterGroup"
 curl -fsS "http://127.0.0.1:$PORT/assets/styles.css" | grep -q "camera-cluster"
@@ -209,6 +221,8 @@ curl -fsS "http://127.0.0.1:$PORT/assets/app.js" | grep -q "/favorite/toggle"
 curl -fsS "http://127.0.0.1:$PORT/assets/app.js" | grep -q "new Image"
 curl -fsS "http://127.0.0.1:$PORT/assets/app.js" | grep -q "previewLoading"
 curl -fsS "http://127.0.0.1:$PORT/assets/app.js" | grep -q "is-loading"
+curl -fsS "http://127.0.0.1:$PORT/assets/app.js" | grep -q "initDensitySwitch"
+curl -fsS "http://127.0.0.1:$PORT/assets/app.js" | grep -q "updateViewerLinks"
 curl -fsS "http://127.0.0.1:$PORT/assets/app.js" | grep -q "initLocalTimes"
 curl -fsS "http://127.0.0.1:$PORT/assets/styles.css" | grep -q "preview-spin"
 curl -fsS "http://127.0.0.1:$PORT/assets/styles.css" | grep -q "local-time"

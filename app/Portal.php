@@ -649,6 +649,8 @@ final class I18n
                 'column.dvr_control_mode' => 'Режим',
                 'column.retention_days' => 'Архив',
                 'viewer.columnsPerRow' => 'Камер в ряду',
+                'filter.cameraSearchPlaceholder' => 'Название камеры',
+                'action.find' => 'Найти',
             ],
             'en' => [
                 'language.label' => 'Language',
@@ -687,6 +689,7 @@ final class I18n
                 'filter.groupSelect' => 'Group',
                 'filter.groupSelectPlaceholder' => 'Select group',
                 'filter.noGroups' => 'No groups found',
+                'filter.cameraSearchPlaceholder' => 'Camera name',
                 'viewer.openPlayer' => 'Open player',
                 'viewer.columnsPerRow' => 'Cameras per row',
                 'player.title' => 'Player',
@@ -1406,6 +1409,23 @@ final class I18n
             ],
         ];
 
+        foreach ([
+            'de' => 'Kameraname',
+            'fr' => 'Nom de la caméra',
+            'es' => 'Nombre de cámara',
+            'it' => 'Nome camera',
+            'pt' => 'Nome da câmera',
+            'bg' => 'Име на камера',
+            'pl' => 'Nazwa kamery',
+            'zh' => '摄像机名称',
+            'ja' => 'カメラ名',
+            'ko' => '카메라 이름',
+            'ar' => 'اسم الكاميرا',
+            'hy' => 'Տեսախցիկի անունը',
+        ] as $locale => $label) {
+            $messages[$locale]['filter.cameraSearchPlaceholder'] = $label;
+        }
+
         $messages['ru'] += [
             'nav.section.view' => 'Просмотр',
             'nav.section.admin' => 'Администрирование',
@@ -2116,9 +2136,9 @@ final class Repo
         return DB::pdo()->query("SELECT * FROM {$table} ORDER BY {$order}")->fetchAll();
     }
 
-    public static function accessibleCameras(array $user, string $filter = 'all'): array
+    public static function accessibleCameras(array $user, string $filter = 'all', string $query = ''): array
     {
-        [$join, $where, $params] = self::accessibleCameraScope($user, $filter);
+        [$join, $where, $params] = self::accessibleCameraScope($user, $filter, $query);
         $sql = 'SELECT DISTINCT c.*, s.name AS server_name, s.base_url AS server_url
                 FROM cameras c ' . $join . '
                 WHERE ' . implode(' AND ', $where) . '
@@ -2128,9 +2148,9 @@ final class Repo
         return $stmt->fetchAll();
     }
 
-    public static function accessibleCamerasPage(array $user, string $filter, int $page, int $pageSize): array
+    public static function accessibleCamerasPage(array $user, string $filter, string $query, int $page, int $pageSize): array
     {
-        [$join, $where, $params] = self::accessibleCameraScope($user, $filter);
+        [$join, $where, $params] = self::accessibleCameraScope($user, $filter, $query);
         $pdo = DB::pdo();
         $pageSize = max(1, $pageSize);
         $count = $pdo->prepare('SELECT COUNT(DISTINCT c.id) FROM cameras c ' . $join . ' WHERE ' . implode(' AND ', $where));
@@ -2158,10 +2178,11 @@ final class Repo
             'page' => $page,
             'pageSize' => $pageSize,
             'filter' => $filter,
+            'q' => $query,
         ];
     }
 
-    private static function accessibleCameraScope(array $user, string $filter): array
+    private static function accessibleCameraScope(array $user, string $filter, string $query = ''): array
     {
         $params = [];
         $where = ['c.blocked = 0'];
@@ -2194,6 +2215,12 @@ final class Repo
                 )';
                 $params[] = (int)$user['id'];
             }
+        }
+
+        $query = trim($query);
+        if ($query !== '') {
+            $where[] = 'LOWER(c.name) LIKE LOWER(?)';
+            $params[] = '%' . $query . '%';
         }
 
         return [$join, $where, $params];
@@ -2702,21 +2729,22 @@ final class App
     {
         $user = Auth::requireLogin();
         $filter = (string)($_GET['filter'] ?? 'all');
+        $searchQuery = self::viewerSearchQuery();
         $groups = Repo::groupsForUser($user);
         $cols = self::viewerColumns();
         $cameraPager = null;
         if ($mode === 'map') {
-            $cameras = Repo::accessibleCameras($user, $filter);
+            $cameras = Repo::accessibleCameras($user, $filter, $searchQuery);
         } else {
-            $cameraPager = Repo::accessibleCamerasPage($user, $filter, (int)($_GET['page'] ?? 1), $cols * 4);
+            $cameraPager = Repo::accessibleCamerasPage($user, $filter, $searchQuery, (int)($_GET['page'] ?? 1), self::viewerPageSize());
             $cameras = $cameraPager['rows'];
         }
         $favorites = Repo::favoritesMap((int)$user['id']);
         $token = $user['daily_token'] ?? '';
 
         $title = $mode === 'map' ? self::t('nav.map', 'Карта') : self::t('cameras.title', 'Камеры');
-        self::layout($title, function () use ($mode, $groups, $filter, $cameras, $favorites, $token, $cameraPager, $cols) {
-            self::filters($mode, $groups, $filter, $cols);
+        self::layout($title, function () use ($mode, $groups, $filter, $searchQuery, $cameras, $favorites, $token, $cameraPager, $cols) {
+            self::filters($mode, $groups, $filter, $searchQuery, $cols);
             if ($mode === 'map') {
                 self::map($cameras, $favorites, $token);
             } else {
@@ -2729,6 +2757,21 @@ final class App
     {
         $cols = (int)($_GET['cols'] ?? 3);
         return min(6, max(2, $cols));
+    }
+
+    private static function viewerSearchQuery(): string
+    {
+        $query = trim((string)($_GET['q'] ?? ''));
+        if ($query === '') {
+            return '';
+        }
+
+        return function_exists('mb_substr') ? mb_substr($query, 0, 120) : substr($query, 0, 120);
+    }
+
+    private static function viewerPageSize(): int
+    {
+        return 24;
     }
 
     private static function mosaic(array $cameras, array $favorites, string $token, array $pager, int $cols): void
@@ -2935,7 +2978,7 @@ final class App
         return '<svg viewBox="0 0 24 24" aria-hidden="true">' . ($paths[$name] ?? $paths['grid']) . '</svg>';
     }
 
-    private static function filters(string $mode, array $groups, string $filter, int $cols = 3): void
+    private static function filters(string $mode, array $groups, string $filter, string $searchQuery, int $cols = 3): void
     {
         $base = $mode === 'map' ? '/viewer/map' : '/';
         $url = static function (array $params = []) use ($base): string {
@@ -2950,8 +2993,9 @@ final class App
         };
 
         echo '<section class="filters viewer-filters">';
-        echo '<a class="' . ($filter === 'all' ? 'active' : '') . '" href="' . Util::h($url($viewParams())) . '">' . self::t('filter.all', 'Все') . '</a>';
-        echo '<a class="' . ($filter === 'favorites' ? 'active' : '') . '" href="' . Util::h($url($viewParams(['filter' => 'favorites']))) . '">' . self::t('filter.favorites', 'Избранное') . '</a>';
+        $queryParam = $searchQuery === '' ? [] : ['q' => $searchQuery];
+        echo '<a class="' . ($filter === 'all' ? 'active' : '') . '" href="' . Util::h($url($viewParams($queryParam))) . '">' . self::t('filter.all', 'Все') . '</a>';
+        echo '<a class="' . ($filter === 'favorites' ? 'active' : '') . '" href="' . Util::h($url($viewParams(['filter' => 'favorites', ...$queryParam]))) . '">' . self::t('filter.favorites', 'Избранное') . '</a>';
         echo '<form method="get" action="' . Util::h($base) . '" class="group-filter">';
         if ($mode !== 'map') {
             echo '<input type="hidden" name="cols" value="' . Util::h($cols) . '">';
@@ -2967,15 +3011,16 @@ final class App
             echo '<option value="" disabled>' . self::t('filter.noGroups', 'Группы не найдены') . '</option>';
         }
         echo '</select>';
+        echo '<input class="camera-search-input" name="q" value="' . Util::h($searchQuery) . '" placeholder="' . Util::h(self::t('filter.cameraSearchPlaceholder', 'Название камеры')) . '">';
         echo '<button>' . self::t('action.show', 'Показать') . '</button>';
         echo '</form>';
         if ($mode !== 'map') {
-            self::densitySwitch($filter, $cols);
+            self::densitySwitch($filter, $searchQuery, $cols);
         }
         echo '</section>';
     }
 
-    private static function densitySwitch(string $filter, int $cols): void
+    private static function densitySwitch(string $filter, string $searchQuery, int $cols): void
     {
         echo '<nav class="density-switch" aria-label="' . Util::h(self::t('viewer.columnsPerRow', 'Камер в ряду')) . '">';
         echo '<span>' . Util::h(self::t('viewer.columnsPerRow', 'Камер в ряду')) . '</span>';
@@ -2984,8 +3029,11 @@ final class App
             if ($filter !== 'all') {
                 $params['filter'] = $filter;
             }
+            if ($searchQuery !== '') {
+                $params['q'] = $searchQuery;
+            }
             $href = '/?' . http_build_query($params);
-            echo '<a class="' . ($cols === $candidate ? 'active' : '') . '" href="' . Util::h($href) . '">' . $candidate . '</a>';
+            echo '<a class="' . ($cols === $candidate ? 'active' : '') . '" href="' . Util::h($href) . '" data-cols="' . $candidate . '">' . $candidate . '</a>';
         }
         echo '</nav>';
     }

@@ -592,15 +592,30 @@ tr:last-child td {
   display: inline-flex;
   gap: 8px;
   align-items: center;
-  flex: 1 1 360px;
+  flex: 1 1 640px;
   min-width: min(360px, 100%);
-  max-width: min(560px, 100%);
+  max-width: min(880px, 100%);
 }
 .group-filter select {
   flex: 1 1 220px;
   min-width: 0;
   width: auto;
   font-weight: 800;
+}
+.camera-search-input {
+  flex: 1 1 220px;
+  min-width: 180px;
+  height: 42px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fff;
+  padding: 0 14px;
+  color: var(--ink);
+  font: inherit;
+  font-weight: 800;
+}
+.camera-search-input::placeholder {
+  color: #AAA49A;
 }
 .group-filter button {
   flex: 0 0 auto;
