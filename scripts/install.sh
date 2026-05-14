@@ -333,7 +333,17 @@ main() {
   fi
 
   cleanup_rollback
-  echo "SesamePortal installed: https://$DOMAIN"
+  local scheme="https"
+  if [[ "$NO_ACME" == "1" ]]; then
+    scheme="http"
+  fi
+  echo "SesamePortal installed: $scheme://$DOMAIN"
+  echo "Admin login: $ADMIN_LOGIN"
+  if [[ "$SKIP_ADMIN_UPDATE" == "1" ]]; then
+    echo "Admin password unchanged: repair mode without --admin-password"
+  else
+    echo "Admin password: value passed with --admin-password"
+  fi
 }
 
 main "$@"

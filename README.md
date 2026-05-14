@@ -88,6 +88,29 @@ The installer backs up the current release, nginx site, cron entry, config, and
 SQLite files before applying changes. If a step fails, it restores those files
 and reloads nginx when possible.
 
+## First Login
+
+Open the portal URL after installation:
+
+```text
+https://portal.example.com
+```
+
+Use the credentials passed to the installer:
+
+- login: the value of `--admin-login`, default `admin`;
+- password: the value of `--admin-password`.
+
+Example from the command above:
+
+```text
+login: admin
+password: change-me-now
+```
+
+During `--repair` runs, the installer does not change existing admin users when
+`--admin-password` is omitted.
+
 ## SesameDVR Trial Install
 
 SesamePortal is normally connected to one or more SesameDVR servers. For GitHub
