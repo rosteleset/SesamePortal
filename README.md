@@ -45,12 +45,14 @@ Each camera can run in one of two modes:
 
 ## Viewer UI
 
-The mosaic uses fixed 16:9 camera cards. Preview images are preloaded behind a
-loader and then swapped in, so refreshes do not show half-loaded images.
+The mosaic supports all/favorites/group filtering, camera-name search,
+pagination, and a 2-6 cameras-per-row density switch. It uses fixed 16:9 camera
+cards. Preview images are preloaded behind a loader and then swapped in, so
+refreshes do not show half-loaded images.
 
-The map view auto-fits the current camera filter, clusters nearby cameras at
-lower zoom levels, shows camera direction/FOV markers, and exposes the same
-favorite toggle as the mosaic.
+The map view supports the same filters and camera-name search. It auto-fits the
+current camera set, clusters nearby cameras at lower zoom levels, shows camera
+direction/FOV markers, and exposes the same favorite toggle as the mosaic.
 
 All UI timestamps are rendered in the browser timezone. The server stores and
 exchanges timestamps as absolute values.
@@ -83,6 +85,30 @@ sudo bash scripts/install.sh \
 The installer backs up the current release, nginx site, cron entry, config, and
 SQLite files before applying changes. If a step fails, it restores those files
 and reloads nginx when possible.
+
+## SesameDVR Trial Install
+
+SesamePortal is normally connected to one or more SesameDVR servers. For GitHub
+evaluation installs, use this public SesameDVR trial key:
+
+```bash
+curl -fsSL https://license.sesameware.com/sesame-dvr-artifacts/bootstrap-trial-install.sh | sudo bash -s -- --license-key SDVR-TRIAL-85GT2-A7YYD-HSSEN-YW98U
+```
+
+For public HTTPS access, pass the target DVR domain and ACME email:
+
+```bash
+curl -fsSL https://license.sesameware.com/sesame-dvr-artifacts/bootstrap-trial-install.sh \
+  | sudo bash -s -- \
+      --license-key SDVR-TRIAL-85GT2-A7YYD-HSSEN-YW98U \
+      --publish-service \
+      --publish-server-name dvr.example.com \
+      --publish-acme \
+      --acme-email admin@example.com
+```
+
+More details are in
+[`docs/SESAME-DVR-TRIAL-INSTALL.ru.md`](docs/SESAME-DVR-TRIAL-INSTALL.ru.md).
 
 ## Release Artifact
 

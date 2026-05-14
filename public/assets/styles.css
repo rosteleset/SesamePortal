@@ -748,10 +748,17 @@ tr:last-child td {
   min-height: 520px;
   background: #F2EFE8;
 }
+.camera-marker-icon {
+  overflow: visible;
+}
 .camera-marker {
-  position: relative;
+  position: absolute;
+  left: 50%;
+  top: 50%;
   width: 132px;
   height: 132px;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
 }
 .camera-view-cone {
   position: absolute;

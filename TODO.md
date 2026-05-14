@@ -47,3 +47,5 @@
 - [x] Add camera map auto-fit and clustering.
 - [x] Add map popup favorite toggle.
 - [x] Add visual camera position/direction editor with confirmation.
+- [x] Add camera-name search to mosaic and map viewers.
+- [x] Add mosaic pagination and 2-6 cameras-per-row density switch.

@@ -24,7 +24,7 @@
 
     const markerLayer = cameraMarkerLayer();
     visibleCameras.forEach((camera) => {
-      const marker = L.marker([camera.lat, camera.lng], { icon: cameraIcon(camera.direction, camera.viewAngle) });
+      const marker = L.marker([camera.lat, camera.lng], { icon: cameraIcon(camera.direction, camera.viewAngle, 42) });
       marker.bindPopup(cameraPopupHtml(camera), { className: "camera-popup", maxWidth: 280 });
       markerLayer.addLayer(marker);
     });
@@ -144,7 +144,7 @@
       const center = L.latLng(state.lat, state.lng);
       const target = directionTarget(center, state.direction, editorMap);
       if (!cameraMarker) {
-        cameraMarker = L.marker(center, { draggable: true, icon: cameraIcon(state.direction) }).addTo(editorMap);
+        cameraMarker = L.marker(center, { draggable: true, icon: cameraIcon(state.direction, 60, 54) }).addTo(editorMap);
         cameraMarker.on("dragend", () => {
           const latlng = cameraMarker.getLatLng();
           const base = pending || committed;
@@ -152,7 +152,7 @@
         });
       } else {
         cameraMarker.setLatLng(center);
-        cameraMarker.setIcon(cameraIcon(state.direction));
+        cameraMarker.setIcon(cameraIcon(state.direction, 60, 54));
       }
 
       if (!directionMarker) {
@@ -358,16 +358,18 @@
     return ((Math.round(number) % 360) + 360) % 360;
   }
 
-  function cameraIcon(direction, viewAngle = 60) {
+  function cameraIcon(direction, viewAngle = 60, markerHitSize = 42) {
     const angle = normalizeDirection(direction);
     const fov = clamp(Number(viewAngle) || 60, 12, 170);
     const coneLength = 72;
     const coneWidth = Math.round(clamp(2 * Math.tan(fov * Math.PI / 360) * coneLength, 34, 132));
+    const hitSize = Math.round(clamp(Number(markerHitSize) || 42, 30, 72));
     return L.divIcon({
       className: "camera-marker-icon",
       html: `<div class="camera-marker" style="--camera-direction:${angle}deg;--camera-cone-width:${coneWidth}px;--camera-cone-length:${coneLength}px"><span class="camera-view-cone"></span><span class="camera-marker-dot">●</span></div>`,
-      iconSize: [132, 132],
-      iconAnchor: [66, 66]
+      iconSize: [hitSize, hitSize],
+      iconAnchor: [hitSize / 2, hitSize / 2],
+      popupAnchor: [0, -Math.round(hitSize / 2)]
     });
   }
 
