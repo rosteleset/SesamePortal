@@ -7,6 +7,7 @@
   initDensitySwitch();
   initAssignmentPickers();
   initLocalTimes();
+  initPlayerBackBridge();
 
   function initMap() {
     if (!window.L || !window.SESAME_CAMERAS || !document.getElementById("map")) return;
@@ -356,6 +357,47 @@
     const number = Number(value);
     if (!Number.isFinite(number)) return 0;
     return ((Math.round(number) % 360) + 360) % 360;
+  }
+
+  function initPlayerBackBridge() {
+    const frames = Array.from(document.querySelectorAll(".player-frame"));
+    if (!frames.length) return;
+
+    window.addEventListener("message", (event) => {
+      const data = event.data || {};
+      if (!data || data.type !== "sesame-dvr:player-back") return;
+      if (!frames.some((frame) => frame.contentWindow === event.source)) return;
+
+      const targetUrl = safeSameOriginUrl(data.url);
+      if (!targetUrl) return;
+
+      event.source?.postMessage({ type: "sesame-dvr:player-back-ack", id: data.id || "" }, event.origin || "*");
+      if (history.length > 1 && referrerMatches(targetUrl)) {
+        history.back();
+        return;
+      }
+
+      window.location.assign(relativeUrl(targetUrl));
+    });
+  }
+
+  function safeSameOriginUrl(value) {
+    try {
+      const url = new URL(String(value || ""), window.location.href);
+      return url.origin === window.location.origin ? url : null;
+    } catch (_error) {
+      return null;
+    }
+  }
+
+  function referrerMatches(targetUrl) {
+    if (!document.referrer) return false;
+    const referrerUrl = safeSameOriginUrl(document.referrer);
+    return Boolean(referrerUrl && relativeUrl(referrerUrl) === relativeUrl(targetUrl));
+  }
+
+  function relativeUrl(url) {
+    return `${url.pathname}${url.search}${url.hash}`;
   }
 
   function cameraIcon(direction, viewAngle = 60, markerHitSize = 42) {
