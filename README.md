@@ -158,7 +158,6 @@ More details are in
 Additional SesameDVR documentation:
 
 - [SesameDVR feature and product description (RU)](docs/SESAME-DVR-PRODUCT-DESCRIPTION.ru.md)
-- [SesameDVR product sales description (RU)](docs/PRODUCT-SALES-DESCRIPTION.ru.md)
 - [SesameDVR user guide (RU)](docs/sesame-dvr-user-guide.ru.md)
 
 ## CLI
