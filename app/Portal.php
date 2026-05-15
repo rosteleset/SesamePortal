@@ -593,6 +593,7 @@ final class I18n
     {
         return [
             'openVideo' => self::t('js.openVideo', 'Открыть видео'),
+            'openPlayer' => self::t('viewer.openPlayer', 'Открыть плеер'),
             'previewUnavailable' => self::t('js.previewUnavailable', 'Превью недоступно'),
             'streamUnavailable' => self::t('js.streamUnavailable', 'Поток недоступен'),
             'mapChangePending' => self::t('js.mapChangePending', 'Подтвердите изменение на карте'),
@@ -2820,9 +2821,10 @@ final class App
             $stateText = $streamUnavailable
                 ? self::t('js.streamUnavailable', 'Поток недоступен')
                 : self::t('js.previewUnavailable', 'Превью недоступно');
+            $openPlayerLabel = self::t('viewer.openPlayer', 'Открыть плеер');
             $previewClass = 'preview' . ($preview ? ' is-loading' : ' no-preview') . ($streamUnavailable ? ' stream-unavailable' : '');
             echo '<article class="camera-card">';
-            echo '<a class="' . Util::h($previewClass) . '" href="' . Util::h($player) . '">';
+            echo '<a class="' . Util::h($previewClass) . '" href="' . Util::h($player) . '" aria-label="' . Util::h($openPlayerLabel) . '">';
             if ($preview) {
                 echo '<img data-preview-src="' . Util::h($preview) . '" data-preview-refresh="' . Util::h($previewRefresh) . '"';
                 if ($previewRefresh !== 'off') {
@@ -2830,7 +2832,7 @@ final class App
                 }
                 echo ' alt="" loading="lazy" decoding="async" hidden>';
             }
-            echo '<span class="preview-spinner" aria-hidden="true"></span><span class="preview-state">' . Util::h($stateText) . '</span><span class="preview-label">' . self::t('viewer.openPlayer', 'Открыть плеер') . '</span></a><div class="camera-meta"><strong>' . Util::h($camera['name']) . '</strong><span>' . Util::h($camera['server_name'] ?? self::t('common.noServer', 'Без сервера')) . '</span></div>';
+            echo '<span class="preview-spinner" aria-hidden="true"></span><span class="preview-state">' . Util::h($stateText) . '</span><span class="preview-play" aria-hidden="true"></span><span class="sr-only">' . Util::h($openPlayerLabel) . '</span></a><div class="camera-meta"><strong>' . Util::h($camera['name']) . '</strong><span>' . Util::h($camera['server_name'] ?? self::t('common.noServer', 'Без сервера')) . '</span></div>';
             self::favoriteButton((int)$camera['id'], isset($favorites[(int)$camera['id']]));
             echo '</article>';
         }

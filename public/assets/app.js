@@ -433,8 +433,9 @@
       ? tr("streamUnavailable", "Поток недоступен")
       : tr("previewUnavailable", "Превью недоступно");
     const unavailableClass = camera.streamUnavailable ? " stream-unavailable" : "";
+    const previewLabel = tr("openPlayer", tr("openVideo", "Открыть видео"));
     const preview = camera.preview
-      ? `<a class="map-popup-preview is-loading${unavailableClass}" href="${escapeHtml(camera.player)}"><img data-preview-src="${escapeHtml(camera.preview)}" data-preview-refresh="off" alt="" loading="lazy" decoding="async" hidden><span class="preview-spinner" aria-hidden="true"></span><span class="preview-state map-popup-preview-state">${escapeHtml(stateText)}</span></a>`
+      ? `<a class="map-popup-preview is-loading${unavailableClass}" href="${escapeHtml(camera.player)}" aria-label="${escapeHtml(previewLabel)}"><img data-preview-src="${escapeHtml(camera.preview)}" data-preview-refresh="off" alt="" loading="lazy" decoding="async" hidden><span class="preview-spinner" aria-hidden="true"></span><span class="preview-state map-popup-preview-state">${escapeHtml(stateText)}</span><span class="preview-play" aria-hidden="true"></span></a>`
       : `<div class="map-popup-preview no-preview${unavailableClass}"><span class="preview-spinner" aria-hidden="true"></span><span class="preview-state map-popup-preview-state">${escapeHtml(stateText)}</span></div>`;
     const favoriteTitle = camera.favorite
       ? tr("removeFavorite", "Удалить из избранного")
