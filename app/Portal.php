@@ -594,6 +594,7 @@ final class I18n
         return [
             'openVideo' => self::t('js.openVideo', 'Открыть видео'),
             'previewUnavailable' => self::t('js.previewUnavailable', 'Превью недоступно'),
+            'streamUnavailable' => self::t('js.streamUnavailable', 'Поток недоступен'),
             'mapChangePending' => self::t('js.mapChangePending', 'Подтвердите изменение на карте'),
             'favorite' => self::t('filter.favorites', 'Избранное'),
             'addFavorite' => self::t('js.addFavorite', 'Добавить в избранное'),
@@ -649,8 +650,12 @@ final class I18n
                 'column.dvr_control_mode' => 'Режим',
                 'column.retention_days' => 'Архив',
                 'viewer.columnsPerRow' => 'Камер в ряду',
+                'viewer.previewRefresh' => 'Обновление превью',
+                'viewer.refreshOff' => 'Отключено',
+                'viewer.refreshSeconds' => '%d сек.',
                 'filter.cameraSearchPlaceholder' => 'Название камеры',
                 'action.find' => 'Найти',
+                'js.streamUnavailable' => 'Поток недоступен',
             ],
             'en' => [
                 'language.label' => 'Language',
@@ -692,11 +697,15 @@ final class I18n
                 'filter.cameraSearchPlaceholder' => 'Camera name',
                 'viewer.openPlayer' => 'Open player',
                 'viewer.columnsPerRow' => 'Cameras per row',
+                'viewer.previewRefresh' => 'Preview refresh',
+                'viewer.refreshOff' => 'Off',
+                'viewer.refreshSeconds' => '%d sec.',
                 'player.title' => 'Player',
                 'player.fullscreen' => 'Fullscreen',
                 'player.collapse' => 'Exit fullscreen',
                 'js.openVideo' => 'Open video',
                 'js.previewUnavailable' => 'Preview unavailable',
+                'js.streamUnavailable' => 'Stream unavailable',
                 'js.mapChangePending' => 'Confirm map change',
                 'js.addFavorite' => 'Add to favorites',
                 'js.removeFavorite' => 'Remove from favorites',
@@ -1426,6 +1435,26 @@ final class I18n
             $messages[$locale]['filter.cameraSearchPlaceholder'] = $label;
         }
 
+        foreach ([
+            'de' => ['Vorschau aktualisieren', 'Aus', 'Stream nicht verfügbar', '%d Sek.'],
+            'fr' => ['Actualisation des aperçus', 'Désactivée', 'Flux indisponible', '%d s'],
+            'es' => ['Actualizar vistas previas', 'Desactivado', 'Stream no disponible', '%d s'],
+            'it' => ['Aggiornamento anteprime', 'Disattivato', 'Stream non disponibile', '%d s'],
+            'pt' => ['Atualização de prévias', 'Desativado', 'Stream indisponível', '%d s'],
+            'bg' => ['Обновяване на превюта', 'Изключено', 'Потокът е недостъпен', '%d сек.'],
+            'pl' => ['Odświeżanie podglądu', 'Wyłączone', 'Strumień niedostępny', '%d s'],
+            'zh' => ['预览刷新', '关闭', '流不可用', '%d 秒'],
+            'ja' => ['プレビュー更新', 'オフ', 'ストリーム利用不可', '%d 秒'],
+            'ko' => ['미리보기 새로고침', '꺼짐', '스트림을 사용할 수 없음', '%d초'],
+            'ar' => ['تحديث المعاينة', 'متوقف', 'البث غير متاح', '%d ث'],
+            'hy' => ['Նախադիտման թարմացում', 'Անջատված', 'Հոսքն անհասանելի է', '%d վրկ.'],
+        ] as $locale => [$refreshLabel, $offLabel, $streamLabel, $secondsLabel]) {
+            $messages[$locale]['viewer.previewRefresh'] = $refreshLabel;
+            $messages[$locale]['viewer.refreshOff'] = $offLabel;
+            $messages[$locale]['viewer.refreshSeconds'] = $secondsLabel;
+            $messages[$locale]['js.streamUnavailable'] = $streamLabel;
+        }
+
         $messages['ru'] += [
             'nav.section.view' => 'Просмотр',
             'nav.section.admin' => 'Администрирование',
@@ -2139,7 +2168,7 @@ final class Repo
     public static function accessibleCameras(array $user, string $filter = 'all', string $query = ''): array
     {
         [$join, $where, $params] = self::accessibleCameraScope($user, $filter, $query);
-        $sql = 'SELECT DISTINCT c.*, s.name AS server_name, s.base_url AS server_url
+        $sql = 'SELECT DISTINCT c.*, s.name AS server_name, s.base_url AS server_url, s.last_metrics_json AS server_metrics_json
                 FROM cameras c ' . $join . '
                 WHERE ' . implode(' AND ', $where) . '
                 ORDER BY c.name ASC';
@@ -2160,7 +2189,7 @@ final class Repo
         $page = min(max(1, $page), $pages);
 
         $stmt = $pdo->prepare(
-            'SELECT DISTINCT c.*, s.name AS server_name, s.base_url AS server_url
+            'SELECT DISTINCT c.*, s.name AS server_name, s.base_url AS server_url, s.last_metrics_json AS server_metrics_json
              FROM cameras c ' . $join . '
              WHERE ' . implode(' AND ', $where) . '
              ORDER BY c.name ASC
@@ -2732,6 +2761,7 @@ final class App
         $searchQuery = self::viewerSearchQuery();
         $groups = Repo::groupsForUser($user);
         $cols = self::viewerColumns();
+        $previewRefresh = self::viewerPreviewRefresh();
         $cameraPager = null;
         if ($mode === 'map') {
             $cameras = Repo::accessibleCameras($user, $filter, $searchQuery);
@@ -2743,12 +2773,12 @@ final class App
         $token = $user['daily_token'] ?? '';
 
         $title = $mode === 'map' ? self::t('nav.map', 'Карта') : self::t('cameras.title', 'Камеры');
-        self::layout($title, function () use ($mode, $groups, $filter, $searchQuery, $cameras, $favorites, $token, $cameraPager, $cols) {
-            self::filters($mode, $groups, $filter, $searchQuery, $cols);
+        self::layout($title, function () use ($mode, $groups, $filter, $searchQuery, $cameras, $favorites, $token, $cameraPager, $cols, $previewRefresh) {
+            self::filters($mode, $groups, $filter, $searchQuery, $cols, $previewRefresh);
             if ($mode === 'map') {
                 self::map($cameras, $favorites, $token);
             } else {
-                self::mosaic($cameras, $favorites, $token, $cameraPager ?? [], $cols);
+                self::mosaic($cameras, $favorites, $token, $cameraPager ?? [], $cols, $previewRefresh);
             }
         });
     }
@@ -2774,18 +2804,33 @@ final class App
         return 24;
     }
 
-    private static function mosaic(array $cameras, array $favorites, string $token, array $pager, int $cols): void
+    private static function viewerPreviewRefresh(): string
+    {
+        $refresh = (string)($_GET['refresh'] ?? '30');
+        return in_array($refresh, ['off', '10', '30', '60', '300'], true) ? $refresh : '30';
+    }
+
+    private static function mosaic(array $cameras, array $favorites, string $token, array $pager, int $cols, string $previewRefresh): void
     {
         echo '<section class="camera-grid cols-' . Util::h($cols) . '">';
         foreach ($cameras as $camera) {
             $player = self::playerUrl($camera);
             $preview = self::previewUrl($camera, $token);
+            $streamUnavailable = self::cameraStreamUnavailable($camera);
+            $stateText = $streamUnavailable
+                ? self::t('js.streamUnavailable', 'Поток недоступен')
+                : self::t('js.previewUnavailable', 'Превью недоступно');
+            $previewClass = 'preview' . ($preview ? ' is-loading' : ' no-preview') . ($streamUnavailable ? ' stream-unavailable' : '');
             echo '<article class="camera-card">';
-            echo '<a class="preview' . ($preview ? ' is-loading' : ' no-preview') . '" href="' . Util::h($player) . '">';
+            echo '<a class="' . Util::h($previewClass) . '" href="' . Util::h($player) . '">';
             if ($preview) {
-                echo '<img data-preview-src="' . Util::h($preview) . '" data-preview-refresh-ms="30000" alt="" loading="lazy" decoding="async" hidden>';
+                echo '<img data-preview-src="' . Util::h($preview) . '" data-preview-refresh="' . Util::h($previewRefresh) . '"';
+                if ($previewRefresh !== 'off') {
+                    echo ' data-preview-refresh-ms="' . Util::h((string)((int)$previewRefresh * 1000)) . '"';
+                }
+                echo ' alt="" loading="lazy" decoding="async" hidden>';
             }
-            echo '<span class="preview-label">' . self::t('viewer.openPlayer', 'Открыть плеер') . '</span></a><div class="camera-meta"><strong>' . Util::h($camera['name']) . '</strong><span>' . Util::h($camera['server_name'] ?? self::t('common.noServer', 'Без сервера')) . '</span></div>';
+            echo '<span class="preview-spinner" aria-hidden="true"></span><span class="preview-state">' . Util::h($stateText) . '</span><span class="preview-label">' . self::t('viewer.openPlayer', 'Открыть плеер') . '</span></a><div class="camera-meta"><strong>' . Util::h($camera['name']) . '</strong><span>' . Util::h($camera['server_name'] ?? self::t('common.noServer', 'Без сервера')) . '</span></div>';
             self::favoriteButton((int)$camera['id'], isset($favorites[(int)$camera['id']]));
             echo '</article>';
         }
@@ -2793,6 +2838,7 @@ final class App
         self::pager('/', $pager, [
             'filter' => ($pager['filter'] ?? 'all') === 'all' ? '' : ($pager['filter'] ?? ''),
             'cols' => $cols,
+            'refresh' => $previewRefresh === '30' ? '' : $previewRefresh,
         ]);
     }
 
@@ -2814,6 +2860,7 @@ final class App
                 'favorite' => isset($favorites[(int)$camera['id']]),
                 'player' => self::playerUrl($camera),
                 'preview' => self::previewUrl($camera, $token),
+                'streamUnavailable' => self::cameraStreamUnavailable($camera),
                 'server' => $camera['server_name'] ?? self::t('common.noServer', 'Без сервера'),
             ];
         }
@@ -2978,16 +3025,19 @@ final class App
         return '<svg viewBox="0 0 24 24" aria-hidden="true">' . ($paths[$name] ?? $paths['grid']) . '</svg>';
     }
 
-    private static function filters(string $mode, array $groups, string $filter, string $searchQuery, int $cols = 3): void
+    private static function filters(string $mode, array $groups, string $filter, string $searchQuery, int $cols = 3, string $previewRefresh = '30'): void
     {
         $base = $mode === 'map' ? '/viewer/map' : '/';
         $url = static function (array $params = []) use ($base): string {
             $query = http_build_query(array_filter($params, fn($value) => $value !== '' && $value !== null));
             return $base . ($query ? '?' . $query : '');
         };
-        $viewParams = static function (array $params = []) use ($mode, $cols): array {
+        $viewParams = static function (array $params = []) use ($mode, $cols, $previewRefresh): array {
             if ($mode !== 'map') {
                 $params['cols'] = $cols;
+                if ($previewRefresh !== '30') {
+                    $params['refresh'] = $previewRefresh;
+                }
             }
             return $params;
         };
@@ -3012,20 +3062,42 @@ final class App
         }
         echo '</select>';
         echo '<input class="camera-search-input" name="q" value="' . Util::h($searchQuery) . '" placeholder="' . Util::h(self::t('filter.cameraSearchPlaceholder', 'Название камеры')) . '">';
+        if ($mode !== 'map') {
+            self::previewRefreshSelect($previewRefresh);
+        }
         echo '<button>' . self::t('action.show', 'Показать') . '</button>';
         echo '</form>';
         if ($mode !== 'map') {
-            self::densitySwitch($filter, $searchQuery, $cols);
+            self::densitySwitch($filter, $searchQuery, $cols, $previewRefresh);
         }
         echo '</section>';
     }
 
-    private static function densitySwitch(string $filter, string $searchQuery, int $cols): void
+    private static function previewRefreshSelect(string $previewRefresh): void
+    {
+        $options = [
+            'off' => self::t('viewer.refreshOff', 'Отключено'),
+            '10' => sprintf(self::t('viewer.refreshSeconds', '%d сек.'), 10),
+            '30' => sprintf(self::t('viewer.refreshSeconds', '%d сек.'), 30),
+            '60' => sprintf(self::t('viewer.refreshSeconds', '%d сек.'), 60),
+            '300' => sprintf(self::t('viewer.refreshSeconds', '%d сек.'), 300),
+        ];
+        echo '<label class="preview-refresh-control"><span>' . Util::h(self::t('viewer.previewRefresh', 'Обновление превью')) . '</span><select name="refresh" aria-label="' . Util::h(self::t('viewer.previewRefresh', 'Обновление превью')) . '">';
+        foreach ($options as $value => $label) {
+            echo '<option value="' . Util::h($value) . '"' . ($previewRefresh === $value ? ' selected' : '') . '>' . Util::h($label) . '</option>';
+        }
+        echo '</select></label>';
+    }
+
+    private static function densitySwitch(string $filter, string $searchQuery, int $cols, string $previewRefresh): void
     {
         echo '<nav class="density-switch" aria-label="' . Util::h(self::t('viewer.columnsPerRow', 'Камер в ряду')) . '">';
         echo '<span>' . Util::h(self::t('viewer.columnsPerRow', 'Камер в ряду')) . '</span>';
         for ($candidate = 2; $candidate <= 6; $candidate++) {
             $params = ['cols' => $candidate];
+            if ($previewRefresh !== '30') {
+                $params['refresh'] = $previewRefresh;
+            }
             if ($filter !== 'all') {
                 $params['filter'] = $filter;
             }
@@ -3639,6 +3711,71 @@ final class App
             return '';
         }
         return rtrim($camera['server_url'], '/') . '/' . rawurlencode($camera['dvr_stream_name']) . '/preview.jpg?token=' . rawurlencode($token);
+    }
+
+    private static function cameraStreamUnavailable(array $camera): bool
+    {
+        $metrics = json_decode((string)($camera['server_metrics_json'] ?? ''), true);
+        if (!is_array($metrics)) {
+            return false;
+        }
+
+        $streams = $metrics['streams']['streams'] ?? null;
+        if (!is_array($streams)) {
+            return false;
+        }
+
+        $streamName = (string)($camera['dvr_stream_name'] ?: $camera['name']);
+        if ($streamName === '') {
+            return false;
+        }
+
+        foreach ($streams as $stream) {
+            if (!is_array($stream)) {
+                continue;
+            }
+            $name = (string)($stream['name'] ?? '');
+            if ($name === $streamName || $name === (string)$camera['name']) {
+                return self::streamMetricUnavailable($stream);
+            }
+        }
+
+        return true;
+    }
+
+    private static function streamMetricUnavailable(array $stream): bool
+    {
+        if (array_key_exists('running', $stream)) {
+            return !self::truthyMetricValue($stream['running']);
+        }
+
+        $problemCode = $stream['archiveStatus']['problem']['code'] ?? null;
+        if ($problemCode === 'ingest_not_running') {
+            return true;
+        }
+
+        if (array_key_exists('runtimeDesired', $stream) && !self::truthyMetricValue($stream['runtimeDesired'])) {
+            return true;
+        }
+
+        return false;
+    }
+
+    private static function truthyMetricValue(mixed $value): bool
+    {
+        if (is_bool($value)) {
+            return $value;
+        }
+
+        if (is_int($value)) {
+            return $value === 1;
+        }
+
+        if (is_string($value)) {
+            return in_array(strtolower($value), ['1', 'true', 'yes', 'on', 'running'], true);
+        }
+
+        return false;
     }
 
     private static function playbackTokenFromAuthRequest(): string

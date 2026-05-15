@@ -176,8 +176,12 @@ printf "%s" "$audit_page" | grep -q 'class="local-time"'
 mosaic_page="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/")"
 printf "%s" "$mosaic_page" | grep -q "/viewer/player"
 printf "%s" "$mosaic_page" | grep -q "data-preview-refresh-ms"
+printf "%s" "$mosaic_page" | grep -q 'name="refresh"'
+printf "%s" "$mosaic_page" | grep -q 'value="off"'
+printf "%s" "$mosaic_page" | grep -q "preview-refresh-control"
 printf "%s" "$mosaic_page" | grep -q 'data-preview-src='
 printf "%s" "$mosaic_page" | grep -q 'class="preview is-loading"'
+printf "%s" "$mosaic_page" | grep -q "stream-unavailable"
 printf "%s" "$mosaic_page" | grep -q 'decoding="async" hidden'
 ! printf "%s" "$mosaic_page" | grep -E -q '<img src="[^"]*preview\.jpg'
 printf "%s" "$mosaic_page" | grep -q "group-filter"
@@ -201,6 +205,9 @@ cols_page="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/?cols=2&page=2")
 printf "%s" "$cols_page" | grep -q "camera-grid cols-2"
 printf "%s" "$cols_page" | grep -q "Smoke Extra 23"
 printf "%s" "$cols_page" | grep -q 'class="active" href="/?page=2&amp;cols=2"'
+refresh_off_page="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/?refresh=off")"
+printf "%s" "$refresh_off_page" | grep -q 'data-preview-refresh="off"'
+! printf "%s" "$refresh_off_page" | grep -q "data-preview-refresh-ms"
 curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/?filter=group:1" | grep -q "Smoke Cam"
 curl -fsS "http://127.0.0.1:$PORT/assets/styles.css" | grep -q "aspect-ratio: 16 / 9"
 map_page="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/viewer/map")"
