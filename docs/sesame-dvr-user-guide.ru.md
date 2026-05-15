@@ -5,7 +5,8 @@
 обновления, диагностику и типовые неисправности.
 
 Руководство рассчитано на администратора сервера и оператора системы. Оно не
-требует сборки Sesame DVR из исходников на сервере клиента.
+заменяет внутренние runbook-документы для сборки protected artifacts и
+администрирования license server.
 
 ## Содержание
 
@@ -485,8 +486,10 @@ segments переходят на другой writable volume. Сводка arch
 
 - `Изменить` - загрузить volume в форму редактирования.
 - `Проверить` - audit catalog без записи.
-- `Выключить` - выключить volume как online archive source.
-- `Включить` - вернуть volume в работу.
+- `Выключить` - выключить volume как online archive source и одновременно
+  выключить запись.
+- `Включить` - вернуть volume в работу. Запись после этого включается отдельной
+  кнопкой `Включить запись`.
 - `Выключить запись` - оставить volume читаемым, но запретить новые записи.
   Если есть активный segment writer, UI покажет ожидание завершения.
 - `Включить запись` - разрешить новые записи на volume.
@@ -860,6 +863,7 @@ GET /<camera>/embed.html
 GET /<camera>/live.m3u8
 GET /<camera>/dvr.m3u8?start=<unix>&end=<unix>
 GET /<camera>/recording_status.json
+GET /<camera>/timeline_ranges.json
 GET /<camera>/motion_events.json
 GET /<camera>/preview.mp4
 GET /<camera>/preview.jpg
@@ -871,6 +875,11 @@ DELETE /<camera>/whep/<session_id>
 
 `/<camera>/recording_status.json` отдаёт совместимые с Flussonic диапазоны
 архива; в каждом range поля `from` и `duration` отдаются целыми Unix seconds.
+
+`/<camera>/timeline_ranges.json` используется embed-плеером для шкалы архива.
+Он принимает `from`/`to` в Unix seconds и `bucket` в секундах, возвращает только
+нужное окно ranges и при большом масштабе может агрегировать соседние диапазоны.
+Внешним интеграциям нужно продолжать использовать `recording_status.json`.
 
 Для административного API `GET /api/onvif/devices/:id/events` параметры `page`/`pageSize` и `before`/`after` загружают список кусками. `timelineFrom`/`timelineTo` задают отдельный кусок `timelineEvents`, `timelineCarry=true` добавляет последнее событие перед началом окна для восстановления состояния, а `events=false` отключает выдачу страницы списка и используется для лёгких timeline-only запросов.
 

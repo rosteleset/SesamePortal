@@ -260,6 +260,7 @@ MySQL или PostgreSQL через конфигурацию.
 
 ## Связанные документы
 
+- [Описание возможностей и продукта SesameDVR](SESAME-DVR-PRODUCT-DESCRIPTION.ru.md)
 - [Описание продукта SesameDVR для продаж](PRODUCT-SALES-DESCRIPTION.ru.md)
 - [Руководство пользователя SesameDVR](sesame-dvr-user-guide.ru.md)
 - [Установка SesameDVR Trial](SESAME-DVR-TRIAL-INSTALL.ru.md)

@@ -161,8 +161,9 @@ curl -fsSL https://license.sesameware.com/sesame-dvr-artifacts/bootstrap-trial-i
 
 Дополнительная документация SesameDVR:
 
-- [Описание продукта для продаж](docs/PRODUCT-SALES-DESCRIPTION.ru.md)
-- [Руководство пользователя](docs/sesame-dvr-user-guide.ru.md)
+- [Описание возможностей и продукта SesameDVR](docs/SESAME-DVR-PRODUCT-DESCRIPTION.ru.md)
+- [Описание продукта SesameDVR для продаж](docs/PRODUCT-SALES-DESCRIPTION.ru.md)
+- [Руководство пользователя SesameDVR](docs/sesame-dvr-user-guide.ru.md)
 
 ## CLI
 
