@@ -1225,10 +1225,7 @@ body.player-view .player-frame {
     grid-template-columns: 1fr;
   }
   .density-switch {
-    width: 100%;
-    margin-left: 0;
-    overflow-x: auto;
-    padding-bottom: 2px;
+    display: none;
   }
   .login-card {
     padding: 26px;
