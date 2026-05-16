@@ -60,6 +60,11 @@ button.danger {
   border-color: #E7B3AE;
   background: #fff;
 }
+.row-actions a.danger {
+  color: var(--danger);
+  border-color: #E7B3AE;
+  background: #fff;
+}
 input,
 select,
 textarea {
@@ -289,6 +294,42 @@ code {
 .form {
   display: grid;
   gap: 14px;
+}
+.form-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.form-actions a {
+  min-height: 38px;
+  border: 1px solid var(--line-strong);
+  border-radius: 11px;
+  background: #fff;
+  color: var(--ink);
+  padding: 0 14px;
+  font-weight: 800;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.delete-confirm {
+  margin-bottom: 20px;
+}
+.delete-meta {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 8px 14px;
+  margin: 0;
+}
+.delete-meta dt {
+  color: var(--muted);
+  font-weight: 800;
+}
+.delete-meta dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-weight: 800;
 }
 .form-row {
   display: grid;

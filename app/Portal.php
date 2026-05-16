@@ -654,9 +654,20 @@ final class I18n
                 'viewer.previewRefresh' => 'Обновление превью',
                 'viewer.refreshOff' => 'Отключено',
                 'viewer.refreshSeconds' => '%d сек.',
-                'filter.cameraSearchPlaceholder' => 'Название камеры',
+                'filter.cameraSearchPlaceholder' => 'Название камеры или потока',
                 'action.find' => 'Найти',
                 'js.streamUnavailable' => 'Поток недоступен',
+                'cameras.deleteTitle' => 'Удалить камеру',
+                'cameras.deleteMissing' => 'Камера уже удалена или не найдена',
+                'cameras.deleteConfirmRequired' => 'Подтвердите удаление камеры',
+                'cameras.deleteDvrFailed' => 'Поток на DVR не удалён',
+                'cameras.deleteDone' => 'Камера удалена',
+                'cameras.deleteWarning' => 'Это действие нельзя отменить.',
+                'cameras.deleteWarningText' => 'Сначала подтвердите удаление камеры из портала. Отдельным флажком можно удалить связанный поток на DVR вместе с архивом.',
+                'cameras.confirmDelete' => 'Подтверждаю удаление камеры из портала',
+                'cameras.deleteDvrStream' => 'Также удалить поток на DVR и очистить архив, превью и индексы',
+                'cameras.deleteDvrUnavailable' => 'Удаление потока на DVR недоступно для этой камеры: проверьте сервер, token управления и режим управления.',
+                'cameras.deleteDvrReadOnly' => 'Read-only камера: удаление потока на DVR недоступно',
             ],
             'en' => [
                 'language.label' => 'Language',
@@ -695,7 +706,7 @@ final class I18n
                 'filter.groupSelect' => 'Group',
                 'filter.groupSelectPlaceholder' => 'Select group',
                 'filter.noGroups' => 'No groups found',
-                'filter.cameraSearchPlaceholder' => 'Camera name',
+                'filter.cameraSearchPlaceholder' => 'Camera or stream name',
                 'viewer.openPlayer' => 'Open player',
                 'viewer.columnsPerRow' => 'Cameras per row',
                 'viewer.previewRefresh' => 'Preview refresh',
@@ -769,6 +780,17 @@ final class I18n
                 'cameras.modeReadOnly' => 'Read-only DVR stream',
                 'cameras.sourceRequired' => 'Source URL is required for full DVR management mode',
                 'cameras.readOnlySyncSkipped' => 'Read-only mode: DVR management skipped',
+                'cameras.deleteTitle' => 'Delete camera',
+                'cameras.deleteMissing' => 'Camera is already deleted or missing',
+                'cameras.deleteConfirmRequired' => 'Confirm camera deletion',
+                'cameras.deleteDvrFailed' => 'DVR stream was not deleted',
+                'cameras.deleteDone' => 'Camera deleted',
+                'cameras.deleteWarning' => 'This action cannot be undone.',
+                'cameras.deleteWarningText' => 'Confirm portal camera deletion first. A separate checkbox can also delete the linked DVR stream together with archive files.',
+                'cameras.confirmDelete' => 'I confirm camera deletion from the portal',
+                'cameras.deleteDvrStream' => 'Also delete the DVR stream and purge archive, previews, and indexes',
+                'cameras.deleteDvrUnavailable' => 'DVR stream deletion is unavailable for this camera: check server, management token, and control mode.',
+                'cameras.deleteDvrReadOnly' => 'Read-only camera: DVR stream deletion is unavailable',
                 'servers.title' => 'SesameDVR servers',
                 'servers.new' => 'New server',
                 'servers.edit' => 'Edit server',
@@ -1420,18 +1442,18 @@ final class I18n
         ];
 
         foreach ([
-            'de' => 'Kameraname',
-            'fr' => 'Nom de la caméra',
-            'es' => 'Nombre de cámara',
-            'it' => 'Nome camera',
-            'pt' => 'Nome da câmera',
-            'bg' => 'Име на камера',
-            'pl' => 'Nazwa kamery',
-            'zh' => '摄像机名称',
-            'ja' => 'カメラ名',
-            'ko' => '카메라 이름',
-            'ar' => 'اسم الكاميرا',
-            'hy' => 'Տեսախցիկի անունը',
+            'de' => 'Kamera- oder Streamname',
+            'fr' => 'Nom de caméra ou de flux',
+            'es' => 'Nombre de cámara o stream',
+            'it' => 'Nome camera o stream',
+            'pt' => 'Nome da câmera ou do stream',
+            'bg' => 'Име на камера или поток',
+            'pl' => 'Nazwa kamery lub strumienia',
+            'zh' => '摄像机或流名称',
+            'ja' => 'カメラ名またはストリーム名',
+            'ko' => '카메라 또는 스트림 이름',
+            'ar' => 'اسم الكاميرا أو البث',
+            'hy' => 'Տեսախցիկի կամ հոսքի անունը',
         ] as $locale => $label) {
             $messages[$locale]['filter.cameraSearchPlaceholder'] = $label;
         }
@@ -2006,6 +2028,51 @@ final class DvrClient
         return self::storeCameraSync($cameraId, $ok, $message);
     }
 
+    public static function deleteCameraStream(int $cameraId, bool $purgeArchive): array
+    {
+        $camera = Repo::camera($cameraId);
+        if (!$camera) {
+            return ['ok' => false, 'message' => 'camera_not_found'];
+        }
+        if (!$camera['server_id']) {
+            return ['ok' => false, 'message' => 'No SesameDVR server selected'];
+        }
+        if (($camera['dvr_control_mode'] ?? 'managed') === 'read_only') {
+            return ['ok' => false, 'message' => I18n::t('cameras.deleteDvrReadOnly', 'Read-only camera: DVR stream deletion is unavailable')];
+        }
+
+        $server = Repo::server((int)$camera['server_id']);
+        if (!$server || (int)$server['blocked'] === 1) {
+            return ['ok' => false, 'message' => 'SesameDVR server is unavailable or blocked'];
+        }
+
+        $token = Crypto::decrypt($server['management_token_enc'] ?? null);
+        $tokenIssue = self::managementTokenIssue($server, $token);
+        if ($tokenIssue !== null) {
+            return ['ok' => false, 'message' => self::managementTokenIssueMessage($tokenIssue), 'reason' => $tokenIssue];
+        }
+
+        $name = trim((string)($camera['dvr_stream_name'] ?: $camera['name']));
+        if ($name === '') {
+            return ['ok' => false, 'message' => 'DVR stream name is empty'];
+        }
+
+        $endpoint = rtrim($server['base_url'], '/') . '/api/streams/' . rawurlencode($name);
+        if ($purgeArchive) {
+            $endpoint .= '?purge=true';
+        }
+        $result = self::request('DELETE', $endpoint, $token, null, $purgeArchive ? 300 : 12);
+        $message = self::responseSummary($result, $endpoint);
+        if ((int)$result['status'] === 404) {
+            return ['ok' => true, 'message' => $message . ' stream already absent'];
+        }
+
+        return [
+            'ok' => $result['status'] >= 200 && $result['status'] < 300,
+            'message' => $message,
+        ];
+    }
+
     public static function checkServer(int $serverId): array
     {
         $server = Repo::server($serverId);
@@ -2090,7 +2157,7 @@ final class DvrClient
             : 'Management token is not configured';
     }
 
-    private static function request(string $method, string $url, string $token, ?array $payload): array
+    private static function request(string $method, string $url, string $token, ?array $payload, int $timeout = 12): array
     {
         $ch = curl_init($url);
         $headers = ['Accept: application/json'];
@@ -2105,7 +2172,7 @@ final class DvrClient
             CURLOPT_CUSTOMREQUEST => $method,
             CURLOPT_HTTPHEADER => $headers,
             CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_TIMEOUT => 12,
+            CURLOPT_TIMEOUT => $timeout,
         ]);
         $body = curl_exec($ch);
         $status = curl_getinfo($ch, CURLINFO_RESPONSE_CODE) ?: 0;
@@ -2249,8 +2316,10 @@ final class Repo
 
         $query = trim($query);
         if ($query !== '') {
-            $where[] = 'LOWER(c.name) LIKE LOWER(?)';
-            $params[] = '%' . $query . '%';
+            $where[] = '(LOWER(c.name) LIKE LOWER(?) OR LOWER(c.dvr_stream_name) LIKE LOWER(?))';
+            $needle = '%' . $query . '%';
+            $params[] = $needle;
+            $params[] = $needle;
         }
 
         return [$join, $where, $params];
@@ -2677,8 +2746,33 @@ final class App
                     Audit::log('camera.save', $name . ' mode=' . $controlMode . ' sync=' . $sync['message']);
                 }
             } elseif ($action === 'delete' && $id > 0) {
-                $pdo->prepare('DELETE FROM cameras WHERE id=?')->execute([$id]);
-                Audit::log('camera.delete', 'camera_id=' . $id);
+                $camera = Repo::camera($id);
+                if (!$camera) {
+                    $message = self::t('cameras.deleteMissing', 'Камера уже удалена или не найдена');
+                } elseif (Util::checkbox('confirm_delete') !== 1) {
+                    $message = self::t('cameras.deleteConfirmRequired', 'Подтвердите удаление камеры');
+                } else {
+                    $deleteDvrStream = Util::checkbox('delete_dvr_stream') === 1;
+                    $dvrMessage = '';
+                    if ($deleteDvrStream) {
+                        $deleteResult = DvrClient::deleteCameraStream($id, true);
+                        $dvrMessage = $deleteResult['message'];
+                        if (!$deleteResult['ok']) {
+                            $message = self::t('cameras.deleteDvrFailed', 'Поток на DVR не удалён') . ': ' . $dvrMessage;
+                            Audit::log('camera.delete_failed', 'camera_id=' . $id . ' dvr=yes result=' . $dvrMessage);
+                        }
+                    }
+
+                    if ($message === '') {
+                        $pdo->prepare('DELETE FROM camera_groups WHERE camera_id=?')->execute([$id]);
+                        $pdo->prepare('DELETE FROM cameras WHERE id=?')->execute([$id]);
+                        $message = self::t('cameras.deleteDone', 'Камера удалена');
+                        if ($dvrMessage !== '') {
+                            $message .= ': ' . $dvrMessage;
+                        }
+                        Audit::log('camera.delete', 'camera_id=' . $id . ' dvr=' . ($deleteDvrStream ? 'yes' : 'no') . ' result=' . $dvrMessage);
+                    }
+                }
             } elseif ($action === 'sync' && $id > 0) {
                 $result = DvrClient::syncCamera($id);
                 $message = $result['message'];
@@ -2686,13 +2780,17 @@ final class App
         }
 
         $edit = self::rowById('cameras', (int)($_GET['edit'] ?? 0));
+        $delete = self::cameraDeleteCandidate((int)($_GET['delete'] ?? 0));
         $linkedGroups = $edit ? self::linkedIds('camera_groups', 'camera_id', (int)$edit['id'], 'group_id') : [];
         $servers = Repo::all('dvr_servers', 'name ASC');
         $groups = Repo::all('portal_groups', 'name ASC');
         $list = self::filteredCameras();
         $cameras = $list['rows'];
-        self::layout(self::t('cameras.title', 'Камеры'), function () use ($edit, $servers, $groups, $linkedGroups, $cameras, $message, $list) {
+        self::layout(self::t('cameras.title', 'Камеры'), function () use ($edit, $delete, $servers, $groups, $linkedGroups, $cameras, $message, $list) {
             self::notice($message);
+            if ($delete) {
+                self::cameraDeletePanel($delete);
+            }
             echo '<div class="admin-grid"><section class="panel"><h2>' . ($edit ? self::t('cameras.edit', 'Изменить камеру') : self::t('cameras.new', 'Новая камера')) . '</h2>';
             echo '<form method="post" class="form">' . Csrf::field();
             echo '<input type="hidden" name="action" value="save"><input type="hidden" name="id" value="' . Util::h($edit['id'] ?? 0) . '">';
@@ -2721,6 +2819,50 @@ final class App
             self::table(self::t('cameras.title', 'Камеры'), ['name', 'server_name', 'dvr_control_mode', 'retention_days', 'last_sync_message'], $cameras, '/admin/cameras', true, $list);
             echo '</div>';
         });
+    }
+
+    private static function cameraDeleteCandidate(int $id): ?array
+    {
+        if ($id <= 0) {
+            return null;
+        }
+        $stmt = DB::pdo()->prepare('SELECT c.*, s.name AS server_name, s.base_url AS server_base_url, s.blocked AS server_blocked, s.management_token_enc AS server_management_token_enc
+            FROM cameras c
+            LEFT JOIN dvr_servers s ON s.id = c.server_id
+            WHERE c.id = ?');
+        $stmt->execute([$id]);
+        return $stmt->fetch() ?: null;
+    }
+
+    private static function cameraDeletePanel(array $camera): void
+    {
+        $stream = trim((string)($camera['dvr_stream_name'] ?: $camera['name']));
+        $canDeleteDvr = !empty($camera['server_id'])
+            && (int)($camera['server_blocked'] ?? 0) === 0
+            && ($camera['dvr_control_mode'] ?? 'managed') !== 'read_only'
+            && trim((string)($camera['server_management_token_enc'] ?? '')) !== ''
+            && $stream !== '';
+
+        echo '<section class="panel delete-confirm"><div class="section-head"><h2>' . self::t('cameras.deleteTitle', 'Удалить камеру') . '</h2><a href="/admin/cameras">' . self::t('action.cancel', 'Отмена') . '</a></div>';
+        echo '<div class="alert warn">';
+        echo '<strong>' . self::t('cameras.deleteWarning', 'Это действие нельзя отменить.') . '</strong> ';
+        echo self::t('cameras.deleteWarningText', 'Сначала подтвердите удаление камеры из портала. Отдельным флажком можно удалить связанный поток на DVR вместе с архивом.');
+        echo '</div>';
+        echo '<dl class="delete-meta">';
+        echo '<dt>' . self::t('cameras.name', 'Имя') . '</dt><dd>' . Util::h($camera['name']) . '</dd>';
+        echo '<dt>' . self::t('cameras.streamName', 'Имя потока SesameDVR') . '</dt><dd>' . Util::h($stream ?: '-') . '</dd>';
+        echo '<dt>' . self::t('cameras.server', 'Сервер') . '</dt><dd>' . Util::h($camera['server_name'] ?: '-') . '</dd>';
+        echo '</dl>';
+        echo '<form method="post" action="/admin/cameras" class="form">' . Csrf::field();
+        echo '<input type="hidden" name="action" value="delete"><input type="hidden" name="id" value="' . (int)$camera['id'] . '">';
+        echo '<label class="check"><input type="checkbox" name="confirm_delete" required> ' . self::t('cameras.confirmDelete', 'Подтверждаю удаление камеры из портала') . '</label>';
+        if ($canDeleteDvr) {
+            echo '<label class="check"><input type="checkbox" name="delete_dvr_stream"> ' . self::t('cameras.deleteDvrStream', 'Также удалить поток на DVR и очистить архив, превью и индексы') . '</label>';
+        } else {
+            echo '<p class="muted">' . self::t('cameras.deleteDvrUnavailable', 'Удаление потока на DVR недоступно для этой камеры: проверьте сервер, token управления и режим управления.') . '</p>';
+        }
+        echo '<div class="form-actions"><button class="danger">' . self::t('action.delete', 'Удалить') . '</button><a href="/admin/cameras">' . self::t('action.cancel', 'Отмена') . '</a></div>';
+        echo '</form></section>';
     }
 
     private static function audit(): void
@@ -3064,10 +3206,10 @@ final class App
         }
         echo '</select>';
         echo '<input class="camera-search-input" name="q" value="' . Util::h($searchQuery) . '" placeholder="' . Util::h(self::t('filter.cameraSearchPlaceholder', 'Название камеры')) . '">';
+        echo '<button>' . self::t('action.find', 'Найти') . '</button>';
         if ($mode !== 'map') {
             self::previewRefreshSelect($previewRefresh);
         }
-        echo '<button>' . self::t('action.show', 'Показать') . '</button>';
         echo '</form>';
         if ($mode !== 'map') {
             self::densitySwitch($filter, $searchQuery, $cols, $previewRefresh);
@@ -3316,7 +3458,7 @@ final class App
         $where = '';
         $params = [];
         if ($q !== '') {
-            $where = ' WHERE c.name LIKE ? OR c.source_url LIKE ? OR c.dvr_stream_name LIKE ? OR c.dvr_control_mode LIKE ? OR s.name LIKE ? OR c.last_sync_message LIKE ?';
+            $where = ' WHERE LOWER(c.name) LIKE LOWER(?) OR LOWER(c.source_url) LIKE LOWER(?) OR LOWER(c.dvr_stream_name) LIKE LOWER(?) OR LOWER(c.dvr_control_mode) LIKE LOWER(?) OR LOWER(s.name) LIKE LOWER(?) OR LOWER(c.last_sync_message) LIKE LOWER(?)';
             $params = array_fill(0, 6, '%' . $q . '%');
         }
 
@@ -3449,7 +3591,11 @@ final class App
             if ($actions && str_contains($base, 'cameras')) {
                 self::smallPost($base, ['action' => 'sync', 'id' => $row['id']], self::t('action.sync', 'Синхронизировать'));
             }
-            self::smallPost($base, ['action' => 'delete', 'id' => $row['id']], self::t('action.delete', 'Удалить'), 'danger');
+            if ($base === '/admin/cameras') {
+                echo '<a class="danger" href="' . $base . '?delete=' . (int)$row['id'] . '">' . self::t('action.delete', 'Удалить') . '</a>';
+            } else {
+                self::smallPost($base, ['action' => 'delete', 'id' => $row['id']], self::t('action.delete', 'Удалить'), 'danger');
+            }
             if ($base === '/admin/users') {
                 self::smallPost($base, ['action' => 'issue_static', 'id' => $row['id']], self::t('token.static', 'Статический token'));
                 self::smallPost($base, ['action' => 'revoke_static', 'id' => $row['id']], self::t('action.revoke', 'Отозвать'));
