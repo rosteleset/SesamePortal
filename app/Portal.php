@@ -121,6 +121,11 @@ final class DB
         self::ensureColumn('cameras', 'last_sync_ok', 'INTEGER');
         self::ensureColumn('cameras', 'last_sync_message', 'TEXT');
         self::ensureColumn('cameras', 'dvr_control_mode', self::driver() === 'mysql' ? "VARCHAR(32) NOT NULL DEFAULT 'managed'" : "TEXT NOT NULL DEFAULT 'managed'");
+        self::ensureColumn('cameras', 'agent_id', self::driver() === 'mysql' ? 'VARCHAR(255)' : 'TEXT');
+        self::ensureColumn('cameras', 'agent_camera_id', self::driver() === 'mysql' ? 'VARCHAR(255)' : 'TEXT');
+        self::ensureColumn('cameras', 'onvif_events_requested', 'INTEGER NOT NULL DEFAULT 0');
+        self::ensureIndex('cameras', 'idx_cameras_agent_id', 'agent_id');
+        self::ensureIndex('cameras', 'idx_cameras_agent_camera_id', 'agent_camera_id');
     }
 
     public static function insertIgnoreSql(string $table, array $columns): string
@@ -219,6 +224,9 @@ final class DB
                 view_angle_deg INTEGER NOT NULL DEFAULT 60,
                 retention_days TEXT NOT NULL DEFAULT "7d",
                 dvr_control_mode TEXT NOT NULL DEFAULT "managed",
+                agent_id TEXT,
+                agent_camera_id TEXT,
+                onvif_events_requested INTEGER NOT NULL DEFAULT 0,
                 blocked INTEGER NOT NULL DEFAULT 0,
                 dvr_stream_name TEXT NOT NULL,
                 last_sync_at TEXT,
@@ -300,6 +308,9 @@ final class DB
                 view_angle_deg INTEGER NOT NULL DEFAULT 60,
                 retention_days TEXT NOT NULL DEFAULT '7d',
                 dvr_control_mode TEXT NOT NULL DEFAULT 'managed',
+                agent_id TEXT,
+                agent_camera_id TEXT,
+                onvif_events_requested INTEGER NOT NULL DEFAULT 0,
                 blocked INTEGER NOT NULL DEFAULT 0,
                 dvr_stream_name TEXT NOT NULL,
                 last_sync_at TEXT,
@@ -384,6 +395,9 @@ final class DB
                 view_angle_deg INTEGER NOT NULL DEFAULT 60,
                 retention_days VARCHAR(64) NOT NULL DEFAULT '7d',
                 dvr_control_mode VARCHAR(32) NOT NULL DEFAULT 'managed',
+                agent_id VARCHAR(255),
+                agent_camera_id VARCHAR(255),
+                onvif_events_requested INTEGER NOT NULL DEFAULT 0,
                 blocked INTEGER NOT NULL DEFAULT 0,
                 dvr_stream_name VARCHAR(255) NOT NULL,
                 last_sync_at VARCHAR(64),
@@ -636,8 +650,11 @@ final class I18n
                 'login.feature.efficient' => 'Производительно',
                 'groups.users' => 'Пользователи',
                 'groups.cameras' => 'Камеры',
+                'nav.agents' => 'Edge Agents',
                 'column.name' => 'Название',
                 'column.server_name' => 'Сервер',
+                'column.agent_id' => 'Agent',
+                'column.agent_camera_id' => 'Камера агента',
                 'column.last_sync_ok' => 'Синхронизация',
                 'column.last_sync_at' => 'Время синхронизации',
                 'column.last_sync_message' => 'Результат',
@@ -668,6 +685,37 @@ final class I18n
                 'cameras.deleteDvrStream' => 'Также удалить поток на DVR и очистить архив, превью и индексы',
                 'cameras.deleteDvrUnavailable' => 'Удаление потока на DVR недоступно для этой камеры: проверьте сервер, token управления и режим управления.',
                 'cameras.deleteDvrReadOnly' => 'Read-only камера: удаление потока на DVR недоступно',
+                'cameras.modeEdgeAgent' => 'Edge Agent push stream',
+                'cameras.agentId' => 'Agent ID',
+                'cameras.agentCameraId' => 'Agent camera ID',
+                'cameras.onvifEvents' => 'Запускать ONVIF events через агента',
+                'cameras.agentRequired' => 'Для edge-agent режима нужны сервер, Agent ID и Agent camera ID',
+                'cameras.agentOverwriteBlocked' => 'Поток на DVR уже управляется Edge Agent. Переключите камеру Portal в режим Edge Agent или read-only, чтобы не перезаписать push-конфиг.',
+                'agents.title' => 'Edge Agents',
+                'agents.new' => 'Новый agent',
+                'agents.serverRequired' => 'Выберите SesameDVR сервер',
+                'agents.agentId' => 'Agent ID',
+                'agents.agentName' => 'Название agent',
+                'agents.password' => 'Enrollment password',
+                'agents.capabilities' => 'Capabilities',
+                'agents.enabled' => 'Включён',
+                'agents.create' => 'Создать agent',
+                'agents.setPassword' => 'Задать password',
+                'agents.revoke' => 'Отозвать secret',
+                'agents.rotateSecret' => 'Rotate secret',
+                'agents.scan' => 'Scan ONVIF',
+                'agents.diagnostics' => 'Diagnostics',
+                'agents.logs' => 'Logs',
+                'agents.commands' => 'Commands',
+                'agents.cameras' => 'Камеры agent',
+                'agents.command' => 'Command',
+                'agents.payload' => 'Payload JSON',
+                'agents.sendCommand' => 'Отправить command',
+                'agents.useCamera' => 'Создать камеру в Portal',
+                'agents.snapshot' => 'Snapshot',
+                'agents.noServer' => 'Сначала добавьте SesameDVR сервер с management token.',
+                'agents.noAgents' => 'Agents не найдены',
+                'agents.newSecret' => 'Новый agentSecret',
             ],
             'en' => [
                 'language.label' => 'Language',
@@ -678,6 +726,7 @@ final class I18n
                 'nav.groups' => 'Groups',
                 'nav.cameras' => 'Cameras',
                 'nav.dvr' => 'DVR',
+                'nav.agents' => 'Edge Agents',
                 'nav.audit' => 'Audit',
                 'nav.logout' => 'Logout',
                 'login.title' => 'Sign In',
@@ -777,9 +826,15 @@ final class I18n
                 'cameras.groups' => 'Groups',
                 'cameras.mode' => 'Camera mode',
                 'cameras.modeManaged' => 'Full DVR management',
+                'cameras.modeEdgeAgent' => 'Edge Agent push stream',
                 'cameras.modeReadOnly' => 'Read-only DVR stream',
                 'cameras.sourceRequired' => 'Source URL is required for full DVR management mode',
                 'cameras.readOnlySyncSkipped' => 'Read-only mode: DVR management skipped',
+                'cameras.agentId' => 'Agent ID',
+                'cameras.agentCameraId' => 'Agent camera ID',
+                'cameras.onvifEvents' => 'Start ONVIF events through the agent',
+                'cameras.agentRequired' => 'Edge-agent mode requires server, Agent ID, and Agent camera ID',
+                'cameras.agentOverwriteBlocked' => 'This DVR stream is already managed by Edge Agent. Switch the Portal camera to Edge Agent or read-only mode to avoid overwriting push configuration.',
                 'cameras.deleteTitle' => 'Delete camera',
                 'cameras.deleteMissing' => 'Camera is already deleted or missing',
                 'cameras.deleteConfirmRequired' => 'Confirm camera deletion',
@@ -796,6 +851,31 @@ final class I18n
                 'servers.edit' => 'Edit server',
                 'servers.managementKey' => 'Management key',
                 'servers.blocked' => 'Blocked',
+                'agents.title' => 'Edge Agents',
+                'agents.new' => 'New agent',
+                'agents.serverRequired' => 'Select a SesameDVR server',
+                'agents.agentId' => 'Agent ID',
+                'agents.agentName' => 'Agent name',
+                'agents.password' => 'Enrollment password',
+                'agents.capabilities' => 'Capabilities',
+                'agents.enabled' => 'Enabled',
+                'agents.create' => 'Create agent',
+                'agents.setPassword' => 'Set password',
+                'agents.revoke' => 'Revoke secret',
+                'agents.rotateSecret' => 'Rotate secret',
+                'agents.scan' => 'Scan ONVIF',
+                'agents.diagnostics' => 'Diagnostics',
+                'agents.logs' => 'Logs',
+                'agents.commands' => 'Commands',
+                'agents.cameras' => 'Agent cameras',
+                'agents.command' => 'Command',
+                'agents.payload' => 'Payload JSON',
+                'agents.sendCommand' => 'Send command',
+                'agents.useCamera' => 'Create Portal camera',
+                'agents.snapshot' => 'Snapshot',
+                'agents.noServer' => 'Add a SesameDVR server with a management token first.',
+                'agents.noAgents' => 'No agents found',
+                'agents.newSecret' => 'New agentSecret',
                 'audit.title' => 'Audit log',
                 'audit.search' => 'Search action, user, or details',
                 'audit.allActions' => 'All actions',
@@ -811,6 +891,8 @@ final class I18n
                 'common.noServer' => 'No server',
                 'column.name' => 'Name',
                 'column.server_name' => 'Server',
+                'column.agent_id' => 'Agent',
+                'column.agent_camera_id' => 'Agent camera',
                 'column.last_sync_ok' => 'Sync',
                 'column.last_sync_at' => 'Synced at',
                 'column.last_sync_message' => 'Sync result',
@@ -1997,7 +2079,8 @@ final class DvrClient
             return self::storeCameraSync($cameraId, false, 'SesameDVR server is unavailable or blocked');
         }
 
-        if (($camera['dvr_control_mode'] ?? 'managed') === 'read_only') {
+        $controlMode = (string)($camera['dvr_control_mode'] ?? 'managed');
+        if ($controlMode === 'read_only') {
             return self::storeCameraSync($cameraId, true, I18n::t('cameras.readOnlySyncSkipped', 'Read-only mode: DVR management skipped'));
         }
 
@@ -2006,14 +2089,47 @@ final class DvrClient
             return self::storeCameraSync($cameraId, false, 'SesameDVR management token is missing');
         }
 
-        $name = $camera['dvr_stream_name'] ?: $camera['name'];
-        $payload = [
-            'name' => $name,
-            'source' => $camera['source_url'],
-            'enabled' => ((int)$camera['blocked'] === 0),
-            'retentionDays' => $camera['retention_days'],
-            'authMode' => 'authBackend',
-        ];
+        $name = trim((string)($camera['dvr_stream_name'] ?: $camera['name']));
+        if ($controlMode === 'edge_agent') {
+            $agentId = trim((string)($camera['agent_id'] ?? ''));
+            $agentCameraId = trim((string)($camera['agent_camera_id'] ?? ''));
+            if ($name === '' || $agentId === '' || $agentCameraId === '') {
+                return self::storeCameraSync($cameraId, false, I18n::t('cameras.agentRequired', 'Edge-agent mode requires server, Agent ID, and Agent camera ID'));
+            }
+
+            $payload = [
+                'name' => $name,
+                'sourceType' => 'push',
+                'source' => 'push://' . $name,
+                'enabled' => ((int)$camera['blocked'] === 0),
+                'retentionDays' => $camera['retention_days'],
+                'authMode' => 'authBackend',
+                'push' => [
+                    'transport' => 'rtmp',
+                    'publisherKind' => 'agent',
+                    'streamName' => $name,
+                    'requested' => true,
+                    'agentId' => $agentId,
+                    'agentCameraId' => $agentCameraId,
+                    'onvifEventsRequested' => (int)($camera['onvif_events_requested'] ?? 0) === 1,
+                ],
+            ];
+        } else {
+            $existing = self::fetchStream($server, $token, $name);
+            if (is_array($existing) && self::streamUsesAgentPublisher($existing)) {
+                return self::storeCameraSync($cameraId, false, I18n::t('cameras.agentOverwriteBlocked', 'This DVR stream is already managed by Edge Agent. Switch the Portal camera to Edge Agent or read-only mode to avoid overwriting push configuration.'));
+            }
+
+            $payload = [
+                'name' => $name,
+                'sourceType' => 'direct',
+                'source' => $camera['source_url'],
+                'push' => null,
+                'enabled' => ((int)$camera['blocked'] === 0),
+                'retentionDays' => $camera['retention_days'],
+                'authMode' => 'authBackend',
+            ];
+        }
 
         $base = rtrim($server['base_url'], '/');
         $endpoint = $base . '/api/streams/' . rawurlencode($name);
@@ -2140,6 +2256,85 @@ final class DvrClient
         return ['ok' => $ok, 'message' => $message, 'metrics' => $payload];
     }
 
+    public static function listAgents(int $serverId): array
+    {
+        return self::apiRequest($serverId, 'GET', '/api/agents');
+    }
+
+    public static function createAgent(int $serverId, array $payload): array
+    {
+        return self::apiRequest($serverId, 'POST', '/api/agents', $payload);
+    }
+
+    public static function updateAgent(int $serverId, string $agentId, array $payload): array
+    {
+        return self::apiRequest($serverId, 'PATCH', '/api/agents/' . rawurlencode($agentId), $payload);
+    }
+
+    public static function deleteAgent(int $serverId, string $agentId): array
+    {
+        return self::apiRequest($serverId, 'DELETE', '/api/agents/' . rawurlencode($agentId));
+    }
+
+    public static function setAgentEnrollmentPassword(int $serverId, string $agentId, string $password): array
+    {
+        return self::apiRequest($serverId, 'POST', '/api/agents/' . rawurlencode($agentId) . '/enrollment-password', ['password' => $password]);
+    }
+
+    public static function revokeAgent(int $serverId, string $agentId): array
+    {
+        return self::apiRequest($serverId, 'POST', '/api/agents/' . rawurlencode($agentId) . '/revoke');
+    }
+
+    public static function rotateAgentSecret(int $serverId, string $agentId): array
+    {
+        return self::apiRequest($serverId, 'POST', '/api/agents/' . rawurlencode($agentId) . '/rotate-secret');
+    }
+
+    public static function agentCameras(int $serverId, string $agentId): array
+    {
+        return self::apiRequest($serverId, 'GET', '/api/agents/' . rawurlencode($agentId) . '/cameras');
+    }
+
+    public static function scanAgentCameras(int $serverId, string $agentId): array
+    {
+        return self::apiRequest($serverId, 'POST', '/api/agents/' . rawurlencode($agentId) . '/cameras/scan');
+    }
+
+    public static function agentDiagnostics(int $serverId, string $agentId): array
+    {
+        return self::apiRequest($serverId, 'POST', '/api/agents/' . rawurlencode($agentId) . '/diagnostics');
+    }
+
+    public static function agentCommands(int $serverId, string $agentId): array
+    {
+        return self::apiRequest($serverId, 'GET', '/api/agents/' . rawurlencode($agentId) . '/commands');
+    }
+
+    public static function agentCommand(int $serverId, string $agentId, string $command, array $payload, ?int $timeoutMs = null): array
+    {
+        $body = [
+            'command' => $command,
+            'payload' => $payload === [] ? new \stdClass() : $payload,
+        ];
+        if ($timeoutMs !== null && $timeoutMs > 0) {
+            $body['timeoutMs'] = $timeoutMs;
+        }
+        return self::apiRequest($serverId, 'POST', '/api/agents/' . rawurlencode($agentId) . '/commands', $body);
+    }
+
+    public static function agentLogs(int $serverId, string $agentId): array
+    {
+        return self::apiRequest($serverId, 'GET', '/api/agents/' . rawurlencode($agentId) . '/logs');
+    }
+
+    public static function agentSnapshot(int $serverId, string $agentId, string $cameraId, bool $fresh = false): array
+    {
+        $path = '/api/agents/' . rawurlencode($agentId) . '/cameras/' . rawurlencode($cameraId) . '/snapshot.jpg';
+        $path .= '?timeoutMs=2500' . ($fresh ? '&fresh=true' : '');
+        return self::apiRequest($serverId, 'GET', $path, null, 5, false);
+    }
+
     private static function managementTokenIssue(array $server, string $token): ?string
     {
         if ($token !== '') {
@@ -2155,6 +2350,64 @@ final class DvrClient
         return $issue === 'management_token_unreadable'
             ? 'Management token cannot be decrypted'
             : 'Management token is not configured';
+    }
+
+    private static function apiRequest(int $serverId, string $method, string $path, ?array $payload = null, int $timeout = 12, bool $decodeJson = true): array
+    {
+        $server = Repo::server($serverId);
+        if (!$server || (int)$server['blocked'] === 1) {
+            return ['ok' => false, 'status' => 0, 'message' => 'SesameDVR server is unavailable or blocked', 'data' => null];
+        }
+
+        $token = Crypto::decrypt($server['management_token_enc'] ?? null);
+        $tokenIssue = self::managementTokenIssue($server, $token);
+        if ($tokenIssue !== null) {
+            return [
+                'ok' => false,
+                'status' => 0,
+                'message' => self::managementTokenIssueMessage($tokenIssue),
+                'reason' => $tokenIssue,
+                'data' => null,
+            ];
+        }
+
+        $endpoint = rtrim($server['base_url'], '/') . $path;
+        $result = self::request($method, $endpoint, $token, $payload, $timeout);
+        $ok = $result['status'] >= 200 && $result['status'] < 300;
+        return [
+            'ok' => $ok,
+            'status' => (int)$result['status'],
+            'message' => self::responseSummary($result, $endpoint),
+            'data' => $decodeJson ? self::jsonOrBody($result) : $result['body'],
+            'contentType' => (string)($result['content_type'] ?? ''),
+        ];
+    }
+
+    private static function fetchStream(array $server, string $token, string $name): ?array
+    {
+        if ($name === '') {
+            return null;
+        }
+
+        $endpoint = rtrim($server['base_url'], '/') . '/api/streams/' . rawurlencode($name);
+        $result = self::request('GET', $endpoint, $token, null, 8);
+        if ((int)$result['status'] < 200 || (int)$result['status'] >= 300) {
+            return null;
+        }
+
+        $decoded = json_decode((string)$result['body'], true);
+        return is_array($decoded) ? $decoded : null;
+    }
+
+    private static function streamUsesAgentPublisher(array $stream): bool
+    {
+        $push = $stream['push'] ?? null;
+        if (!is_array($push)) {
+            return false;
+        }
+
+        return ($stream['sourceType'] ?? $stream['source_type'] ?? '') === 'push'
+            && ($push['publisherKind'] ?? $push['publisher_kind'] ?? '') === 'agent';
     }
 
     private static function request(string $method, string $url, string $token, ?array $payload, int $timeout = 12): array
@@ -2176,9 +2429,10 @@ final class DvrClient
         ]);
         $body = curl_exec($ch);
         $status = curl_getinfo($ch, CURLINFO_RESPONSE_CODE) ?: 0;
+        $contentType = curl_getinfo($ch, CURLINFO_CONTENT_TYPE) ?: '';
         $error = curl_error($ch);
         curl_close($ch);
-        return ['status' => $status, 'body' => $body === false ? $error : (string)$body];
+        return ['status' => $status, 'body' => $body === false ? $error : (string)$body, 'content_type' => (string)$contentType];
     }
 
     private static function storeCameraSync(int $cameraId, bool $ok, string $message): array
@@ -2395,6 +2649,8 @@ final class App
             '/admin/users' => self::users(),
             '/admin/groups' => self::groups(),
             '/admin/servers' => self::servers(),
+            '/admin/agents/snapshot' => self::agentSnapshotProxy(),
+            '/admin/agents' => self::agents(),
             '/admin/cameras' => self::cameras(),
             '/admin/audit' => self::audit(),
             '/viewer/map' => self::viewer('map'),
@@ -2697,6 +2953,353 @@ final class App
         });
     }
 
+    private static function agents(): void
+    {
+        Auth::requireAdmin();
+        $servers = Repo::all('dvr_servers', 'name ASC');
+        $selectedServerId = self::selectedServerId($servers);
+        $selectedAgentId = trim((string)($_GET['agent_id'] ?? ''));
+        $message = '';
+
+        if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
+            $action = (string)Util::post('action');
+            $selectedServerId = (int)Util::post('server_id', $selectedServerId);
+            $selectedAgentId = trim((string)Util::post('agent_id', $selectedAgentId));
+            $result = null;
+
+            if ($selectedServerId <= 0) {
+                $message = self::t('agents.serverRequired', 'Выберите SesameDVR сервер');
+            } elseif ($action === 'create') {
+                $agentId = trim((string)Util::post('agent_id'));
+                $name = trim((string)Util::post('name')) ?: $agentId;
+                if ($agentId === '') {
+                    $message = self::t('agents.agentId', 'Agent ID') . ' required';
+                } else {
+                    $payload = [
+                        'id' => $agentId,
+                        'name' => $name,
+                        'enabled' => Util::checkbox('enabled') === 1,
+                        'capabilities' => self::agentCapabilitiesFromText((string)Util::post('capabilities')),
+                    ];
+                    $password = trim((string)Util::post('password'));
+                    if ($password !== '') {
+                        $payload['password'] = $password;
+                    }
+                    $result = DvrClient::createAgent($selectedServerId, $payload);
+                    $selectedAgentId = $agentId;
+                }
+            } elseif ($selectedAgentId === '') {
+                $message = self::t('agents.agentId', 'Agent ID') . ' required';
+            } elseif ($action === 'update') {
+                $result = DvrClient::updateAgent($selectedServerId, $selectedAgentId, [
+                    'name' => trim((string)Util::post('name')) ?: $selectedAgentId,
+                    'enabled' => Util::checkbox('enabled') === 1,
+                    'capabilities' => self::agentCapabilitiesFromText((string)Util::post('capabilities')),
+                ]);
+            } elseif ($action === 'delete') {
+                $result = DvrClient::deleteAgent($selectedServerId, $selectedAgentId);
+                if (!empty($result['ok'])) {
+                    $selectedAgentId = '';
+                }
+            } elseif ($action === 'password') {
+                $password = trim((string)Util::post('password'));
+                $result = $password === ''
+                    ? ['ok' => false, 'message' => self::t('agents.password', 'Enrollment password') . ' required']
+                    : DvrClient::setAgentEnrollmentPassword($selectedServerId, $selectedAgentId, $password);
+            } elseif ($action === 'revoke') {
+                $result = DvrClient::revokeAgent($selectedServerId, $selectedAgentId);
+            } elseif ($action === 'rotate') {
+                $result = DvrClient::rotateAgentSecret($selectedServerId, $selectedAgentId);
+            } elseif ($action === 'scan') {
+                $result = DvrClient::scanAgentCameras($selectedServerId, $selectedAgentId);
+            } elseif ($action === 'diagnostics') {
+                $result = DvrClient::agentDiagnostics($selectedServerId, $selectedAgentId);
+            } elseif ($action === 'command') {
+                [$payload, $payloadError] = self::agentCommandPayload((string)Util::post('payload'), (string)Util::post('agent_camera_id'));
+                if ($payloadError !== null) {
+                    $result = ['ok' => false, 'message' => $payloadError];
+                } else {
+                    $timeout = (int)Util::post('timeout_ms', 0);
+                    $result = DvrClient::agentCommand($selectedServerId, $selectedAgentId, trim((string)Util::post('command')) ?: 'test_camera', $payload, $timeout > 0 ? $timeout : null);
+                }
+            }
+
+            if (is_array($result)) {
+                $message = self::agentActionMessage($result);
+            }
+        }
+
+        $agentsResult = $selectedServerId > 0 ? DvrClient::listAgents($selectedServerId) : ['ok' => false, 'message' => self::t('agents.noServer', 'Сначала добавьте SesameDVR сервер с management token.'), 'data' => ['agents' => []]];
+        $agents = is_array($agentsResult['data'] ?? null) && is_array(($agentsResult['data']['agents'] ?? null)) ? $agentsResult['data']['agents'] : [];
+        if ($selectedAgentId === '' && $agents) {
+            $selectedAgentId = (string)($agents[0]['id'] ?? '');
+        }
+        $selectedAgent = self::findAgentRow($agents, $selectedAgentId);
+        $agentCamerasResult = $selectedAgentId !== '' && $selectedServerId > 0 ? DvrClient::agentCameras($selectedServerId, $selectedAgentId) : null;
+        $agentCommandsResult = $selectedAgentId !== '' && $selectedServerId > 0 ? DvrClient::agentCommands($selectedServerId, $selectedAgentId) : null;
+        $agentLogsResult = $selectedAgentId !== '' && $selectedServerId > 0 ? DvrClient::agentLogs($selectedServerId, $selectedAgentId) : null;
+
+        self::layout(self::t('agents.title', 'Edge Agents'), function () use ($servers, $selectedServerId, $selectedAgentId, $selectedAgent, $agentsResult, $agents, $agentCamerasResult, $agentCommandsResult, $agentLogsResult, $message) {
+            self::notice($message);
+            if (!$servers) {
+                self::notice(self::t('agents.noServer', 'Сначала добавьте SesameDVR сервер с management token.'));
+                return;
+            }
+
+            echo '<section class="panel"><form method="get" action="/admin/agents" class="filters">';
+            echo '<label>' . self::t('cameras.server', 'Сервер') . '<select name="server_id" onchange="this.form.submit()">';
+            foreach ($servers as $server) {
+                echo '<option value="' . (int)$server['id'] . '" ' . ($selectedServerId === (int)$server['id'] ? 'selected' : '') . '>' . Util::h($server['name']) . '</option>';
+            }
+            echo '</select></label><button>' . self::t('action.update', 'Обновить') . '</button></form></section>';
+
+            if ($selectedServerId <= 0) {
+                return;
+            }
+
+            echo '<div class="admin-grid agents-admin-grid"><section class="panel"><h2>' . self::t('agents.new', 'Новый agent') . '</h2>';
+            echo '<form method="post" class="form">' . Csrf::field();
+            echo '<input type="hidden" name="action" value="create"><input type="hidden" name="server_id" value="' . (int)$selectedServerId . '">';
+            echo '<label>' . self::t('agents.agentId', 'Agent ID') . '<input name="agent_id" placeholder="agt-office-1" required></label>';
+            echo '<label>' . self::t('agents.agentName', 'Название agent') . '<input name="name" placeholder="Office NanoPi"></label>';
+            echo '<label>' . self::t('agents.password', 'Enrollment password') . '<input name="password" autocomplete="new-password"></label>';
+            echo '<label>' . self::t('agents.capabilities', 'Capabilities') . '<input name="capabilities" value="rtmp_push,onvif_events"></label>';
+            echo '<label class="check"><input type="checkbox" name="enabled" checked> ' . self::t('agents.enabled', 'Включён') . '</label>';
+            echo '<button class="primary">' . self::t('agents.create', 'Создать agent') . '</button></form></section>';
+
+            echo '<section class="panel"><div class="section-head"><h2>' . self::t('agents.title', 'Edge Agents') . '</h2><span class="muted">' . Util::h($agentsResult['message'] ?? '') . '</span></div>';
+            if (!$agents) {
+                echo '<p class="muted">' . self::t('agents.noAgents', 'Agents не найдены') . '</p>';
+            }
+            echo '<div class="agent-list">';
+            foreach ($agents as $agent) {
+                self::agentCard($selectedServerId, $agent, $selectedAgentId);
+            }
+            echo '</div></section></div>';
+
+            if ($selectedAgentId !== '') {
+                self::agentDetails($selectedServerId, $selectedAgentId, $selectedAgent, $agentCamerasResult, $agentCommandsResult, $agentLogsResult);
+            }
+        });
+    }
+
+    private static function agentSnapshotProxy(): void
+    {
+        Auth::requireAdmin();
+        $serverId = (int)($_GET['server_id'] ?? 0);
+        $agentId = trim((string)($_GET['agent_id'] ?? ''));
+        $cameraId = trim((string)($_GET['camera_id'] ?? ''));
+        if ($serverId <= 0 || $agentId === '' || $cameraId === '') {
+            http_response_code(400);
+            echo 'missing snapshot parameters';
+            return;
+        }
+
+        $result = DvrClient::agentSnapshot($serverId, $agentId, $cameraId, !empty($_GET['fresh']));
+        if (empty($result['ok'])) {
+            http_response_code((int)($result['status'] ?? 502) ?: 502);
+            header('Content-Type: text/plain; charset=utf-8');
+            echo (string)($result['message'] ?? 'snapshot failed');
+            return;
+        }
+
+        $contentType = (string)($result['contentType'] ?? 'image/jpeg');
+        if (!str_starts_with(strtolower($contentType), 'image/')) {
+            $contentType = 'image/jpeg';
+        }
+        header('Content-Type: ' . $contentType);
+        header('Cache-Control: no-store');
+        echo (string)($result['data'] ?? '');
+    }
+
+    private static function selectedServerId(array $servers): int
+    {
+        $requested = (int)($_GET['server_id'] ?? 0);
+        if ($requested > 0) {
+            return $requested;
+        }
+        foreach ($servers as $server) {
+            if ((int)($server['blocked'] ?? 0) === 0) {
+                return (int)$server['id'];
+            }
+        }
+        return $servers ? (int)$servers[0]['id'] : 0;
+    }
+
+    private static function agentCapabilitiesFromText(string $text): array
+    {
+        $parts = preg_split('/[\s,]+/', trim($text)) ?: [];
+        $capabilities = [];
+        foreach ($parts as $part) {
+            $part = trim($part);
+            if ($part !== '') {
+                $capabilities[$part] = true;
+            }
+        }
+        return array_keys($capabilities);
+    }
+
+    private static function agentCommandPayload(string $text, string $agentCameraId): array
+    {
+        $text = trim($text);
+        $payload = [];
+        if ($text !== '') {
+            $decoded = json_decode($text, true);
+            if (!is_array($decoded) || array_is_list($decoded)) {
+                return [[], 'Payload JSON must be an object'];
+            }
+            $payload = $decoded;
+        }
+
+        $agentCameraId = trim($agentCameraId);
+        if ($agentCameraId !== '') {
+            $payload += [
+                'agentCameraId' => $agentCameraId,
+                'cameraId' => $agentCameraId,
+            ];
+        }
+        return [$payload, null];
+    }
+
+    private static function agentActionMessage(array $result): string
+    {
+        $data = $result['data'] ?? null;
+        if (!empty($result['ok']) && is_array($data) && !empty($data['agentSecret'])) {
+            return self::t('agents.newSecret', 'Новый agentSecret') . ': ' . $data['agentSecret'];
+        }
+        return (string)($result['message'] ?? '');
+    }
+
+    private static function findAgentRow(array $agents, string $agentId): ?array
+    {
+        foreach ($agents as $agent) {
+            if (is_array($agent) && (string)($agent['id'] ?? '') === $agentId) {
+                return $agent;
+            }
+        }
+        return null;
+    }
+
+    private static function agentCard(int $serverId, array $agent, string $selectedAgentId): void
+    {
+        $id = (string)($agent['id'] ?? '');
+        if ($id === '') {
+            return;
+        }
+        $name = (string)($agent['name'] ?? $id);
+        $status = (string)($agent['status'] ?? 'offline');
+        $capabilities = is_array($agent['capabilities'] ?? null) ? implode(',', $agent['capabilities']) : '';
+        $active = $id === $selectedAgentId ? ' active' : '';
+        $href = '/admin/agents?' . http_build_query(['server_id' => $serverId, 'agent_id' => $id]);
+
+        echo '<article class="agent-card' . $active . '">';
+        echo '<div class="agent-card-head"><div><a class="agent-card-title" href="' . Util::h($href) . '">' . Util::h($name) . '</a><code>' . Util::h($id) . '</code></div>';
+        echo self::statusPill($status) . '</div>';
+        echo '<dl class="agent-meta">';
+        echo '<dt>Version</dt><dd>' . Util::h($agent['version'] ?? '-') . '</dd>';
+        echo '<dt>Last seen</dt><dd>' . self::localTime($agent['lastSeenAt'] ?? '') . '</dd>';
+        echo '<dt>Cameras</dt><dd>' . Util::h($agent['cameraCount'] ?? 0) . '</dd>';
+        echo '<dt>Media</dt><dd>' . Util::h($agent['activeMediaSessions'] ?? 0) . '</dd>';
+        echo '</dl>';
+        echo '<form method="post" class="agent-edit-form">' . Csrf::field();
+        echo '<input type="hidden" name="action" value="update"><input type="hidden" name="server_id" value="' . $serverId . '"><input type="hidden" name="agent_id" value="' . Util::h($id) . '">';
+        echo '<label>' . self::t('agents.agentName', 'Название agent') . '<input name="name" value="' . Util::h($name) . '"></label>';
+        echo '<label>' . self::t('agents.capabilities', 'Capabilities') . '<input name="capabilities" value="' . Util::h($capabilities) . '"></label>';
+        echo '<label class="check"><input type="checkbox" name="enabled" ' . (!empty($agent['enabled']) ? 'checked' : '') . '> ' . self::t('agents.enabled', 'Включён') . '</label>';
+        echo '<button>' . self::t('action.save', 'Сохранить') . '</button></form>';
+        echo '<div class="row-actions agent-actions">';
+        self::smallPost('/admin/agents', ['action' => 'scan', 'server_id' => $serverId, 'agent_id' => $id], self::t('agents.scan', 'Scan ONVIF'));
+        self::smallPost('/admin/agents', ['action' => 'diagnostics', 'server_id' => $serverId, 'agent_id' => $id], self::t('agents.diagnostics', 'Diagnostics'));
+        self::smallPost('/admin/agents', ['action' => 'revoke', 'server_id' => $serverId, 'agent_id' => $id], self::t('agents.revoke', 'Отозвать secret'));
+        self::smallPost('/admin/agents', ['action' => 'rotate', 'server_id' => $serverId, 'agent_id' => $id], self::t('agents.rotateSecret', 'Rotate secret'));
+        self::smallPost('/admin/agents', ['action' => 'delete', 'server_id' => $serverId, 'agent_id' => $id], self::t('action.delete', 'Удалить'), 'danger');
+        echo '</div>';
+        echo '<form method="post" class="agent-password-form">' . Csrf::field();
+        echo '<input type="hidden" name="action" value="password"><input type="hidden" name="server_id" value="' . $serverId . '"><input type="hidden" name="agent_id" value="' . Util::h($id) . '">';
+        echo '<label>' . self::t('agents.password', 'Enrollment password') . '<input name="password" autocomplete="new-password"></label><button>' . self::t('agents.setPassword', 'Задать password') . '</button></form>';
+        echo '</article>';
+    }
+
+    private static function agentDetails(int $serverId, string $agentId, ?array $agent, ?array $camerasResult, ?array $commandsResult, ?array $logsResult): void
+    {
+        echo '<section class="panel"><div class="section-head"><h2>' . Util::h($agent['name'] ?? $agentId) . '</h2><code>' . Util::h($agentId) . '</code></div>';
+        echo '<form method="post" class="form agent-command-form">' . Csrf::field();
+        echo '<input type="hidden" name="action" value="command"><input type="hidden" name="server_id" value="' . $serverId . '"><input type="hidden" name="agent_id" value="' . Util::h($agentId) . '">';
+        echo '<div class="form-row"><label>' . self::t('agents.command', 'Command') . '<input name="command" value="test_camera"></label>';
+        echo '<label>' . self::t('cameras.agentCameraId', 'Agent camera ID') . '<input name="agent_camera_id"></label></div>';
+        echo '<label>' . self::t('agents.payload', 'Payload JSON') . '<textarea name="payload" placeholder="{&quot;agentCameraId&quot;:&quot;cam1&quot;}"></textarea></label>';
+        echo '<label>timeoutMs<input name="timeout_ms" type="number" min="1000" step="1000" placeholder="30000"></label>';
+        echo '<button class="primary">' . self::t('agents.sendCommand', 'Отправить command') . '</button></form></section>';
+
+        $cameras = is_array($camerasResult['data'] ?? null) && is_array(($camerasResult['data']['cameras'] ?? null)) ? $camerasResult['data']['cameras'] : [];
+        echo '<section class="panel"><div class="section-head"><h2>' . self::t('agents.cameras', 'Камеры agent') . '</h2><span class="muted">' . Util::h($camerasResult['message'] ?? '') . '</span></div>';
+        if (!$cameras) {
+            echo '<p class="muted">-</p>';
+        }
+        echo '<div class="agent-camera-grid">';
+        foreach ($cameras as $camera) {
+            if (is_array($camera)) {
+                self::agentCameraCard($serverId, $agentId, $camera);
+            }
+        }
+        echo '</div></section>';
+
+        echo '<div class="grid cols-2">';
+        self::jsonDetailsPanel(self::t('agents.commands', 'Commands'), $commandsResult['data'] ?? $commandsResult);
+        self::jsonDetailsPanel(self::t('agents.logs', 'Logs'), $logsResult['data'] ?? $logsResult);
+        echo '</div>';
+    }
+
+    private static function agentCameraCard(int $serverId, string $agentId, array $camera): void
+    {
+        $cameraId = (string)($camera['agentCameraId'] ?? $camera['id'] ?? '');
+        if ($cameraId === '') {
+            return;
+        }
+        $name = (string)($camera['name'] ?? $cameraId);
+        $stream = self::slug($name);
+        $snapshotUrl = '/admin/agents/snapshot?' . http_build_query(['server_id' => $serverId, 'agent_id' => $agentId, 'camera_id' => $cameraId]);
+        $createUrl = '/admin/cameras?' . http_build_query([
+            'mode' => 'edge_agent',
+            'server_id' => $serverId,
+            'agent_id' => $agentId,
+            'agent_camera_id' => $cameraId,
+            'name' => $name,
+            'stream' => $stream,
+            'onvif_events_requested' => !empty($camera['onvifStatus']) ? 1 : 0,
+        ]);
+
+        echo '<article class="agent-camera-card">';
+        echo '<div class="agent-snapshot"><img src="' . Util::h($snapshotUrl) . '" alt=""></div>';
+        echo '<div><strong>' . Util::h($name) . '</strong><code>' . Util::h($cameraId) . '</code></div>';
+        echo '<dl class="agent-meta">';
+        echo '<dt>Source</dt><dd>' . Util::h($camera['sourceKind'] ?? '-') . '</dd>';
+        echo '<dt>RTSP</dt><dd>' . Util::h($camera['rtspUrlRedacted'] ?? '-') . '</dd>';
+        echo '<dt>Media</dt><dd>' . Util::h($camera['mediaStatus'] ?? '-') . '</dd>';
+        echo '<dt>ONVIF</dt><dd>' . Util::h($camera['onvifStatus'] ?? '-') . '</dd>';
+        echo '<dt>Last seen</dt><dd>' . self::localTime($camera['lastSeenAt'] ?? '') . '</dd>';
+        echo '</dl>';
+        echo '<a class="btn" href="' . Util::h($createUrl) . '">' . self::t('agents.useCamera', 'Создать камеру в Portal') . '</a>';
+        echo '</article>';
+    }
+
+    private static function jsonDetailsPanel(string $title, mixed $data): void
+    {
+        $json = json_encode($data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT);
+        echo '<section class="panel"><h2>' . Util::h($title) . '</h2><pre class="json-panel">' . Util::h($json === false ? '' : $json) . '</pre></section>';
+    }
+
+    private static function statusPill(string $status): string
+    {
+        $class = match ($status) {
+            'online' => 'success',
+            'disabled' => 'warn',
+            'offline' => 'danger',
+            default => 'info',
+        };
+        return '<span class="pill ' . $class . '">' . Util::h($status) . '</span>';
+    }
+
     private static function cameras(): void
     {
         Auth::requireAdmin();
@@ -2707,16 +3310,23 @@ final class App
             $id = (int)Util::post('id', 0);
             if ($action === 'save') {
                 $selection = Util::post('server_selection') === 'auto' ? 'auto' : 'manual';
-                $controlMode = Util::post('dvr_control_mode') === 'read_only' ? 'read_only' : 'managed';
+                $controlMode = self::cameraControlMode(Util::post('dvr_control_mode'));
                 $serverId = (int)Util::post('server_id', 0) ?: null;
+                if ($controlMode === 'edge_agent') {
+                    $selection = 'manual';
+                }
                 if ($selection === 'auto' && !$serverId) {
                     $serverId = self::randomActiveServerId();
                 }
                 $name = trim((string)Util::post('name'));
                 $sourceUrl = trim((string)Util::post('source_url'));
                 $stream = trim((string)Util::post('dvr_stream_name')) ?: self::slug($name);
+                $agentId = trim((string)Util::post('agent_id'));
+                $agentCameraId = trim((string)Util::post('agent_camera_id'));
                 if ($controlMode === 'managed' && $sourceUrl === '') {
                     $message = I18n::t('cameras.sourceRequired', 'Source URL is required for full DVR management mode');
+                } elseif ($controlMode === 'edge_agent' && (!$serverId || $agentId === '' || $agentCameraId === '')) {
+                    $message = I18n::t('cameras.agentRequired', 'Edge-agent mode requires server, Agent ID, and Agent camera ID');
                 } else {
                     $values = [
                         $name,
@@ -2729,14 +3339,17 @@ final class App
                         (int)Util::post('view_angle_deg', 60),
                         Util::post('retention_days', '7d'),
                         $controlMode,
+                        $agentId !== '' ? $agentId : null,
+                        $agentCameraId !== '' ? $agentCameraId : null,
+                        Util::checkbox('onvif_events_requested'),
                         Util::checkbox('blocked'),
                         $stream,
                     ];
                     if ($id > 0) {
-                        $pdo->prepare('UPDATE cameras SET name=?, source_url=?, server_id=?, server_selection=?, latitude=?, longitude=?, direction_deg=?, view_angle_deg=?, retention_days=?, dvr_control_mode=?, blocked=?, dvr_stream_name=?, updated_at=? WHERE id=?')
+                        $pdo->prepare('UPDATE cameras SET name=?, source_url=?, server_id=?, server_selection=?, latitude=?, longitude=?, direction_deg=?, view_angle_deg=?, retention_days=?, dvr_control_mode=?, agent_id=?, agent_camera_id=?, onvif_events_requested=?, blocked=?, dvr_stream_name=?, updated_at=? WHERE id=?')
                             ->execute([...$values, Util::now(), $id]);
                     } else {
-                        $pdo->prepare('INSERT INTO cameras(name, source_url, server_id, server_selection, latitude, longitude, direction_deg, view_angle_deg, retention_days, dvr_control_mode, blocked, dvr_stream_name, created_at, updated_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+                        $pdo->prepare('INSERT INTO cameras(name, source_url, server_id, server_selection, latitude, longitude, direction_deg, view_angle_deg, retention_days, dvr_control_mode, agent_id, agent_camera_id, onvif_events_requested, blocked, dvr_stream_name, created_at, updated_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
                             ->execute([...$values, Util::now(), Util::now()]);
                         $id = DB::lastInsertId('cameras');
                     }
@@ -2780,13 +3393,14 @@ final class App
         }
 
         $edit = self::rowById('cameras', (int)($_GET['edit'] ?? 0));
+        $form = self::cameraFormDefaults($edit);
         $delete = self::cameraDeleteCandidate((int)($_GET['delete'] ?? 0));
         $linkedGroups = $edit ? self::linkedIds('camera_groups', 'camera_id', (int)$edit['id'], 'group_id') : [];
         $servers = Repo::all('dvr_servers', 'name ASC');
         $groups = Repo::all('portal_groups', 'name ASC');
         $list = self::filteredCameras();
         $cameras = $list['rows'];
-        self::layout(self::t('cameras.title', 'Камеры'), function () use ($edit, $delete, $servers, $groups, $linkedGroups, $cameras, $message, $list) {
+        self::layout(self::t('cameras.title', 'Камеры'), function () use ($edit, $form, $delete, $servers, $groups, $linkedGroups, $cameras, $message, $list) {
             self::notice($message);
             if ($delete) {
                 self::cameraDeletePanel($delete);
@@ -2794,31 +3408,71 @@ final class App
             echo '<div class="admin-grid"><section class="panel"><h2>' . ($edit ? self::t('cameras.edit', 'Изменить камеру') : self::t('cameras.new', 'Новая камера')) . '</h2>';
             echo '<form method="post" class="form">' . Csrf::field();
             echo '<input type="hidden" name="action" value="save"><input type="hidden" name="id" value="' . Util::h($edit['id'] ?? 0) . '">';
-            echo '<label>' . self::t('cameras.name', 'Имя') . '<input name="name" value="' . Util::h($edit['name'] ?? '') . '" required></label>';
+            echo '<label>' . self::t('cameras.name', 'Имя') . '<input name="name" value="' . Util::h($form['name'] ?? '') . '" required></label>';
             echo '<label>' . self::t('cameras.mode', 'Режим камеры') . '<select name="dvr_control_mode">';
-            echo '<option value="managed" ' . (($edit['dvr_control_mode'] ?? 'managed') === 'managed' ? 'selected' : '') . '>' . self::t('cameras.modeManaged', 'Полное управление на DVR') . '</option>';
-            echo '<option value="read_only" ' . (($edit['dvr_control_mode'] ?? '') === 'read_only' ? 'selected' : '') . '>' . self::t('cameras.modeReadOnly', 'Read-only поток с DVR') . '</option></select></label>';
-            echo '<label>' . self::t('cameras.sourceUrl', 'URL источника') . '<input name="source_url" value="' . Util::h($edit['source_url'] ?? '') . '"></label>';
+            echo '<option value="managed" ' . (($form['dvr_control_mode'] ?? 'managed') === 'managed' ? 'selected' : '') . '>' . self::t('cameras.modeManaged', 'Полное управление на DVR') . '</option>';
+            echo '<option value="edge_agent" ' . (($form['dvr_control_mode'] ?? '') === 'edge_agent' ? 'selected' : '') . '>' . self::t('cameras.modeEdgeAgent', 'Edge Agent push stream') . '</option>';
+            echo '<option value="read_only" ' . (($form['dvr_control_mode'] ?? '') === 'read_only' ? 'selected' : '') . '>' . self::t('cameras.modeReadOnly', 'Read-only поток с DVR') . '</option></select></label>';
+            echo '<label>' . self::t('cameras.sourceUrl', 'URL источника') . '<input name="source_url" value="' . Util::h($form['source_url'] ?? '') . '"></label>';
             echo '<label>' . self::t('cameras.server', 'Сервер') . '<select name="server_id"><option value="">' . self::t('cameras.serverAutoNone', 'Авто/не выбран') . '</option>';
             foreach ($servers as $server) {
-                echo '<option value="' . (int)$server['id'] . '" ' . (($edit['server_id'] ?? '') == $server['id'] ? 'selected' : '') . '>' . Util::h($server['name']) . '</option>';
+                echo '<option value="' . (int)$server['id'] . '" ' . (($form['server_id'] ?? '') == $server['id'] ? 'selected' : '') . '>' . Util::h($server['name']) . '</option>';
             }
             echo '</select></label>';
-            echo '<label>' . self::t('cameras.serverSelection', 'Выбор сервера') . '<select name="server_selection"><option value="manual">' . self::t('cameras.selectionManual', 'конкретный') . '</option><option value="auto" ' . (($edit['server_selection'] ?? '') === 'auto' ? 'selected' : '') . '>' . self::t('cameras.selectionAuto', 'автоматический случайный') . '</option></select></label>';
-            echo '<label>' . self::t('cameras.streamName', 'Имя потока SesameDVR') . '<input name="dvr_stream_name" value="' . Util::h($edit['dvr_stream_name'] ?? '') . '"></label>';
-            $lat = $edit['latitude'] ?? '';
-            $lng = $edit['longitude'] ?? '';
+            echo '<label>' . self::t('cameras.serverSelection', 'Выбор сервера') . '<select name="server_selection"><option value="manual">' . self::t('cameras.selectionManual', 'конкретный') . '</option><option value="auto" ' . (($form['server_selection'] ?? '') === 'auto' ? 'selected' : '') . '>' . self::t('cameras.selectionAuto', 'автоматический случайный') . '</option></select></label>';
+            echo '<label>' . self::t('cameras.streamName', 'Имя потока SesameDVR') . '<input name="dvr_stream_name" value="' . Util::h($form['dvr_stream_name'] ?? '') . '"></label>';
+            echo '<div class="form-row"><label>' . self::t('cameras.agentId', 'Agent ID') . '<input name="agent_id" value="' . Util::h($form['agent_id'] ?? '') . '"></label><label>' . self::t('cameras.agentCameraId', 'Agent camera ID') . '<input name="agent_camera_id" value="' . Util::h($form['agent_camera_id'] ?? '') . '"></label></div>';
+            echo '<label class="check"><input type="checkbox" name="onvif_events_requested" ' . (!empty($form['onvif_events_requested']) ? 'checked' : '') . '> ' . self::t('cameras.onvifEvents', 'Запускать ONVIF events через агента') . '</label>';
+            $lat = $form['latitude'] ?? '';
+            $lng = $form['longitude'] ?? '';
             echo '<div class="form-row"><label>' . self::t('geo.latitude', 'Широта') . '<input id="camera-latitude" name="latitude" value="' . Util::h($lat) . '"></label><label>' . self::t('geo.longitude', 'Долгота') . '<input id="camera-longitude" name="longitude" value="' . Util::h($lng) . '"></label></div>';
             echo '<div class="camera-position-field"><div class="camera-position-head"><strong>' . self::t('cameras.position', 'Положение на карте') . '</strong><button type="button" class="camera-map-clear">' . self::t('cameras.clearPosition', 'Очистить точку') . '</button></div>';
             echo '<div id="camera-position-map" class="camera-position-map" data-lat="' . Util::h($lat) . '" data-lng="' . Util::h($lng) . '"></div></div>';
-            echo '<div class="form-row"><label>' . self::t('cameras.direction', 'Направление') . '<input id="camera-direction" name="direction_deg" type="number" min="0" max="359" value="' . Util::h($edit['direction_deg'] ?? 0) . '"></label><label>' . self::t('cameras.viewAngle', 'Угол обзора') . '<input name="view_angle_deg" type="number" min="1" max="180" value="' . Util::h($edit['view_angle_deg'] ?? 60) . '"></label></div>';
-            echo '<label>' . self::t('cameras.retention', 'Глубина архива') . '<input name="retention_days" value="' . Util::h($edit['retention_days'] ?? '7d') . '"></label>';
-            echo '<label class="check"><input type="checkbox" name="blocked" ' . (!empty($edit['blocked']) ? 'checked' : '') . '> ' . self::t('cameras.blocked', 'Заблокирована') . '</label>';
+            echo '<div class="form-row"><label>' . self::t('cameras.direction', 'Направление') . '<input id="camera-direction" name="direction_deg" type="number" min="0" max="359" value="' . Util::h($form['direction_deg'] ?? 0) . '"></label><label>' . self::t('cameras.viewAngle', 'Угол обзора') . '<input name="view_angle_deg" type="number" min="1" max="180" value="' . Util::h($form['view_angle_deg'] ?? 60) . '"></label></div>';
+            echo '<label>' . self::t('cameras.retention', 'Глубина архива') . '<input name="retention_days" value="' . Util::h($form['retention_days'] ?? '7d') . '"></label>';
+            echo '<label class="check"><input type="checkbox" name="blocked" ' . (!empty($form['blocked']) ? 'checked' : '') . '> ' . self::t('cameras.blocked', 'Заблокирована') . '</label>';
             self::checkboxList(self::t('cameras.groups', 'Группы'), 'group_ids[]', $groups, $linkedGroups, 'name');
             echo '<button class="primary">' . self::t('action.saveSync', 'Сохранить и синхронизировать') . '</button></form></section>';
-            self::table(self::t('cameras.title', 'Камеры'), ['name', 'server_name', 'dvr_control_mode', 'retention_days', 'last_sync_message'], $cameras, '/admin/cameras', true, $list);
+            self::table(self::t('cameras.title', 'Камеры'), ['name', 'server_name', 'dvr_control_mode', 'agent_id', 'agent_camera_id', 'retention_days', 'last_sync_message'], $cameras, '/admin/cameras', true, $list);
             echo '</div>';
         });
+    }
+
+    private static function cameraControlMode(mixed $value): string
+    {
+        $mode = trim((string)$value);
+        return in_array($mode, ['managed', 'edge_agent', 'read_only'], true) ? $mode : 'managed';
+    }
+
+    private static function cameraFormDefaults(?array $edit): array
+    {
+        if ($edit) {
+            return $edit;
+        }
+
+        $name = trim((string)($_GET['name'] ?? ''));
+        $stream = trim((string)($_GET['stream'] ?? $_GET['dvr_stream_name'] ?? ''));
+        if ($stream === '' && $name !== '') {
+            $stream = self::slug($name);
+        }
+
+        return [
+            'name' => $name,
+            'source_url' => (string)($_GET['source_url'] ?? ''),
+            'server_id' => (int)($_GET['server_id'] ?? 0) ?: '',
+            'server_selection' => 'manual',
+            'latitude' => '',
+            'longitude' => '',
+            'direction_deg' => 0,
+            'view_angle_deg' => 60,
+            'retention_days' => (string)($_GET['retention_days'] ?? '7d'),
+            'dvr_control_mode' => self::cameraControlMode($_GET['mode'] ?? $_GET['dvr_control_mode'] ?? 'managed'),
+            'agent_id' => (string)($_GET['agent_id'] ?? ''),
+            'agent_camera_id' => (string)($_GET['agent_camera_id'] ?? ''),
+            'onvif_events_requested' => !empty($_GET['onvif_events_requested']) ? 1 : 0,
+            'blocked' => 0,
+            'dvr_stream_name' => $stream,
+        ];
     }
 
     private static function cameraDeleteCandidate(int $id): ?array
@@ -3116,6 +3770,7 @@ final class App
                 self::navLink('/admin/groups', self::t('nav.groups', 'Группы'), 'group');
                 self::navLink('/admin/cameras', self::t('nav.cameras', 'Камеры'), 'camera');
                 self::navLink('/admin/servers', self::t('nav.dvr', 'DVR'), 'server');
+                self::navLink('/admin/agents', self::t('nav.agents', 'Edge Agents'), 'agent');
                 self::navLink('/admin/audit', self::t('nav.audit', 'Журнал'), 'audit');
                 echo '</nav>';
             }
@@ -3163,6 +3818,7 @@ final class App
             'group' => '<path d="M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM17 12a3 3 0 1 0 0-6"/><path d="M2 21a7 7 0 0 1 14 0M14 20a5 5 0 0 1 8 0"/>',
             'camera' => '<path d="M4 7h11a3 3 0 0 1 3 3v7H4V7z"/><path d="m18 11 4-3v8l-4-3"/>',
             'server' => '<path d="M4 6h16v5H4zM4 13h16v5H4z"/><path d="M8 8h.01M8 15h.01"/>',
+            'agent' => '<path d="M12 3 4 7v10l8 4 8-4V7l-8-4z"/><path d="M8 9h8M8 13h8M10 17h4"/>',
             'audit' => '<path d="M6 3h12v18H6z"/><path d="M9 7h6M9 11h6M9 15h4"/>',
             'logout' => '<path d="M10 4H5v16h5"/><path d="M14 8l4 4-4 4M18 12H9"/>',
         ];
@@ -3458,8 +4114,8 @@ final class App
         $where = '';
         $params = [];
         if ($q !== '') {
-            $where = ' WHERE LOWER(c.name) LIKE LOWER(?) OR LOWER(c.source_url) LIKE LOWER(?) OR LOWER(c.dvr_stream_name) LIKE LOWER(?) OR LOWER(c.dvr_control_mode) LIKE LOWER(?) OR LOWER(s.name) LIKE LOWER(?) OR LOWER(c.last_sync_message) LIKE LOWER(?)';
-            $params = array_fill(0, 6, '%' . $q . '%');
+            $where = ' WHERE LOWER(c.name) LIKE LOWER(?) OR LOWER(c.source_url) LIKE LOWER(?) OR LOWER(c.dvr_stream_name) LIKE LOWER(?) OR LOWER(c.dvr_control_mode) LIKE LOWER(?) OR LOWER(c.agent_id) LIKE LOWER(?) OR LOWER(c.agent_camera_id) LIKE LOWER(?) OR LOWER(s.name) LIKE LOWER(?) OR LOWER(c.last_sync_message) LIKE LOWER(?)';
+            $params = array_fill(0, 8, '%' . $q . '%');
         }
 
         $pdo = DB::pdo();

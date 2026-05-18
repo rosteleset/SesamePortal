@@ -1342,3 +1342,98 @@ body.player-view .player-frame {
     width: 200px;
   }
 }
+
+.agents-admin-grid {
+  align-items: start;
+}
+.agent-list,
+.agent-camera-grid {
+  display: grid;
+  gap: 12px;
+}
+.agent-card,
+.agent-camera-card {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  box-shadow: var(--shadow-sm);
+}
+.agent-card.active {
+  border-color: var(--gold);
+  box-shadow: 0 0 0 3px rgba(193,150,78,.14), var(--shadow-sm);
+}
+.agent-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+.agent-card-title {
+  display: block;
+  margin-bottom: 4px;
+  font-weight: 900;
+  font-size: 16px;
+}
+.agent-meta {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 12px;
+  margin: 0;
+}
+.agent-meta dt {
+  color: var(--muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: .055em;
+}
+.agent-meta dd {
+  margin: 2px 0 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-weight: 800;
+}
+.agent-edit-form,
+.agent-password-form,
+.agent-command-form {
+  display: grid;
+  gap: 10px;
+}
+.agent-actions {
+  flex-wrap: wrap;
+}
+.agent-camera-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.agent-snapshot {
+  height: 150px;
+  overflow: hidden;
+  border-radius: 12px;
+  background: #111;
+  border: 1px solid var(--line);
+}
+.agent-snapshot img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.json-panel {
+  min-height: 220px;
+  max-height: 520px;
+  margin: 0;
+  padding: 14px;
+  overflow: auto;
+  border-radius: 12px;
+  background: #141414;
+  color: #F7F0E4;
+  font: 12px/1.45 ui-monospace,SFMono-Regular,Menlo,monospace;
+  white-space: pre-wrap;
+}
+@media(max-width:980px) {
+  .agent-camera-grid {
+    grid-template-columns: 1fr;
+  }
+}
