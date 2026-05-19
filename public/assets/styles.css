@@ -1071,7 +1071,15 @@ tr:last-child td {
   display: none;
 }
 .map-popup-preview .preview-play {
-  display: none;
+  width: 44px;
+  background: rgba(17,17,17,.5);
+  border-color: rgba(255,255,255,.82);
+  box-shadow: 0 8px 20px rgba(0,0,0,.28);
+}
+.map-popup-preview .preview-play::before {
+  border-top-width: 10px;
+  border-bottom-width: 10px;
+  border-left-width: 16px;
 }
 .map-popup-actions {
   display: flex;
