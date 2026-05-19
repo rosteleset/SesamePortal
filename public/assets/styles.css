@@ -770,6 +770,10 @@ tr:last-child td {
 .map-popup-preview.stream-unavailable .preview-state {
   display: grid;
 }
+.preview.has-preview .preview-state,
+.map-popup-preview.has-preview .preview-state {
+  display: none;
+}
 .preview.no-preview .preview-state,
 .map-popup-preview.no-preview .preview-state {
   background: transparent;
@@ -1061,6 +1065,13 @@ tr:last-child td {
 .map-popup-preview.no-preview .map-popup-preview-state {
   display: grid;
   place-items: center;
+}
+.map-popup-preview.has-preview .map-popup-preview-state,
+.map-popup-preview.has-preview .preview-spinner {
+  display: none;
+}
+.map-popup-preview .preview-play {
+  display: none;
 }
 .map-popup-actions {
   display: flex;

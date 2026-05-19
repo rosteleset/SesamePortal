@@ -180,10 +180,17 @@ printf "%s" "$mosaic_page" | grep -q 'name="refresh"'
 printf "%s" "$mosaic_page" | grep -q 'value="off"'
 printf "%s" "$mosaic_page" | grep -q "preview-refresh-control"
 printf "%s" "$mosaic_page" | grep -q 'data-preview-src='
+printf "%s" "$mosaic_page" | grep -q 'data-preview-src="/viewer/preview?id='
+! printf "%s" "$mosaic_page" | grep -E -q 'data-preview-src="[^"]*token='
 printf "%s" "$mosaic_page" | grep -q 'class="preview is-loading"'
 printf "%s" "$mosaic_page" | grep -q "stream-unavailable"
 printf "%s" "$mosaic_page" | grep -q 'decoding="async" hidden'
 ! printf "%s" "$mosaic_page" | grep -E -q '<img src="[^"]*preview\.jpg'
+preview_headers="$(curl -sS -D - -o /dev/null -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/viewer/preview?id=1&_=smoke")"
+printf "%s" "$preview_headers" | grep -E -q '^HTTP/[0-9.]+ 302'
+printf "%s" "$preview_headers" | grep -F -q "Location: https://dvr.example.invalid/smoke-cam/preview.jpg?token="
+printf "%s" "$preview_headers" | grep -F -q "_=smoke"
+printf "%s" "$preview_headers" | grep -F -q "Cache-Control: no-store"
 printf "%s" "$mosaic_page" | grep -q "group-filter"
 printf "%s" "$mosaic_page" | grep -q "Smoke Group"
 printf "%s" "$mosaic_page" | grep -q 'name="filter"'
@@ -211,7 +218,8 @@ printf "%s" "$refresh_off_page" | grep -q 'data-preview-refresh="off"'
 curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/?filter=group:1" | grep -q "Smoke Cam"
 curl -fsS "http://127.0.0.1:$PORT/assets/styles.css" | grep -q "aspect-ratio: 16 / 9"
 map_page="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/viewer/map")"
-printf "%s" "$map_page" | grep -q "preview.jpg"
+printf "%s" "$map_page" | grep -q '"/viewer/preview?id=1"'
+! printf "%s" "$map_page" | grep -E -q '"preview":"[^"]*token='
 printf "%s" "$map_page" | grep -q "leaflet.markercluster"
 printf "%s" "$map_page" | grep -q "direction"
 printf "%s" "$map_page" | grep -q "viewAngle"

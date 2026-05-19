@@ -2654,6 +2654,7 @@ final class App
             '/admin/cameras' => self::cameras(),
             '/admin/audit' => self::audit(),
             '/viewer/map' => self::viewer('map'),
+            '/viewer/preview' => self::previewProxy(),
             '/viewer/player' => self::player(),
             '/favorite/toggle' => self::toggleFavorite(),
             '/api/sesamedvr/auth' => self::authBackend(),
@@ -3567,15 +3568,14 @@ final class App
             $cameras = $cameraPager['rows'];
         }
         $favorites = Repo::favoritesMap((int)$user['id']);
-        $token = $user['daily_token'] ?? '';
 
         $title = $mode === 'map' ? self::t('nav.map', 'Карта') : self::t('cameras.title', 'Камеры');
-        self::layout($title, function () use ($mode, $groups, $filter, $searchQuery, $cameras, $favorites, $token, $cameraPager, $cols, $previewRefresh) {
+        self::layout($title, function () use ($mode, $groups, $filter, $searchQuery, $cameras, $favorites, $cameraPager, $cols, $previewRefresh) {
             self::filters($mode, $groups, $filter, $searchQuery, $cols, $previewRefresh);
             if ($mode === 'map') {
-                self::map($cameras, $favorites, $token);
+                self::map($cameras, $favorites);
             } else {
-                self::mosaic($cameras, $favorites, $token, $cameraPager ?? [], $cols, $previewRefresh);
+                self::mosaic($cameras, $favorites, $cameraPager ?? [], $cols, $previewRefresh);
             }
         });
     }
@@ -3607,12 +3607,12 @@ final class App
         return in_array($refresh, ['off', '10', '30', '60', '300'], true) ? $refresh : '30';
     }
 
-    private static function mosaic(array $cameras, array $favorites, string $token, array $pager, int $cols, string $previewRefresh): void
+    private static function mosaic(array $cameras, array $favorites, array $pager, int $cols, string $previewRefresh): void
     {
         echo '<section class="camera-grid cols-' . Util::h($cols) . '">';
         foreach ($cameras as $camera) {
             $player = self::playerUrl($camera);
-            $preview = self::previewUrl($camera, $token);
+            $preview = self::previewUrl($camera);
             $streamUnavailable = self::cameraStreamUnavailable($camera);
             $stateText = $streamUnavailable
                 ? self::t('js.streamUnavailable', 'Поток недоступен')
@@ -3640,7 +3640,7 @@ final class App
         ]);
     }
 
-    private static function map(array $cameras, array $favorites, string $token): void
+    private static function map(array $cameras, array $favorites): void
     {
         echo '<section class="panel map-panel"><div id="map" class="map"></div></section>';
         $payload = [];
@@ -3657,7 +3657,7 @@ final class App
                 'viewAngle' => (int)$camera['view_angle_deg'],
                 'favorite' => isset($favorites[(int)$camera['id']]),
                 'player' => self::playerUrl($camera),
-                'preview' => self::previewUrl($camera, $token),
+                'preview' => self::previewUrl($camera),
                 'streamUnavailable' => self::cameraStreamUnavailable($camera),
                 'server' => $camera['server_name'] ?? self::t('common.noServer', 'Без сервера'),
             ];
@@ -3697,6 +3697,43 @@ final class App
             echo '</div>';
             echo '</section>';
         }, [], 'player-view', false);
+    }
+
+    private static function previewProxy(): void
+    {
+        $user = Auth::requireLogin();
+        $cameraId = (int)($_GET['id'] ?? 0);
+        if (!Repo::cameraAllowedForUser($user, $cameraId)) {
+            http_response_code(403);
+            echo 'Forbidden';
+            return;
+        }
+
+        $stmt = DB::pdo()->prepare(
+            'SELECT c.*, s.name AS server_name, s.base_url AS server_url
+             FROM cameras c
+             LEFT JOIN dvr_servers s ON s.id = c.server_id
+             WHERE c.id = ? AND c.blocked = 0'
+        );
+        $stmt->execute([$cameraId]);
+        $camera = $stmt->fetch();
+        if (!$camera || empty($camera['server_url']) || empty($camera['dvr_stream_name'])) {
+            http_response_code(404);
+            echo 'Preview not found';
+            return;
+        }
+
+        $token = (string)($user['daily_token'] ?? '');
+        if ($token === '') {
+            http_response_code(403);
+            echo 'Token missing';
+            return;
+        }
+
+        header('Cache-Control: no-store, max-age=0');
+        header('Pragma: no-cache');
+        header('Vary: Cookie');
+        header('Location: ' . self::externalPreviewUrl($camera, $token, (string)($_GET['_'] ?? '')), true, 302);
     }
 
     private static function toggleFavorite(): void
@@ -4509,12 +4546,23 @@ final class App
         return rtrim($base, '/') . $path;
     }
 
-    private static function previewUrl(array $camera, string $token): string
+    private static function previewUrl(array $camera): string
     {
-        if (empty($camera['server_url'])) {
+        if (empty($camera['server_url']) || empty($camera['dvr_stream_name'])) {
             return '';
         }
-        return rtrim($camera['server_url'], '/') . '/' . rawurlencode($camera['dvr_stream_name']) . '/preview.jpg?token=' . rawurlencode($token);
+
+        return '/viewer/preview?' . http_build_query(['id' => (int)$camera['id']]);
+    }
+
+    private static function externalPreviewUrl(array $camera, string $token, string $cacheBust = ''): string
+    {
+        $query = ['token' => $token];
+        if ($cacheBust !== '') {
+            $query['_'] = $cacheBust;
+        }
+
+        return rtrim((string)$camera['server_url'], '/') . '/' . rawurlencode((string)$camera['dvr_stream_name']) . '/preview.jpg?' . http_build_query($query);
     }
 
     private static function cameraStreamUnavailable(array $camera): bool

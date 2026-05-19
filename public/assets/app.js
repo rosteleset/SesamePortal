@@ -657,13 +657,16 @@
 
   function markPreviewReady(image) {
     image.hidden = false;
-    image.closest(".preview, .map-popup-preview")?.classList.remove("no-preview", "is-loading");
+    const container = image.closest(".preview, .map-popup-preview");
+    container?.classList.remove("no-preview", "is-loading");
+    container?.classList.add("has-preview");
   }
 
   function markPreviewMissing(image) {
     image.hidden = true;
     const container = image.closest(".preview, .map-popup-preview");
     container?.classList.remove("is-loading");
+    container?.classList.remove("has-preview");
     container?.classList.add("no-preview");
   }
 
