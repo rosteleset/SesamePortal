@@ -1071,15 +1071,18 @@ tr:last-child td {
   display: none;
 }
 .map-popup-preview .preview-play {
-  width: 44px;
-  background: rgba(17,17,17,.5);
-  border-color: rgba(255,255,255,.82);
-  box-shadow: 0 8px 20px rgba(0,0,0,.28);
+  width: 46px;
+  background: rgba(17,17,17,.42);
+  border-color: rgba(255,255,255,.9);
+  box-shadow: 0 8px 20px rgba(0,0,0,.26);
 }
 .map-popup-preview .preview-play::before {
-  border-top-width: 10px;
-  border-bottom-width: 10px;
-  border-left-width: 16px;
+  width: 16px;
+  height: 18px;
+  margin-left: 3px;
+  background: currentColor;
+  border: 0;
+  clip-path: polygon(0 0, 100% 50%, 0 100%);
 }
 .map-popup-actions {
   display: flex;
