@@ -1072,18 +1072,25 @@ tr:last-child td {
 }
 .map-popup-preview .preview-play {
   width: 46px;
+  display: block;
   background: rgba(17,17,17,.42);
   border-color: rgba(255,255,255,.9);
   box-shadow: 0 8px 20px rgba(0,0,0,.26);
 }
 .map-popup-preview .preview-play::before {
-  display: block;
-  width: 16px;
-  height: 18px;
-  margin-left: 3px;
-  background: currentColor;
-  border: 0;
-  clip-path: polygon(0 0, 100% 50%, 0 100%);
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 0;
+  height: 0;
+  margin: 0;
+  background: transparent;
+  border-top: 9px solid transparent;
+  border-bottom: 9px solid transparent;
+  border-left: 15px solid currentColor;
+  clip-path: none;
+  transform: translate(-34%, -50%);
 }
 .map-popup-actions {
   display: flex;
