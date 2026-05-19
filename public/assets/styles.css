@@ -1077,6 +1077,7 @@ tr:last-child td {
   box-shadow: 0 8px 20px rgba(0,0,0,.26);
 }
 .map-popup-preview .preview-play::before {
+  display: block;
   width: 16px;
   height: 18px;
   margin-left: 3px;
