@@ -13,7 +13,7 @@ SDVR-TRIAL-85GT2-A7YYD-HSSEN-YW98U
 
 Поддерживаются:
 
-- Ubuntu 22.04 / 24.04 или Debian 12 / 13;
+- Ubuntu 22.04 / 24.04 / 26.04 или Debian 12 / 13;
 - архитектура `amd64 / x86_64`;
 - `systemd`;
 - доступ `sudo`;
