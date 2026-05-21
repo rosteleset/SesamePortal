@@ -190,7 +190,8 @@ https://<domain>/admin?token=...
 - `Имя` - стабильный идентификатор камеры в URL и архиве. Используйте латиницу,
   цифры, дефис или подчёркивание.
 - `Тип источника` - `direct` для RTSP/HTTP URL, `push` для потока, который
-  публикуется в SesameDVR извне, или `image` для статического JPEG-источника.
+  публикуется в SesameDVR извне по RTMP или SRT, или `image` для статического
+  JPEG-источника.
 - `Source` - адрес или путь источника. Для `direct` это RTSP/HTTP URL, например
   `rtsp://user:password@10.0.0.10:554/stream1`. Для `push` это логический
   ingest endpoint. Для `image` это путь к загруженному JPEG в
@@ -236,6 +237,37 @@ segments напрямую в выбранный storage volume. Внешний `
 Сервер сохраняет файл в `dvrRoot/static-sources` и использует его как вход для
 `ffmpeg_nif`. При повторной загрузке JPEG поток получает новую версию source и
 перезапускается, чтобы viewers увидели обновлённое изображение.
+
+### SRT-доставка push-потоков
+
+SRT поддерживается как транспорт доставки для потоков с `sourceType=push`.
+Типовой сценарий - камера находится за NAT или в нестабильной сети, локальный
+Edge Agent читает её по RTSP/ONVIF и публикует media в SesameDVR по SRT/MPEG-TS.
+Также SRT может использовать внешний publisher, если он отправляет MPEG-TS и
+указывает правильный stream id.
+
+SesameDVR поднимает общий SRT acceptor/router на одном публичном UDP-порту и
+маршрутизирует входящие потоки по `streamid=sesame:stream=<streamName>`. Отдельный
+публичный порт на каждую камеру не нужен. Обычно agent получает SRT caller URL
+из control-команды, например:
+
+```text
+srt://dvr.example.com:10080?mode=caller&transtype=live&pkt_size=1316&streamid=sesame%3Astream%3Dgate
+```
+
+Основные настройки SRT на стороне SesameDVR:
+
+- `SESAME_DVR_SRT_PUBLISH_HOST` - публичный host, который попадёт в caller URL;
+- `SESAME_DVR_SRT_BIND_HOST` - bind host router-а, по умолчанию `0.0.0.0`;
+- `SESAME_DVR_SRT_BASE_PORT` - единый публичный UDP-порт, по умолчанию `10080`;
+- `SESAME_DVR_SRT_LATENCY_MS` - latency SRT, по умолчанию `120`;
+- `SESAME_DVR_SRT_PASSPHRASE` - опциональный общий passphrase для защиты SRT
+  порта.
+
+Для работы SRT нужно открыть входящий UDP-порт `SESAME_DVR_SRT_BASE_PORT` в
+firewall/security group. SRT защищает участок доставки publisher/agent ->
+SesameDVR, но не является локальным store-and-forward буфером и не исправляет
+проблемы RTSP-участка камера -> agent.
 
 ### Действия с потоком
 
@@ -385,10 +417,10 @@ ONVIF events хранятся отдельно от видеоархива, по
 - создать поток SesameDVR из камеры агента.
 
 После enrollment агент сам подключается к SesameDVR по WebSocket, получает
-команды и публикует media через push ingest. Для таких камер поток SesameDVR
-обычно имеет `sourceType=push`: агент читает локальный RTSP/ONVIF источник, а
-SesameDVR принимает опубликованный поток и дальше пишет архив, отдаёт live,
-preview, HLS/WebRTC и API так же, как для обычной камеры.
+команды и публикует media через push ingest: RTMP/FLV или SRT/MPEG-TS. Для таких
+камер поток SesameDVR обычно имеет `sourceType=push`: агент читает локальный
+RTSP/ONVIF источник, а SesameDVR принимает опубликованный поток и дальше пишет
+архив, отдаёт live, preview, HLS/WebRTC и API так же, как для обычной камеры.
 
 Функциональность Edge Agent включается лицензией. Если feature не включена,
 раздел `Агенты` и соответствующие API будут недоступны.
