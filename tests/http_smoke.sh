@@ -42,7 +42,7 @@ $metrics = json_encode([
         'memory' => ['usedBytes' => 1, 'totalBytes' => 4],
         'archiveOrphans' => ['activeCameraCount' => 2],
     ],
-    'streams' => ['streams' => [['name' => 'smoke-cam'], ['name' => 'readonly-cam']]],
+    'streams' => ['streams' => [['name' => 'smoke-cam'], ['name' => 'readonly-cam'], ['name' => 'extra-cam-1', 'running' => false]]],
     'fetchedAt' => $now,
 ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
 $pdo->prepare('INSERT INTO dvr_servers(name, base_url, management_token_enc, last_check_result, last_metrics_at, last_metrics_json, created_at) VALUES(?, ?, ?, ?, ?, ?, ?)')

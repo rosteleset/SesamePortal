@@ -4592,7 +4592,7 @@ final class App
             }
         }
 
-        return true;
+        return false;
     }
 
     private static function streamMetricUnavailable(array $stream): bool
