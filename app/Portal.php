@@ -691,18 +691,18 @@ final class I18n
                 'cameras.onvifEvents' => 'Запускать ONVIF events через агента',
                 'cameras.agentRequired' => 'Для edge-agent режима нужны сервер, Agent ID и Agent camera ID',
                 'cameras.agentOverwriteBlocked' => 'Поток на DVR уже управляется Edge Agent. Переключите камеру Portal в режим Edge Agent или read-only, чтобы не перезаписать push-конфиг.',
-                'agents.title' => 'Edge Agents',
+                'agents.title' => 'Edge-агенты',
                 'agents.new' => 'Новый агент',
                 'agents.serverRequired' => 'Выберите SesameDVR сервер',
                 'agents.agentId' => 'Agent ID',
                 'agents.agentName' => 'Название агента',
-                'agents.password' => 'Enrollment password',
+                'agents.password' => 'Пароль enrollment',
                 'agents.capabilities' => 'Возможности',
                 'agents.enabled' => 'Включён',
                 'agents.create' => 'Создать агента',
                 'agents.setPassword' => 'Задать пароль',
-                'agents.revoke' => 'Отозвать secret',
-                'agents.rotateSecret' => 'Сменить secret',
+                'agents.revoke' => 'Отозвать секрет',
+                'agents.rotateSecret' => 'Сменить секрет',
                 'agents.scan' => 'Сканировать ONVIF',
                 'agents.diagnostics' => 'Диагностика',
                 'agents.logs' => 'Журнал',
@@ -715,12 +715,12 @@ final class I18n
                 'agents.snapshot' => 'Snapshot',
                 'agents.noServer' => 'Сначала добавьте SesameDVR сервер с management token.',
                 'agents.noAgents' => 'Агенты не найдены',
-                'agents.newSecret' => 'Новый agentSecret',
+                'agents.newSecret' => 'Новый секрет агента',
                 'agents.loaded' => 'Загружено агентов',
                 'agents.details' => 'Технические детали',
                 'agents.actions' => 'Действия',
                 'agents.settings' => 'Настройки',
-                'agents.enrollment' => 'Enrollment',
+                'agents.enrollment' => 'Первичная привязка',
                 'agents.commandConsole' => 'Консоль команд',
                 'agents.lastCommands' => 'Последние команды',
                 'agents.lastLogs' => 'Последние записи журнала',
@@ -732,6 +732,18 @@ final class I18n
                 'agents.unknown' => 'неизвестно',
                 'agents.media' => 'Медиа',
                 'agents.onvif' => 'ONVIF',
+                'agents.version' => 'Версия',
+                'agents.lastSeen' => 'Последняя связь',
+                'agents.cameraCount' => 'Камеры',
+                'agents.mediaSessions' => 'Медиа-сессии',
+                'agents.source' => 'Источник',
+                'agents.timeout' => 'Таймаут, мс',
+                'agents.yes' => 'да',
+                'agents.no' => 'нет',
+                'agents.running' => 'работает',
+                'agents.stopped' => 'остановлен',
+                'agents.online' => 'online',
+                'agents.offline' => 'offline',
             ],
             'en' => [
                 'language.label' => 'Language',
@@ -908,6 +920,18 @@ final class I18n
                 'agents.unknown' => 'unknown',
                 'agents.media' => 'Media',
                 'agents.onvif' => 'ONVIF',
+                'agents.version' => 'Version',
+                'agents.lastSeen' => 'Last seen',
+                'agents.cameraCount' => 'Cameras',
+                'agents.mediaSessions' => 'Media sessions',
+                'agents.source' => 'Source',
+                'agents.timeout' => 'Timeout, ms',
+                'agents.yes' => 'yes',
+                'agents.no' => 'no',
+                'agents.running' => 'running',
+                'agents.stopped' => 'stopped',
+                'agents.online' => 'online',
+                'agents.offline' => 'offline',
                 'audit.title' => 'Audit log',
                 'audit.search' => 'Search action, user, or details',
                 'audit.allActions' => 'All actions',
@@ -3072,7 +3096,7 @@ final class App
         $agentCommandsResult = $selectedAgentId !== '' && $selectedServerId > 0 ? DvrClient::agentCommands($selectedServerId, $selectedAgentId) : null;
         $agentLogsResult = $selectedAgentId !== '' && $selectedServerId > 0 ? DvrClient::agentLogs($selectedServerId, $selectedAgentId) : null;
 
-        self::layout(self::t('agents.title', 'Edge Agents'), function () use ($servers, $selectedServerId, $selectedAgentId, $selectedAgent, $agentsResult, $agents, $agentCamerasResult, $agentCommandsResult, $agentLogsResult, $message) {
+        self::layout(self::t('agents.title', 'Edge-агенты'), function () use ($servers, $selectedServerId, $selectedAgentId, $selectedAgent, $agentsResult, $agents, $agentCamerasResult, $agentCommandsResult, $agentLogsResult, $message) {
             self::notice($message);
             if (!$servers) {
                 self::notice(self::t('agents.noServer', 'Сначала добавьте SesameDVR сервер с management token.'));
@@ -3094,16 +3118,16 @@ final class App
             echo '<form method="post" class="form">' . Csrf::field();
             echo '<input type="hidden" name="action" value="create"><input type="hidden" name="server_id" value="' . (int)$selectedServerId . '">';
             echo '<label>' . self::t('agents.agentId', 'Agent ID') . '<input name="agent_id" placeholder="agt-office-1" required></label>';
-            echo '<label>' . self::t('agents.agentName', 'Название agent') . '<input name="name" placeholder="Office NanoPi"></label>';
-            echo '<label>' . self::t('agents.password', 'Enrollment password') . '<input name="password" autocomplete="new-password"></label>';
-            echo '<label>' . self::t('agents.capabilities', 'Capabilities') . '<input name="capabilities" value="rtmp_push,onvif_events"></label>';
+            echo '<label>' . self::t('agents.agentName', 'Название агента') . '<input name="name" placeholder="Office NanoPi"></label>';
+            echo '<label>' . self::t('agents.password', 'Пароль enrollment') . '<input name="password" autocomplete="new-password"></label>';
+            echo '<label>' . self::t('agents.capabilities', 'Возможности') . '<input name="capabilities" value="rtmp_push,onvif_events"></label>';
             echo '<label class="check"><input type="checkbox" name="enabled" checked> ' . self::t('agents.enabled', 'Включён') . '</label>';
-            echo '<button class="primary">' . self::t('agents.create', 'Создать агент') . '</button></form></details>';
+            echo '<button class="primary">' . self::t('agents.create', 'Создать агента') . '</button></form></details>';
 
             $agentsSummary = !empty($agentsResult['ok'])
                 ? self::t('agents.loaded', 'Загружено агентов') . ': ' . count($agents)
                 : self::agentResultSummary($agentsResult, self::t('agents.noAgents', 'Агенты не найдены'));
-            echo '<section class="panel"><div class="section-head"><h2>' . self::t('agents.title', 'Edge Agents') . '</h2><span class="muted">' . Util::h($agentsSummary) . '</span></div>';
+            echo '<section class="panel"><div class="section-head"><h2>' . self::t('agents.title', 'Edge-агенты') . '</h2><span class="muted">' . Util::h($agentsSummary) . '</span></div>';
             if (!empty($agentsResult['message'])) {
                 self::technicalResult((string)$agentsResult['message'], self::t('agents.details', 'Технические детали'));
             }
@@ -3204,7 +3228,7 @@ final class App
     {
         $data = $result['data'] ?? null;
         if (!empty($result['ok']) && is_array($data) && !empty($data['agentSecret'])) {
-            return self::t('agents.newSecret', 'Новый agentSecret') . ': ' . $data['agentSecret'];
+            return self::t('agents.newSecret', 'Новый секрет агента') . ': ' . $data['agentSecret'];
         }
 
         if (empty($result['ok'])) {
@@ -3264,31 +3288,31 @@ final class App
         echo '<div class="agent-card-head"><div><a class="agent-card-title" href="' . Util::h($href) . '">' . Util::h($name) . '</a><code>' . Util::h($id) . '</code></div>';
         echo self::statusPill($status) . '</div>';
         echo '<dl class="agent-meta">';
-        echo '<dt>Version</dt><dd>' . Util::h($agent['version'] ?? '-') . '</dd>';
-        echo '<dt>Last seen</dt><dd>' . self::localTime($agent['lastSeenAt'] ?? '') . '</dd>';
-        echo '<dt>Cameras</dt><dd>' . Util::h($agent['cameraCount'] ?? 0) . '</dd>';
-        echo '<dt>Media</dt><dd>' . Util::h($agent['activeMediaSessions'] ?? 0) . '</dd>';
+        echo '<dt>' . self::t('agents.version', 'Версия') . '</dt><dd>' . Util::h($agent['version'] ?? '-') . '</dd>';
+        echo '<dt>' . self::t('agents.lastSeen', 'Последняя связь') . '</dt><dd>' . self::localTime($agent['lastSeenAt'] ?? '') . '</dd>';
+        echo '<dt>' . self::t('agents.cameraCount', 'Камеры') . '</dt><dd>' . Util::h($agent['cameraCount'] ?? 0) . '</dd>';
+        echo '<dt>' . self::t('agents.mediaSessions', 'Медиа-сессии') . '</dt><dd>' . Util::h($agent['activeMediaSessions'] ?? 0) . '</dd>';
         echo '</dl>';
         echo '<details class="agent-settings-details" open><summary>' . self::t('agents.settings', 'Настройки') . '</summary>';
         echo '<form method="post" class="agent-edit-form">' . Csrf::field();
         echo '<input type="hidden" name="action" value="update"><input type="hidden" name="server_id" value="' . $serverId . '"><input type="hidden" name="agent_id" value="' . Util::h($id) . '">';
-        echo '<label>' . self::t('agents.agentName', 'Название agent') . '<input name="name" value="' . Util::h($name) . '"></label>';
-        echo '<label>' . self::t('agents.capabilities', 'Capabilities') . '<input name="capabilities" value="' . Util::h($capabilities) . '"></label>';
+        echo '<label>' . self::t('agents.agentName', 'Название агента') . '<input name="name" value="' . Util::h($name) . '"></label>';
+        echo '<label>' . self::t('agents.capabilities', 'Возможности') . '<input name="capabilities" value="' . Util::h($capabilities) . '"></label>';
         echo '<label class="check"><input type="checkbox" name="enabled" ' . (!empty($agent['enabled']) ? 'checked' : '') . '> ' . self::t('agents.enabled', 'Включён') . '</label>';
         echo '<button>' . self::t('action.save', 'Сохранить') . '</button></form>';
         echo '</details>';
         echo '<div class="agent-action-block"><strong>' . self::t('agents.actions', 'Действия') . '</strong>';
         echo '<div class="row-actions agent-actions">';
-        self::smallPost('/admin/agents', ['action' => 'scan', 'server_id' => $serverId, 'agent_id' => $id], self::t('agents.scan', 'Scan ONVIF'));
-        self::smallPost('/admin/agents', ['action' => 'diagnostics', 'server_id' => $serverId, 'agent_id' => $id], self::t('agents.diagnostics', 'Diagnostics'));
-        self::smallPost('/admin/agents', ['action' => 'revoke', 'server_id' => $serverId, 'agent_id' => $id], self::t('agents.revoke', 'Отозвать secret'));
-        self::smallPost('/admin/agents', ['action' => 'rotate', 'server_id' => $serverId, 'agent_id' => $id], self::t('agents.rotateSecret', 'Rotate secret'));
+        self::smallPost('/admin/agents', ['action' => 'scan', 'server_id' => $serverId, 'agent_id' => $id], self::t('agents.scan', 'Сканировать ONVIF'));
+        self::smallPost('/admin/agents', ['action' => 'diagnostics', 'server_id' => $serverId, 'agent_id' => $id], self::t('agents.diagnostics', 'Диагностика'));
+        self::smallPost('/admin/agents', ['action' => 'revoke', 'server_id' => $serverId, 'agent_id' => $id], self::t('agents.revoke', 'Отозвать секрет'));
+        self::smallPost('/admin/agents', ['action' => 'rotate', 'server_id' => $serverId, 'agent_id' => $id], self::t('agents.rotateSecret', 'Сменить секрет'));
         self::smallPost('/admin/agents', ['action' => 'delete', 'server_id' => $serverId, 'agent_id' => $id], self::t('action.delete', 'Удалить'), 'danger');
         echo '</div></div>';
         echo '<details class="agent-settings-details"><summary>' . self::t('agents.enrollment', 'Enrollment') . '</summary>';
         echo '<form method="post" class="agent-password-form">' . Csrf::field();
         echo '<input type="hidden" name="action" value="password"><input type="hidden" name="server_id" value="' . $serverId . '"><input type="hidden" name="agent_id" value="' . Util::h($id) . '">';
-        echo '<label>' . self::t('agents.password', 'Enrollment password') . '<input name="password" autocomplete="new-password"></label><button>' . self::t('agents.setPassword', 'Задать password') . '</button></form>';
+        echo '<label>' . self::t('agents.password', 'Пароль enrollment') . '<input name="password" autocomplete="new-password"></label><button>' . self::t('agents.setPassword', 'Задать пароль') . '</button></form>';
         echo '</details>';
         echo '</article>';
     }
@@ -3298,17 +3322,17 @@ final class App
         echo '<details class="panel agent-command-panel"><summary><span><strong>' . self::t('agents.commandConsole', 'Консоль команд') . '</strong><small>' . Util::h($agent['name'] ?? $agentId) . ' · ' . Util::h($agentId) . '</small></span></summary>';
         echo '<form method="post" class="form agent-command-form">' . Csrf::field();
         echo '<input type="hidden" name="action" value="command"><input type="hidden" name="server_id" value="' . $serverId . '"><input type="hidden" name="agent_id" value="' . Util::h($agentId) . '">';
-        echo '<div class="form-row"><label>' . self::t('agents.command', 'Command') . '<input name="command" value="test_camera"></label>';
+        echo '<div class="form-row"><label>' . self::t('agents.command', 'Команда') . '<input name="command" value="test_camera"></label>';
         echo '<label>' . self::t('cameras.agentCameraId', 'Agent camera ID') . '<input name="agent_camera_id"></label></div>';
         echo '<label>' . self::t('agents.payload', 'Payload JSON') . '<textarea name="payload" placeholder="{&quot;agentCameraId&quot;:&quot;cam1&quot;}"></textarea></label>';
-        echo '<label>timeoutMs<input name="timeout_ms" type="number" min="1000" step="1000" placeholder="30000"></label>';
-        echo '<button class="primary">' . self::t('agents.sendCommand', 'Отправить command') . '</button></form></details>';
+        echo '<label>' . self::t('agents.timeout', 'Таймаут, мс') . '<input name="timeout_ms" type="number" min="1000" step="1000" placeholder="30000"></label>';
+        echo '<button class="primary">' . self::t('agents.sendCommand', 'Отправить команду') . '</button></form></details>';
 
         $cameras = is_array($camerasResult['data'] ?? null) && is_array(($camerasResult['data']['cameras'] ?? null)) ? $camerasResult['data']['cameras'] : [];
         $cameraSummary = !empty($camerasResult['ok'])
             ? count($cameras)
             : self::agentResultSummary($camerasResult, '0');
-        echo '<section class="panel"><div class="section-head"><h2>' . self::t('agents.cameras', 'Камеры agent') . '</h2><span class="muted">' . Util::h((string)$cameraSummary) . '</span></div>';
+        echo '<section class="panel"><div class="section-head"><h2>' . self::t('agents.cameras', 'Камеры агента') . '</h2><span class="muted">' . Util::h((string)$cameraSummary) . '</span></div>';
         if (!empty($camerasResult['message'])) {
             self::technicalResult((string)$camerasResult['message'], self::t('agents.details', 'Технические детали'));
         }
@@ -3352,11 +3376,11 @@ final class App
         echo '<div class="agent-snapshot"><img src="' . Util::h($snapshotUrl) . '" alt=""></div>';
         echo '<div><strong>' . Util::h($name) . '</strong><code>' . Util::h($cameraId) . '</code></div>';
         echo '<dl class="agent-meta">';
-        echo '<dt>Source</dt><dd>' . Util::h($camera['sourceKind'] ?? '-') . '</dd>';
+        echo '<dt>' . self::t('agents.source', 'Источник') . '</dt><dd>' . Util::h($camera['sourceKind'] ?? '-') . '</dd>';
         echo '<dt>RTSP</dt><dd>' . Util::h($camera['rtspUrlRedacted'] ?? '-') . '</dd>';
         echo '<dt>' . self::t('agents.media', 'Медиа') . '</dt><dd>' . Util::h(self::agentValueSummary($camera['mediaStatus'] ?? null)) . '</dd>';
         echo '<dt>' . self::t('agents.onvif', 'ONVIF') . '</dt><dd>' . Util::h(self::agentValueSummary($camera['onvifStatus'] ?? null)) . '</dd>';
-        echo '<dt>Last seen</dt><dd>' . self::localTime($camera['lastSeenAt'] ?? '') . '</dd>';
+        echo '<dt>' . self::t('agents.lastSeen', 'Последняя связь') . '</dt><dd>' . self::localTime($camera['lastSeenAt'] ?? '') . '</dd>';
         echo '</dl>';
         echo '<a class="btn" href="' . Util::h($createUrl) . '">' . self::t('agents.useCamera', 'Создать камеру в Portal') . '</a>';
         echo '</article>';
@@ -3368,7 +3392,7 @@ final class App
             return '-';
         }
         if (is_bool($value)) {
-            return $value ? 'yes' : 'no';
+            return $value ? self::t('agents.yes', 'да') : self::t('agents.no', 'нет');
         }
         if (is_scalar($value)) {
             return (string)$value;
@@ -3384,10 +3408,10 @@ final class App
             }
         }
         if (array_key_exists('running', $value)) {
-            $parts[] = self::truthyMetricValue($value['running']) ? 'running' : 'stopped';
+            $parts[] = self::truthyMetricValue($value['running']) ? self::t('agents.running', 'работает') : self::t('agents.stopped', 'остановлен');
         }
         if (array_key_exists('online', $value)) {
-            $parts[] = self::truthyMetricValue($value['online']) ? 'online' : 'offline';
+            $parts[] = self::truthyMetricValue($value['online']) ? self::t('agents.online', 'online') : self::t('agents.offline', 'offline');
         }
         $error = $value['lastError'] ?? $value['error'] ?? null;
         if (is_scalar($error) && trim((string)$error) !== '') {
