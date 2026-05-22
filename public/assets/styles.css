@@ -1376,6 +1376,62 @@ body.player-view .player-frame {
 .agents-admin-grid {
   align-items: start;
 }
+.agents-toolbar .filters {
+  margin-bottom: 0;
+}
+.agent-create-panel > summary,
+.agent-command-panel > summary,
+.agent-settings-details > summary,
+.json-details > summary {
+  cursor: pointer;
+  list-style: none;
+}
+.agent-create-panel > summary::-webkit-details-marker,
+.agent-command-panel > summary::-webkit-details-marker,
+.agent-settings-details > summary::-webkit-details-marker,
+.json-details > summary::-webkit-details-marker {
+  display: none;
+}
+.agent-create-panel > summary,
+.agent-command-panel > summary,
+.json-details > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.agent-create-panel > summary::after,
+.agent-command-panel > summary::after,
+.json-details > summary::after,
+.agent-settings-details > summary::after {
+  content: "▸";
+  color: var(--muted);
+  font-weight: 900;
+}
+.agent-create-panel[open] > summary::after,
+.agent-command-panel[open] > summary::after,
+.json-details[open] > summary::after,
+.agent-settings-details[open] > summary::after {
+  content: "▾";
+}
+.agent-create-panel > summary strong,
+.agent-command-panel > summary strong,
+.json-details > summary strong {
+  display: block;
+  font-size: 18px;
+}
+.agent-create-panel > summary small,
+.agent-command-panel > summary small,
+.json-details > summary small {
+  display: block;
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.agent-create-panel > .form,
+.agent-command-panel > .form {
+  margin-top: 16px;
+}
 .agent-list,
 .agent-camera-grid {
   display: grid;
@@ -1430,6 +1486,32 @@ body.player-view .player-frame {
 .agent-command-form {
   display: grid;
   gap: 10px;
+}
+.agent-settings-details {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 10px 12px;
+  background: rgba(255,255,255,.68);
+}
+.agent-settings-details > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: var(--muted);
+  font-weight: 850;
+}
+.agent-settings-details[open] > summary {
+  margin-bottom: 10px;
+}
+.agent-action-block {
+  display: grid;
+  gap: 8px;
+}
+.agent-action-block > strong {
+  color: var(--muted);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: .055em;
 }
 .agent-actions {
   flex-wrap: wrap;
