@@ -50,7 +50,10 @@ Each camera can run in one of two modes:
 The mosaic supports all/favorites/group filtering, camera-name search,
 pagination, and a 2-6 cameras-per-row density switch. It uses fixed 16:9 camera
 cards. Preview images are preloaded behind a loader and then swapped in, so
-refreshes do not show half-loaded images.
+refreshes do not show half-loaded images. The preview refresh interval is
+configurable from the viewer UI, including an `Off` mode. If a DVR stream is
+offline, the card shows `Stream unavailable`; an old preview may still be shown
+with that status overlay.
 
 The map view supports the same filters and camera-name search. It auto-fits the
 current camera set, clusters nearby cameras at lower zoom levels, shows camera

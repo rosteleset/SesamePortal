@@ -9,6 +9,15 @@
 SDVR-TRIAL-85GT2-A7YYD-HSSEN-YW98U
 ```
 
+`bootstrap-trial-install.sh` - это удобный wrapper над protected bootstrap. Он
+берёт текущий `protected/release` artifact из:
+
+```text
+https://license.sesameware.com/sesame-dvr-artifacts/protected/index.json
+```
+
+Отдельный `/sesame-dvr-artifacts/trial/` registry для этой команды не нужен.
+
 ## Требования к серверу
 
 Поддерживаются:
@@ -110,6 +119,18 @@ admin / admin
 
 После первого входа интерфейс потребует сменить пароль администратора.
 
+## Важные пути
+
+- приложение: `/opt/sesame-dvr/current`;
+- конфигурация: `/var/lib/sesame-dvr/config.json`;
+- license state: `/var/lib/sesame-dvr/license.json`;
+- env/token: `/var/lib/sesame-dvr/sesame-dvr.env`;
+- default архив видео: `/var/dvr/segments`;
+- preview cache: `/var/dvr/previews`;
+- ONVIF events: `/var/dvr/onvif-events`;
+- дополнительные MultiVolume roots: задаются в `Настройки -> Тома хранения`;
+- nginx site: `/etc/nginx/sites-available/sesame-dvr.conf`.
+
 ## Проверка установки
 
 ```bash
@@ -132,6 +153,20 @@ sudo certbot certificates
 sudo sesame-dvr-update
 ```
 
+Если публичный доступ был настроен инсталлятором, updater автоматически
+обновляет managed nginx site вместе с приложением, включая location'ы для
+MultiVolume архива `/dvr/v/...`.
+
+## Если установка не открывается снаружи
+
+Проверьте:
+
+- DNS домена указывает на IP сервера;
+- firewall/cloud security group пропускает TCP `80` и `443`;
+- `nginx -t` проходит без ошибок;
+- `systemctl status sesame-dvr nginx` показывает active;
+- playlist открывается, а segment URL из него возвращает `200 OK`.
+
 ## Подключение к SesamePortal
 
 После установки добавьте SesameDVR в административном интерфейсе SesamePortal:
@@ -146,3 +181,9 @@ sudo sesame-dvr-update
   потоки на DVR;
 - `Read-only`, если поток уже настроен на SesameDVR и портал должен только
   выдавать preview/playback-доступ.
+
+## Что читать дальше
+
+- руководство пользователя SesameDVR: `docs/sesame-dvr-user-guide.ru.md`;
+- описание возможностей SesameDVR: `docs/SESAME-DVR-PRODUCT-DESCRIPTION.ru.md`;
+- описание возможностей SesamePortal: `docs/SESAME-PORTAL-FEATURES.ru.md`.
