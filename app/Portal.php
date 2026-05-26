@@ -2146,6 +2146,8 @@ final class DvrClient
         }
 
         $name = trim((string)($camera['dvr_stream_name'] ?: $camera['name']));
+        $displayName = trim((string)($camera['name'] ?? ''));
+        $displayName = $displayName !== '' ? $displayName : $name;
         if ($controlMode === 'edge_agent') {
             $agentId = trim((string)($camera['agent_id'] ?? ''));
             $agentCameraId = trim((string)($camera['agent_camera_id'] ?? ''));
@@ -2155,6 +2157,7 @@ final class DvrClient
 
             $payload = [
                 'name' => $name,
+                'displayName' => $displayName,
                 'sourceType' => 'push',
                 'source' => 'push://' . $name,
                 'enabled' => ((int)$camera['blocked'] === 0),
@@ -2178,6 +2181,7 @@ final class DvrClient
 
             $payload = [
                 'name' => $name,
+                'displayName' => $displayName,
                 'sourceType' => 'direct',
                 'source' => $camera['source_url'],
                 'push' => null,
@@ -4725,7 +4729,8 @@ final class App
                 continue;
             }
             $name = (string)($stream['name'] ?? '');
-            if ($name === $streamName || $name === (string)$camera['name']) {
+            $displayName = (string)($stream['displayName'] ?? $stream['title'] ?? '');
+            if ($name === $streamName || $name === (string)$camera['name'] || $displayName === (string)$camera['name']) {
                 return self::streamMetricUnavailable($stream);
             }
         }

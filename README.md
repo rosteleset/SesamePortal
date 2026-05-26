@@ -41,7 +41,9 @@ switch from the language dropdown or with `?lang=<code>`.
 Each camera can run in one of two modes:
 
 - `managed`: SesamePortal writes the stream configuration to the selected
-  SesameDVR server through the management API.
+  SesameDVR server through the management API. The camera `name` is sent as the
+  stream `displayName`; `dvr_stream_name` stays the URL-safe technical stream
+  name used by DVR endpoints.
 - `read_only`: SesamePortal does not change DVR configuration and only uses the
   selected DVR server plus `dvr_stream_name` for preview, auth, and playback.
 
