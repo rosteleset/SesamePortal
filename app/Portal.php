@@ -651,6 +651,7 @@ final class I18n
                 'groups.users' => 'Пользователи',
                 'groups.cameras' => 'Камеры',
                 'nav.agents' => 'Edge Agents',
+                'column.id' => 'ID',
                 'column.name' => 'Название',
                 'column.server_name' => 'Сервер',
                 'column.agent_id' => 'Agent',
@@ -945,6 +946,7 @@ final class I18n
                 'table.shown' => 'Shown',
                 'table.of' => 'of',
                 'common.noServer' => 'No server',
+                'column.id' => 'ID',
                 'column.name' => 'Name',
                 'column.server_name' => 'Server',
                 'column.agent_id' => 'Agent',
@@ -3113,7 +3115,78 @@ final class App
                 return;
             }
         }
+        if (count($parts) === 3 && in_array($parts[2], ['users', 'cameras'], true)) {
+            self::apiGroupMembers($id, $parts[2]);
+            return;
+        }
         self::apiError(404, 'not_found', 'Unknown groups endpoint');
+    }
+
+    private static function apiGroupMembers(int $groupId, string $resource): void
+    {
+        $group = self::rowById('portal_groups', $groupId);
+        if (!$group) {
+            self::apiError(404, 'not_found', 'Group not found');
+            return;
+        }
+
+        $method = self::apiMethod();
+        $isUsers = $resource === 'users';
+        $linkTable = $isUsers ? 'user_groups' : 'camera_groups';
+        $targetKey = $isUsers ? 'user_id' : 'camera_id';
+        $inputKey = $isUsers ? 'userIds' : 'cameraIds';
+        $inputSnakeKey = $isUsers ? 'user_ids' : 'camera_ids';
+
+        if ($method === 'GET') {
+            self::apiJson(self::apiGroupMembersPayload($group, $resource));
+            return;
+        }
+
+        if (in_array($method, ['POST', 'PATCH', 'PUT', 'DELETE'], true)) {
+            $input = self::apiInput();
+            $ids = self::apiIntArray($input[$inputKey] ?? $input[$inputSnakeKey] ?? $input['ids'] ?? []);
+            if ($method !== 'PUT' && $method !== 'PATCH' && $ids === []) {
+                self::apiError(422, 'validation_failed', $inputKey . ' is required');
+                return;
+            }
+
+            if ($method === 'POST') {
+                self::addLinks($linkTable, 'group_id', $groupId, $targetKey, $ids);
+                Audit::log('group.members.add', 'group_id=' . $groupId . ' resource=' . $resource . ' count=' . count($ids));
+            } elseif ($method === 'DELETE') {
+                self::removeLinks($linkTable, 'group_id', $groupId, $targetKey, $ids);
+                Audit::log('group.members.remove', 'group_id=' . $groupId . ' resource=' . $resource . ' count=' . count($ids));
+            } else {
+                self::replaceLinks($linkTable, 'group_id', $groupId, $targetKey, $ids);
+                Audit::log('group.members.replace', 'group_id=' . $groupId . ' resource=' . $resource . ' count=' . count($ids));
+            }
+
+            self::apiJson(self::apiGroupMembersPayload(self::rowById('portal_groups', $groupId), $resource));
+            return;
+        }
+
+        self::apiError(405, 'method_not_allowed', 'Method is not allowed');
+    }
+
+    private static function apiGroupMembersPayload(?array $group, string $resource): array
+    {
+        $isUsers = $resource === 'users';
+        $linkTable = $isUsers ? 'user_groups' : 'camera_groups';
+        $targetTable = $isUsers ? 'users' : 'cameras';
+        $targetKey = $isUsers ? 'user_id' : 'camera_id';
+        $idsKey = $isUsers ? 'userIds' : 'cameraIds';
+        $rowsKey = $isUsers ? 'users' : 'cameras';
+        $ids = $group ? self::linkedIds($linkTable, 'group_id', (int)$group['id'], $targetKey) : [];
+        $rows = array_map(
+            $isUsers ? [self::class, 'apiUserRow'] : [self::class, 'apiCameraRow'],
+            self::rowsByIds($targetTable, $ids)
+        );
+
+        return [
+            'group' => self::apiGroupRow($group, true),
+            $idsKey => $ids,
+            $rowsKey => $rows,
+        ];
     }
 
     private static function apiSaveGroup(int $id, array $input): void
@@ -3892,7 +3965,7 @@ final class App
             self::assignmentPicker(self::t('groups.users', 'Пользователи'), 'user_ids[]', $users, $linkedUsers, 'login', self::t('assignment.searchUsers', 'Найти пользователя'));
             self::assignmentPicker(self::t('groups.cameras', 'Камеры'), 'camera_ids[]', $cameras, $linkedCameras, 'name', self::t('assignment.searchCameras', 'Найти камеру'));
             echo '<button class="primary">' . self::t('action.save', 'Сохранить') . '</button></form></section>';
-            self::table(self::t('groups.title', 'Группы'), ['name', 'blocked', 'description'], $groups, '/admin/groups', false, $list);
+            self::table(self::t('groups.title', 'Группы'), ['id', 'name', 'blocked', 'description'], $groups, '/admin/groups', false, $list);
             echo '</div>';
         });
     }
@@ -5798,6 +5871,19 @@ final class App
         return $stmt->fetch() ?: null;
     }
 
+    private static function rowsByIds(string $table, array $ids): array
+    {
+        $rows = [];
+        foreach ($ids as $id) {
+            $id = (int)$id;
+            $row = $table === 'cameras' ? self::apiCameraById($id) : self::rowById($table, $id);
+            if ($row) {
+                $rows[] = $row;
+            }
+        }
+        return $rows;
+    }
+
     private static function replaceLinks(string $table, string $ownerKey, int $ownerId, string $targetKey, array $values): void
     {
         $pdo = DB::pdo();
@@ -5806,6 +5892,24 @@ final class App
         foreach ($values as $value) {
             $stmt->execute([$ownerId, (int)$value]);
         }
+    }
+
+    private static function addLinks(string $table, string $ownerKey, int $ownerId, string $targetKey, array $values): void
+    {
+        $stmt = DB::pdo()->prepare(DB::insertIgnoreSql($table, [$ownerKey, $targetKey]));
+        foreach ($values as $value) {
+            $stmt->execute([$ownerId, (int)$value]);
+        }
+    }
+
+    private static function removeLinks(string $table, string $ownerKey, int $ownerId, string $targetKey, array $values): void
+    {
+        if ($values === []) {
+            return;
+        }
+        $placeholders = implode(', ', array_fill(0, count($values), '?'));
+        $stmt = DB::pdo()->prepare("DELETE FROM {$table} WHERE {$ownerKey} = ? AND {$targetKey} IN ({$placeholders})");
+        $stmt->execute([$ownerId, ...array_map('intval', $values)]);
     }
 
     private static function linkedIds(string $table, string $ownerKey, int $ownerId, string $targetKey): array

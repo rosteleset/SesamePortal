@@ -158,6 +158,8 @@ printf "%s" "$admin_users_page" | grep -q "Статический токен"
 printf "%s" "$admin_users_page" | grep -q "Выпустить статический токен"
 printf "%s" "$admin_users_page" | grep -q ">нет<"
 admin_groups="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/admin/groups?edit=1")"
+printf "%s" "$admin_groups" | grep -q "<th>ID</th>"
+printf "%s" "$admin_groups" | grep -q "<td>1</td>"
 printf "%s" "$admin_groups" | grep -q "assignment-picker"
 printf "%s" "$admin_groups" | grep -q "assignment-search"
 printf "%s" "$admin_groups" | grep -q "assignment-selected-only"
@@ -273,6 +275,8 @@ printf "%s" "$api_cameras" | grep -q '"Smoke Cam"'
 api_accessible="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/api/portal/v1/cameras?scope=accessible&filter=group:1")"
 printf "%s" "$api_accessible" | grep -q '"Smoke Cam"'
 api_group="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/api/portal/v1/groups/1")"
+printf "%s" "$api_group" | grep -q '"id": 1'
+printf "%s" "$api_group" | grep -q '"userIds"'
 printf "%s" "$api_group" | grep -q '"cameraIds"'
 api_created_group="$(
   curl -fsS -b "$COOKIE_JAR" -H 'Content-Type: application/json' \
@@ -281,6 +285,33 @@ api_created_group="$(
 )"
 api_group_id="$(printf "%s" "$api_created_group" | php -r '$d=json_decode(stream_get_contents(STDIN), true); echo $d["group"]["id"] ?? "";')"
 test -n "$api_group_id"
+api_group_users="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/api/portal/v1/groups/$api_group_id/users")"
+printf "%s" "$api_group_users" | grep -q '"userIds"'
+printf "%s" "$api_group_users" | grep -q '"login": "admin"'
+api_group_cameras="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/api/portal/v1/groups/$api_group_id/cameras")"
+printf "%s" "$api_group_cameras" | grep -q '"cameraIds"'
+printf "%s" "$api_group_cameras" | grep -q '"Smoke Cam"'
+api_group_users_empty="$(
+  curl -fsS -b "$COOKIE_JAR" -X PUT -H 'Content-Type: application/json' \
+    -d '{"userIds":[]}' \
+    "http://127.0.0.1:$PORT/api/portal/v1/groups/$api_group_id/users"
+)"
+printf "%s" "$api_group_users_empty" | grep -q '"userIds": \[\]'
+api_group_users_added="$(
+  curl -fsS -b "$COOKIE_JAR" -X POST -H 'Content-Type: application/json' \
+    -d '{"userIds":[1]}' \
+    "http://127.0.0.1:$PORT/api/portal/v1/groups/$api_group_id/users"
+)"
+printf "%s" "$api_group_users_added" | grep -q '"login": "admin"'
+api_group_cameras_empty="$(
+  curl -fsS -b "$COOKIE_JAR" -X DELETE -H 'Content-Type: application/json' \
+    -d '{"cameraIds":[1]}' \
+    "http://127.0.0.1:$PORT/api/portal/v1/groups/$api_group_id/cameras"
+)"
+printf "%s" "$api_group_cameras_empty" | grep -q '"cameraIds": \[\]'
+curl -fsS -b "$COOKIE_JAR" -X PUT -H 'Content-Type: application/json' \
+  -d '{"cameraIds":[1]}' \
+  "http://127.0.0.1:$PORT/api/portal/v1/groups/$api_group_id/cameras" | grep -q '"Smoke Cam"'
 api_patched_group="$(
   curl -fsS -b "$COOKIE_JAR" -X PATCH -H 'Content-Type: application/json' \
     -d '{"description":"api patched","cameraIds":[1]}' \

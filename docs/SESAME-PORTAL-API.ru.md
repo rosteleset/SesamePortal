@@ -163,8 +163,16 @@ Admin only.
 | `GET` | `/groups/{id}` | Получить группу с `userIds` и `cameraIds`. |
 | `PATCH`/`PUT` | `/groups/{id}` | Обновить группу. |
 | `DELETE` | `/groups/{id}` | Удалить группу. |
+| `GET` | `/groups/{id}/users` | Получить пользователей группы по group id. |
+| `PUT`/`PATCH` | `/groups/{id}/users` | Полностью заменить список пользователей группы. |
+| `POST` | `/groups/{id}/users` | Добавить пользователей в группу. |
+| `DELETE` | `/groups/{id}/users` | Удалить пользователей из группы. |
+| `GET` | `/groups/{id}/cameras` | Получить камеры группы по group id. |
+| `PUT`/`PATCH` | `/groups/{id}/cameras` | Полностью заменить список камер группы. |
+| `POST` | `/groups/{id}/cameras` | Добавить камеры в группу. |
+| `DELETE` | `/groups/{id}/cameras` | Удалить камеры из группы. |
 
-Payload:
+Payload создания/обновления:
 
 ```json
 {
@@ -176,7 +184,66 @@ Payload:
 }
 ```
 
+`id` в объекте группы - это стабильный group id из Portal DB. Его нужно
+использовать в endpoints `/groups/{id}` и `/groups/{id}/...`.
+
 `userIds` и `cameraIds` заменяют связи только если ключ передан в payload.
+
+Пример объекта группы в ответе:
+
+```json
+{
+  "id": 1,
+  "name": "Operators",
+  "description": "Main operator group",
+  "blocked": false,
+  "createdAt": "2026-05-26T12:00:00+00:00",
+  "userIds": [2, 3],
+  "cameraIds": [10, 11]
+}
+```
+
+Membership endpoints принимают `userIds`, `cameraIds` или универсальный ключ
+`ids`. `PUT`/`PATCH` заменяет весь список, `POST` добавляет переданные ID,
+`DELETE` удаляет только переданные ID. Для полной очистки передайте пустой
+список через `PUT`/`PATCH`.
+
+Примеры:
+
+```http
+GET /api/portal/v1/groups/1/users
+PUT /api/portal/v1/groups/1/users
+Content-Type: application/json
+
+{ "userIds": [2, 3] }
+```
+
+```http
+GET /api/portal/v1/groups/1/cameras
+POST /api/portal/v1/groups/1/cameras
+Content-Type: application/json
+
+{ "cameraIds": [10, 11] }
+```
+
+Ответ `/groups/{id}/users`:
+
+```json
+{
+  "group": {
+    "id": 1,
+    "name": "Operators",
+    "description": "Main operator group",
+    "blocked": false,
+    "userIds": [2, 3],
+    "cameraIds": [10, 11]
+  },
+  "userIds": [2, 3],
+  "users": [
+    { "id": 2, "login": "operator", "role": "user", "blocked": false }
+  ]
+}
+```
 
 ### /api/portal/v1/servers
 
