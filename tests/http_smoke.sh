@@ -152,7 +152,11 @@ printf "%s" "$no_token_refresh" | grep -q "No Token DVR: Management token не �
 curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/admin/dashboard?lang=en" | grep -q "SesameDVR servers"
 curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/admin/dashboard?lang=de" | grep -q "Benutzer"
 curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/admin/dashboard?lang=ar" | grep -q 'dir="rtl"'
-curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/admin/users?q=admin" | grep -q "admin"
+admin_users_page="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/admin/users?q=admin&lang=ru")"
+printf "%s" "$admin_users_page" | grep -q "admin"
+printf "%s" "$admin_users_page" | grep -q "Статический токен"
+printf "%s" "$admin_users_page" | grep -q "Выпустить статический токен"
+printf "%s" "$admin_users_page" | grep -q ">нет<"
 admin_groups="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/admin/groups?edit=1")"
 printf "%s" "$admin_groups" | grep -q "assignment-picker"
 printf "%s" "$admin_groups" | grep -q "assignment-search"
@@ -250,6 +254,65 @@ printf "%s" "$player_page" | grep -q "back_label="
 ! printf "%s" "$player_page" | grep -q "player-fullscreen"
 ! printf "%s" "$player_page" | grep -q "player-edge-swipe"
 ! printf "%s" "$player_page" | grep -q 'class="topbar"'
+
+api_unauth="$(
+  curl -sS -o /dev/null -w '%{http_code}' \
+    "http://127.0.0.1:$PORT/api/portal/v1/me"
+)"
+test "$api_unauth" = "401"
+curl -fsS "http://127.0.0.1:$PORT/api/portal/v1" | grep -q '"name": "SesamePortal API"'
+api_me="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/api/portal/v1/me")"
+printf "%s" "$api_me" | grep -q '"login": "admin"'
+printf "%s" "$api_me" | grep -q '"groupIds"'
+api_dashboard="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/api/portal/v1/dashboard")"
+printf "%s" "$api_dashboard" | grep -q '"counts"'
+printf "%s" "$api_dashboard" | grep -q '"lastMetrics"'
+api_cameras="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/api/portal/v1/cameras?pageSize=3")"
+printf "%s" "$api_cameras" | grep -q '"pageSize": 3'
+printf "%s" "$api_cameras" | grep -q '"Smoke Cam"'
+api_accessible="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/api/portal/v1/cameras?scope=accessible&filter=group:1")"
+printf "%s" "$api_accessible" | grep -q '"Smoke Cam"'
+api_group="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/api/portal/v1/groups/1")"
+printf "%s" "$api_group" | grep -q '"cameraIds"'
+api_created_group="$(
+  curl -fsS -b "$COOKIE_JAR" -H 'Content-Type: application/json' \
+    -d '{"name":"API Smoke Group","description":"api","userIds":[1],"cameraIds":[1]}' \
+    "http://127.0.0.1:$PORT/api/portal/v1/groups"
+)"
+api_group_id="$(printf "%s" "$api_created_group" | php -r '$d=json_decode(stream_get_contents(STDIN), true); echo $d["group"]["id"] ?? "";')"
+test -n "$api_group_id"
+api_patched_group="$(
+  curl -fsS -b "$COOKIE_JAR" -X PATCH -H 'Content-Type: application/json' \
+    -d '{"description":"api patched","cameraIds":[1]}' \
+    "http://127.0.0.1:$PORT/api/portal/v1/groups/$api_group_id"
+)"
+printf "%s" "$api_patched_group" | grep -q "api patched"
+curl -fsS -b "$COOKIE_JAR" -X DELETE "http://127.0.0.1:$PORT/api/portal/v1/groups/$api_group_id" | grep -q '"ok": true'
+api_static="$(
+  curl -fsS -b "$COOKIE_JAR" -X POST \
+    "http://127.0.0.1:$PORT/api/portal/v1/users/1/static-token"
+)"
+STATIC_TOKEN="$(printf "%s" "$api_static" | php -r '$d=json_decode(stream_get_contents(STDIN), true); echo $d["token"] ?? "";')"
+test -n "$STATIC_TOKEN"
+curl -fsS -H "Authorization: Bearer $STATIC_TOKEN" "http://127.0.0.1:$PORT/api/portal/v1/me" | grep -q '"login": "admin"'
+api_daily_denied="$(
+  curl -sS -o /dev/null -w '%{http_code}' \
+    -H "Authorization: Bearer $TOKEN" \
+    "http://127.0.0.1:$PORT/api/portal/v1/me"
+)"
+test "$api_daily_denied" = "401"
+admin_users_static="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/admin/users?q=admin&lang=ru")"
+printf "%s" "$admin_users_static" | grep -q "Заменить статический токен"
+printf "%s" "$admin_users_static" | grep -q "Старый статический токен сразу перестанет работать"
+printf "%s" "$admin_users_static" | grep -q ">есть<"
+curl -fsS -H "X-Portal-Token: $STATIC_TOKEN" "http://127.0.0.1:$PORT/api/portal/v1/cameras?scope=accessible&pageSize=1" | grep -q '"pageSize": 1'
+curl -fsS -b "$COOKIE_JAR" -X PUT "http://127.0.0.1:$PORT/api/portal/v1/favorites/1" | grep -q '"favorite": true'
+curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/api/portal/v1/favorites" | grep -q '"cameraIds"'
+curl -fsS -b "$COOKIE_JAR" -X DELETE "http://127.0.0.1:$PORT/api/portal/v1/favorites/1" | grep -q '"favorite": false'
+curl -fsS -b "$COOKIE_JAR" -X DELETE "http://127.0.0.1:$PORT/api/portal/v1/users/1/static-token" | grep -q '"ok": true'
+admin_users_revoked="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/admin/users?q=admin&lang=ru")"
+printf "%s" "$admin_users_revoked" | grep -q "Выпустить статический токен"
+printf "%s" "$admin_users_revoked" | grep -q ">нет<"
 
 denied="$(
   curl -sS -o /dev/null -w '%{http_code}' \

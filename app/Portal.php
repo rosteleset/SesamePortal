@@ -1621,7 +1621,14 @@ final class I18n
             'nav.section.admin' => 'Администрирование',
             'action.sync' => 'Синхронизировать',
             'action.revoke' => 'Отозвать',
+            'column.static_token_hash' => 'Статический токен',
             'token.static' => 'Статический токен',
+            'token.staticIssue' => 'Выпустить статический токен',
+            'token.staticReplace' => 'Заменить статический токен',
+            'token.staticReplaceConfirm' => 'Старый статический токен сразу перестанет работать. Выпустить новый токен?',
+            'token.staticIssued' => 'Новый статический токен. Сохраните его сейчас: позже Portal покажет только наличие токена',
+            'token.staticPresent' => 'есть',
+            'token.staticMissing' => 'нет',
             'geo.latitude' => 'Широта',
             'geo.longitude' => 'Долгота',
         ];
@@ -1630,7 +1637,14 @@ final class I18n
             'nav.section.admin' => 'Admin',
             'action.sync' => 'Sync',
             'action.revoke' => 'Revoke',
+            'column.static_token_hash' => 'Static token',
             'token.static' => 'Static token',
+            'token.staticIssue' => 'Issue static token',
+            'token.staticReplace' => 'Replace static token',
+            'token.staticReplaceConfirm' => 'The old static token will stop working immediately. Issue a new token?',
+            'token.staticIssued' => 'New static token. Save it now: later Portal will only show that a token exists',
+            'token.staticPresent' => 'present',
+            'token.staticMissing' => 'missing',
             'geo.latitude' => 'Latitude',
             'geo.longitude' => 'Longitude',
         ];
@@ -2002,6 +2016,22 @@ final class TokenService
         return null;
     }
 
+    public static function userByStaticToken(string $token): ?array
+    {
+        if ($token === '') {
+            return null;
+        }
+
+        $stmt = DB::pdo()->query('SELECT * FROM users WHERE blocked = 0 AND static_token_hash IS NOT NULL');
+        foreach ($stmt->fetchAll() as $user) {
+            if ($user['static_token_hash'] && password_verify($token, $user['static_token_hash'])) {
+                return $user;
+            }
+        }
+
+        return null;
+    }
+
     public static function today(): string
     {
         $tz = new DateTimeZone((string)Config::get('timezone', 'UTC'));
@@ -2109,6 +2139,10 @@ final class Csrf
     public static function verify(): void
     {
         if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST') {
+            return;
+        }
+        $path = Util::path();
+        if ($path === '/api/portal/v1' || str_starts_with($path, '/api/portal/v1/')) {
             return;
         }
 
@@ -2702,6 +2736,11 @@ final class App
         I18n::bootstrap();
 
         $path = Util::path();
+        if ($path === '/api/portal/v1' || str_starts_with($path, '/api/portal/v1/')) {
+            self::apiPortalV1();
+            return;
+        }
+
         match ($path) {
             '/login' => self::login(),
             '/logout' => self::logout(),
@@ -2720,6 +2759,898 @@ final class App
             '/api/sesamedvr/auth' => self::authBackend(),
             default => self::viewer('mosaic'),
         };
+    }
+
+    private static function apiPortalV1(): void
+    {
+        try {
+            $parts = self::apiPathParts();
+            $resource = $parts[0] ?? '';
+            match ($resource) {
+                '' => self::apiJson([
+                    'name' => 'SesamePortal API',
+                    'version' => 'v1',
+                    'resources' => [
+                        'me',
+                        'dashboard',
+                        'users',
+                        'groups',
+                        'servers',
+                        'cameras',
+                        'favorites',
+                        'agents',
+                        'audit',
+                    ],
+                ]),
+                'me' => self::apiMe($parts),
+                'dashboard' => self::apiDashboard($parts),
+                'users' => self::apiUsers($parts),
+                'groups' => self::apiGroups($parts),
+                'servers' => self::apiServers($parts),
+                'cameras' => self::apiCameras($parts),
+                'favorites' => self::apiFavorites($parts),
+                'agents' => self::apiAgents($parts),
+                'audit' => self::apiAudit($parts),
+                default => self::apiError(404, 'not_found', 'Unknown API endpoint'),
+            };
+        } catch (\Throwable $error) {
+            self::apiError(500, 'internal_error', $error->getMessage());
+        }
+    }
+
+    private static function apiPathParts(): array
+    {
+        $path = trim(substr(Util::path(), strlen('/api/portal/v1')), '/');
+        if ($path === '') {
+            return [];
+        }
+        return array_map('rawurldecode', array_values(array_filter(explode('/', $path), static fn($part) => $part !== '')));
+    }
+
+    private static function apiMethod(): string
+    {
+        return strtoupper((string)($_SERVER['REQUEST_METHOD'] ?? 'GET'));
+    }
+
+    private static function apiInput(): array
+    {
+        $raw = file_get_contents('php://input') ?: '';
+        $contentType = strtolower((string)($_SERVER['CONTENT_TYPE'] ?? ''));
+        if ($raw !== '' && (str_contains($contentType, 'application/json') || str_starts_with(trim($raw), '{'))) {
+            $decoded = json_decode($raw, true);
+            if (!is_array($decoded) || array_is_list($decoded)) {
+                self::apiError(400, 'invalid_json', 'JSON request body must be an object');
+                exit;
+            }
+            return $decoded;
+        }
+        return $_POST;
+    }
+
+    private static function apiJson(mixed $payload, int $status = 200): void
+    {
+        http_response_code($status);
+        header('Content-Type: application/json; charset=utf-8');
+        header('Cache-Control: no-store');
+        echo json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT) . "\n";
+        exit;
+    }
+
+    private static function apiError(int $status, string $code, string $message, array $extra = []): void
+    {
+        self::apiJson(['error' => ['code' => $code, 'message' => $message] + $extra], $status);
+    }
+
+    private static function apiUser(): ?array
+    {
+        $authorization = (string)($_SERVER['HTTP_AUTHORIZATION'] ?? $_SERVER['REDIRECT_HTTP_AUTHORIZATION'] ?? '');
+        if (preg_match('/^Bearer\s+(.+)$/i', $authorization, $match)) {
+            return TokenService::userByStaticToken(trim($match[1]));
+        }
+        $headerToken = trim((string)($_SERVER['HTTP_X_PORTAL_TOKEN'] ?? $_SERVER['HTTP_X_API_TOKEN'] ?? ''));
+        if ($headerToken !== '') {
+            return TokenService::userByStaticToken($headerToken);
+        }
+        return Auth::user();
+    }
+
+    private static function apiRequireUser(): array
+    {
+        $user = self::apiUser();
+        if (!$user) {
+            self::apiError(401, 'unauthorized', 'A valid session cookie or static Authorization: Bearer token is required');
+            exit;
+        }
+        return $user;
+    }
+
+    private static function apiRequireAdmin(): array
+    {
+        $user = self::apiRequireUser();
+        if (($user['role'] ?? '') !== 'admin') {
+            self::apiError(403, 'forbidden', 'Admin role is required');
+            exit;
+        }
+        return $user;
+    }
+
+    private static function apiBool(mixed $value): bool
+    {
+        if (is_bool($value)) {
+            return $value;
+        }
+        if (is_int($value)) {
+            return $value !== 0;
+        }
+        $value = strtolower(trim((string)$value));
+        return in_array($value, ['1', 'true', 'yes', 'on'], true);
+    }
+
+    private static function apiBlockedValue(array $input, ?array $current = null): int
+    {
+        if (array_key_exists('blocked', $input)) {
+            return self::apiBool($input['blocked']) ? 1 : 0;
+        }
+        return $current ? (int)($current['blocked'] ?? 0) : 0;
+    }
+
+    private static function apiIntArray(mixed $value): array
+    {
+        if ($value === null || $value === '') {
+            return [];
+        }
+        if (!is_array($value)) {
+            $value = preg_split('/[\s,]+/', trim((string)$value)) ?: [];
+        }
+        $ids = [];
+        foreach ($value as $item) {
+            $id = (int)$item;
+            if ($id > 0) {
+                $ids[$id] = true;
+            }
+        }
+        return array_keys($ids);
+    }
+
+    private static function apiPagination(array $pager): array
+    {
+        return [
+            'total' => (int)($pager['total'] ?? 0),
+            'page' => (int)($pager['page'] ?? 1),
+            'pageSize' => (int)($pager['pageSize'] ?? 0),
+        ];
+    }
+
+    private static function apiPageSize(int $default = 25, int $max = 200): int
+    {
+        $value = (int)($_GET['pageSize'] ?? $_GET['page_size'] ?? $default);
+        return min($max, max(1, $value));
+    }
+
+    private static function apiMe(array $parts): void
+    {
+        if (count($parts) !== 1 || self::apiMethod() !== 'GET') {
+            self::apiError(404, 'not_found', 'Unknown me endpoint');
+            return;
+        }
+        self::apiJson(['user' => self::apiUserRow(self::apiRequireUser(), true)]);
+    }
+
+    private static function apiDashboard(array $parts): void
+    {
+        self::apiRequireAdmin();
+        if (count($parts) !== 1) {
+            self::apiError(404, 'not_found', 'Unknown dashboard endpoint');
+            return;
+        }
+        $method = self::apiMethod();
+        if ($method === 'GET') {
+            $servers = array_map(fn($server) => self::apiServerRow($server, true), Repo::all('dvr_servers', 'name ASC'));
+            self::apiJson([
+                'counts' => [
+                    'users' => (int)DB::pdo()->query('SELECT COUNT(*) FROM users')->fetchColumn(),
+                    'groups' => (int)DB::pdo()->query('SELECT COUNT(*) FROM portal_groups')->fetchColumn(),
+                    'cameras' => (int)DB::pdo()->query('SELECT COUNT(*) FROM cameras')->fetchColumn(),
+                    'servers' => (int)DB::pdo()->query('SELECT COUNT(*) FROM dvr_servers')->fetchColumn(),
+                ],
+                'servers' => $servers,
+            ]);
+            return;
+        }
+        if ($method === 'POST') {
+            $input = self::apiInput();
+            $serverId = (int)($input['serverId'] ?? $input['server_id'] ?? 0);
+            if ($serverId > 0) {
+                self::apiJson(DvrClient::fetchServerMetrics($serverId));
+                return;
+            }
+            $results = [];
+            foreach (Repo::all('dvr_servers', 'name ASC') as $server) {
+                if ((int)$server['blocked'] === 0) {
+                    $results[] = ['serverId' => (int)$server['id']] + DvrClient::fetchServerMetrics((int)$server['id']);
+                }
+            }
+            self::apiJson(['results' => $results]);
+            return;
+        }
+        self::apiError(405, 'method_not_allowed', 'Method is not allowed');
+    }
+
+    private static function apiUsers(array $parts): void
+    {
+        self::apiRequireAdmin();
+        $method = self::apiMethod();
+        $id = isset($parts[1]) ? (int)$parts[1] : 0;
+
+        if (count($parts) === 1) {
+            if ($method === 'GET') {
+                $list = self::filteredRows('users', ['login', 'role'], 'login ASC', self::apiPageSize());
+                self::apiJson(['users' => array_map([self::class, 'apiUserRow'], $list['rows']), 'pagination' => self::apiPagination($list)]);
+                return;
+            }
+            if ($method === 'POST') {
+                self::apiSaveUser(0, self::apiInput());
+                return;
+            }
+        }
+
+        if ($id <= 0) {
+            self::apiError(404, 'not_found', 'User not found');
+            return;
+        }
+
+        if (count($parts) === 2) {
+            if ($method === 'GET') {
+                $user = self::rowById('users', $id);
+                $user ? self::apiJson(['user' => self::apiUserRow($user, true)]) : self::apiError(404, 'not_found', 'User not found');
+                return;
+            }
+            if ($method === 'PATCH' || $method === 'PUT') {
+                self::apiSaveUser($id, self::apiInput());
+                return;
+            }
+            if ($method === 'DELETE') {
+                DB::pdo()->prepare('DELETE FROM users WHERE id = ?')->execute([$id]);
+                Audit::log('user.delete', 'user_id=' . $id);
+                self::apiJson(['ok' => true]);
+                return;
+            }
+        }
+
+        if (($parts[2] ?? '') === 'static-token') {
+            if ($method === 'POST') {
+                self::apiJson(['token' => TokenService::issueStaticToken($id)]);
+                return;
+            }
+            if ($method === 'DELETE') {
+                TokenService::revokeStaticToken($id);
+                self::apiJson(['ok' => true]);
+                return;
+            }
+        }
+
+        self::apiError(404, 'not_found', 'Unknown users endpoint');
+    }
+
+    private static function apiSaveUser(int $id, array $input): void
+    {
+        $current = $id > 0 ? self::rowById('users', $id) : null;
+        if ($id > 0 && !$current) {
+            self::apiError(404, 'not_found', 'User not found');
+            return;
+        }
+
+        $login = trim((string)($input['login'] ?? ($current['login'] ?? '')));
+        $password = (string)($input['password'] ?? '');
+        $role = ($input['role'] ?? ($current['role'] ?? 'user')) === 'admin' ? 'admin' : 'user';
+        $blocked = self::apiBlockedValue($input, $current);
+        if ($login === '') {
+            self::apiError(422, 'validation_failed', 'login is required');
+            return;
+        }
+        if ($id === 0 && strlen($password) < 6) {
+            self::apiError(422, 'validation_failed', 'password must be at least 6 characters');
+            return;
+        }
+
+        $pdo = DB::pdo();
+        if ($id > 0) {
+            if ($password !== '') {
+                if (strlen($password) < 6) {
+                    self::apiError(422, 'validation_failed', 'password must be at least 6 characters');
+                    return;
+                }
+                $pdo->prepare('UPDATE users SET login=?, password_hash=?, role=?, blocked=? WHERE id=?')
+                    ->execute([$login, password_hash($password, PASSWORD_DEFAULT), $role, $blocked, $id]);
+            } else {
+                $pdo->prepare('UPDATE users SET login=?, role=?, blocked=? WHERE id=?')
+                    ->execute([$login, $role, $blocked, $id]);
+            }
+        } else {
+            $pdo->prepare('INSERT INTO users(login, password_hash, role, blocked, daily_token, daily_token_date, created_at) VALUES(?, ?, ?, ?, ?, ?, ?)')
+                ->execute([$login, password_hash($password, PASSWORD_DEFAULT), $role, $blocked, Util::randomToken(), TokenService::today(), Util::now()]);
+            $id = DB::lastInsertId('users');
+        }
+        Audit::log('user.save', $login);
+        self::apiJson(['user' => self::apiUserRow(self::rowById('users', $id), true)], $current ? 200 : 201);
+    }
+
+    private static function apiGroups(array $parts): void
+    {
+        self::apiRequireAdmin();
+        $method = self::apiMethod();
+        $id = isset($parts[1]) ? (int)$parts[1] : 0;
+
+        if (count($parts) === 1) {
+            if ($method === 'GET') {
+                $list = self::filteredRows('portal_groups', ['name', 'description'], 'name ASC', self::apiPageSize());
+                self::apiJson(['groups' => array_map(fn($row) => self::apiGroupRow($row), $list['rows']), 'pagination' => self::apiPagination($list)]);
+                return;
+            }
+            if ($method === 'POST') {
+                self::apiSaveGroup(0, self::apiInput());
+                return;
+            }
+        }
+        if ($id <= 0) {
+            self::apiError(404, 'not_found', 'Group not found');
+            return;
+        }
+        if (count($parts) === 2) {
+            if ($method === 'GET') {
+                $group = self::rowById('portal_groups', $id);
+                $group ? self::apiJson(['group' => self::apiGroupRow($group, true)]) : self::apiError(404, 'not_found', 'Group not found');
+                return;
+            }
+            if ($method === 'PATCH' || $method === 'PUT') {
+                self::apiSaveGroup($id, self::apiInput());
+                return;
+            }
+            if ($method === 'DELETE') {
+                DB::pdo()->prepare('DELETE FROM portal_groups WHERE id=?')->execute([$id]);
+                Audit::log('group.delete', 'group_id=' . $id);
+                self::apiJson(['ok' => true]);
+                return;
+            }
+        }
+        self::apiError(404, 'not_found', 'Unknown groups endpoint');
+    }
+
+    private static function apiSaveGroup(int $id, array $input): void
+    {
+        $current = $id > 0 ? self::rowById('portal_groups', $id) : null;
+        if ($id > 0 && !$current) {
+            self::apiError(404, 'not_found', 'Group not found');
+            return;
+        }
+        $name = trim((string)($input['name'] ?? ($current['name'] ?? '')));
+        if ($name === '') {
+            self::apiError(422, 'validation_failed', 'name is required');
+            return;
+        }
+        $description = (string)($input['description'] ?? ($current['description'] ?? ''));
+        $blocked = self::apiBlockedValue($input, $current);
+        $pdo = DB::pdo();
+        if ($id > 0) {
+            $pdo->prepare('UPDATE portal_groups SET name=?, description=?, blocked=? WHERE id=?')
+                ->execute([$name, $description, $blocked, $id]);
+        } else {
+            $pdo->prepare('INSERT INTO portal_groups(name, description, blocked, created_at) VALUES(?, ?, ?, ?)')
+                ->execute([$name, $description, $blocked, Util::now()]);
+            $id = DB::lastInsertId('portal_groups');
+        }
+        if (array_key_exists('userIds', $input) || array_key_exists('user_ids', $input)) {
+            self::replaceLinks('user_groups', 'group_id', $id, 'user_id', self::apiIntArray($input['userIds'] ?? $input['user_ids'] ?? []));
+        }
+        if (array_key_exists('cameraIds', $input) || array_key_exists('camera_ids', $input)) {
+            self::replaceLinks('camera_groups', 'group_id', $id, 'camera_id', self::apiIntArray($input['cameraIds'] ?? $input['camera_ids'] ?? []));
+        }
+        Audit::log('group.save', $name);
+        self::apiJson(['group' => self::apiGroupRow(self::rowById('portal_groups', $id), true)], $current ? 200 : 201);
+    }
+
+    private static function apiServers(array $parts): void
+    {
+        self::apiRequireAdmin();
+        $method = self::apiMethod();
+        $id = isset($parts[1]) ? (int)$parts[1] : 0;
+
+        if (count($parts) === 1) {
+            if ($method === 'GET') {
+                $list = self::filteredRows('dvr_servers', ['name', 'base_url', 'last_check_result'], 'name ASC', self::apiPageSize());
+                self::apiJson(['servers' => array_map([self::class, 'apiServerRow'], $list['rows']), 'pagination' => self::apiPagination($list)]);
+                return;
+            }
+            if ($method === 'POST') {
+                self::apiSaveServer(0, self::apiInput());
+                return;
+            }
+        }
+        if ($id <= 0) {
+            self::apiError(404, 'not_found', 'Server not found');
+            return;
+        }
+        if (count($parts) === 2) {
+            if ($method === 'GET') {
+                $server = Repo::server($id);
+                $server ? self::apiJson(['server' => self::apiServerRow($server, true)]) : self::apiError(404, 'not_found', 'Server not found');
+                return;
+            }
+            if ($method === 'PATCH' || $method === 'PUT') {
+                self::apiSaveServer($id, self::apiInput());
+                return;
+            }
+            if ($method === 'DELETE') {
+                DB::pdo()->prepare('DELETE FROM dvr_servers WHERE id=?')->execute([$id]);
+                Audit::log('server.delete', 'server_id=' . $id);
+                self::apiJson(['ok' => true]);
+                return;
+            }
+        }
+        if (count($parts) === 3 && $method === 'POST') {
+            if ($parts[2] === 'check') {
+                self::apiJson(DvrClient::checkServer($id));
+                return;
+            }
+            if ($parts[2] === 'refresh') {
+                self::apiJson(DvrClient::fetchServerMetrics($id));
+                return;
+            }
+        }
+        self::apiError(404, 'not_found', 'Unknown servers endpoint');
+    }
+
+    private static function apiSaveServer(int $id, array $input): void
+    {
+        $current = $id > 0 ? Repo::server($id) : null;
+        if ($id > 0 && !$current) {
+            self::apiError(404, 'not_found', 'Server not found');
+            return;
+        }
+        $name = trim((string)($input['name'] ?? ($current['name'] ?? '')));
+        $baseUrl = rtrim(trim((string)($input['baseUrl'] ?? $input['base_url'] ?? ($current['base_url'] ?? ''))), '/');
+        if ($name === '' || $baseUrl === '') {
+            self::apiError(422, 'validation_failed', 'name and baseUrl are required');
+            return;
+        }
+        $blocked = self::apiBlockedValue($input, $current);
+        $tokenKeyExists = array_key_exists('managementToken', $input) || array_key_exists('management_token', $input);
+        $token = $input['managementToken'] ?? $input['management_token'] ?? null;
+        $enc = $current['management_token_enc'] ?? null;
+        if ($tokenKeyExists) {
+            $token = trim((string)$token);
+            $enc = $token === '' ? null : Crypto::encrypt($token);
+        }
+        $pdo = DB::pdo();
+        if ($id > 0) {
+            $pdo->prepare('UPDATE dvr_servers SET name=?, base_url=?, management_token_enc=?, blocked=? WHERE id=?')
+                ->execute([$name, $baseUrl, $enc, $blocked, $id]);
+        } else {
+            $pdo->prepare('INSERT INTO dvr_servers(name, base_url, management_token_enc, blocked, created_at) VALUES(?, ?, ?, ?, ?)')
+                ->execute([$name, $baseUrl, $enc, $blocked, Util::now()]);
+            $id = DB::lastInsertId('dvr_servers');
+        }
+        Audit::log('server.save', $name);
+        self::apiJson(['server' => self::apiServerRow(Repo::server($id), true)], $current ? 200 : 201);
+    }
+
+    private static function apiCameras(array $parts): void
+    {
+        $user = self::apiRequireUser();
+        $method = self::apiMethod();
+        $id = isset($parts[1]) ? (int)$parts[1] : 0;
+        $admin = ($user['role'] ?? '') === 'admin';
+
+        if (count($parts) === 1) {
+            if ($method === 'GET') {
+                if ($admin && (string)($_GET['scope'] ?? 'all') !== 'accessible') {
+                    $list = self::filteredCameras(self::apiPageSize(25, 500));
+                } else {
+                    $list = Repo::accessibleCamerasPage($user, (string)($_GET['filter'] ?? 'all'), self::viewerSearchQuery(), (int)($_GET['page'] ?? 1), self::apiPageSize(25, 500));
+                }
+                self::apiJson(['cameras' => array_map([self::class, 'apiCameraRow'], $list['rows']), 'pagination' => self::apiPagination($list)]);
+                return;
+            }
+            if ($method === 'POST') {
+                self::apiRequireAdmin();
+                self::apiSaveCamera(0, self::apiInput());
+                return;
+            }
+        }
+        if ($id <= 0) {
+            self::apiError(404, 'not_found', 'Camera not found');
+            return;
+        }
+        if (count($parts) === 2) {
+            if ($method === 'GET') {
+                $camera = self::apiCameraById($id);
+                if (!$camera || (!$admin && !Repo::cameraAllowedForUser($user, $id))) {
+                    self::apiError(404, 'not_found', 'Camera not found');
+                    return;
+                }
+                self::apiJson(['camera' => self::apiCameraRow($camera, true)]);
+                return;
+            }
+            self::apiRequireAdmin();
+            if ($method === 'PATCH' || $method === 'PUT') {
+                self::apiSaveCamera($id, self::apiInput());
+                return;
+            }
+            if ($method === 'DELETE') {
+                $input = self::apiInput();
+                $purge = self::apiBool($input['purge'] ?? $input['deleteDvrStream'] ?? $input['delete_dvr_stream'] ?? $_GET['purge'] ?? false);
+                $dvrResult = null;
+                if ($purge) {
+                    $dvrResult = DvrClient::deleteCameraStream($id, true);
+                    if (empty($dvrResult['ok'])) {
+                        self::apiError(502, 'dvr_delete_failed', (string)($dvrResult['message'] ?? 'DVR stream delete failed'));
+                        return;
+                    }
+                }
+                DB::pdo()->prepare('DELETE FROM camera_groups WHERE camera_id=?')->execute([$id]);
+                DB::pdo()->prepare('DELETE FROM cameras WHERE id=?')->execute([$id]);
+                Audit::log('camera.delete', 'camera_id=' . $id . ' dvr=' . ($purge ? 'yes' : 'no'));
+                self::apiJson(['ok' => true, 'dvr' => $dvrResult]);
+                return;
+            }
+        }
+        if (count($parts) === 3 && $parts[2] === 'sync' && $method === 'POST') {
+            self::apiRequireAdmin();
+            self::apiJson(DvrClient::syncCamera($id));
+            return;
+        }
+        self::apiError(404, 'not_found', 'Unknown cameras endpoint');
+    }
+
+    private static function apiSaveCamera(int $id, array $input): void
+    {
+        $current = $id > 0 ? Repo::camera($id) : null;
+        if ($id > 0 && !$current) {
+            self::apiError(404, 'not_found', 'Camera not found');
+            return;
+        }
+        $name = trim((string)($input['name'] ?? ($current['name'] ?? '')));
+        if ($name === '') {
+            self::apiError(422, 'validation_failed', 'name is required');
+            return;
+        }
+        $controlMode = self::cameraControlMode($input['dvrControlMode'] ?? $input['dvr_control_mode'] ?? ($current['dvr_control_mode'] ?? 'managed'));
+        $sourceUrl = trim((string)($input['sourceUrl'] ?? $input['source_url'] ?? ($current['source_url'] ?? '')));
+        $serverId = (int)($input['serverId'] ?? $input['server_id'] ?? ($current['server_id'] ?? 0)) ?: null;
+        $selection = ($input['serverSelection'] ?? $input['server_selection'] ?? ($current['server_selection'] ?? 'manual')) === 'auto' ? 'auto' : 'manual';
+        if ($controlMode === 'edge_agent') {
+            $selection = 'manual';
+        }
+        if ($selection === 'auto' && !$serverId) {
+            $serverId = self::randomActiveServerId();
+        }
+        $stream = trim((string)($input['dvrStreamName'] ?? $input['dvr_stream_name'] ?? ($current['dvr_stream_name'] ?? ''))) ?: self::slug($name);
+        $agentId = trim((string)($input['agentId'] ?? $input['agent_id'] ?? ($current['agent_id'] ?? '')));
+        $agentCameraId = trim((string)($input['agentCameraId'] ?? $input['agent_camera_id'] ?? ($current['agent_camera_id'] ?? '')));
+        if ($controlMode === 'managed' && $sourceUrl === '') {
+            self::apiError(422, 'validation_failed', 'sourceUrl is required for managed cameras');
+            return;
+        }
+        if ($controlMode === 'edge_agent' && (!$serverId || $agentId === '' || $agentCameraId === '')) {
+            self::apiError(422, 'validation_failed', 'serverId, agentId, and agentCameraId are required for edge_agent cameras');
+            return;
+        }
+
+        $values = [
+            $name,
+            $sourceUrl,
+            $serverId,
+            $selection,
+            self::nullableFloat($input['latitude'] ?? ($current['latitude'] ?? null)),
+            self::nullableFloat($input['longitude'] ?? ($current['longitude'] ?? null)),
+            (int)($input['directionDeg'] ?? $input['direction_deg'] ?? ($current['direction_deg'] ?? 0)),
+            (int)($input['viewAngleDeg'] ?? $input['view_angle_deg'] ?? ($current['view_angle_deg'] ?? 60)),
+            (string)($input['retentionDays'] ?? $input['retention_days'] ?? ($current['retention_days'] ?? '7d')),
+            $controlMode,
+            $agentId !== '' ? $agentId : null,
+            $agentCameraId !== '' ? $agentCameraId : null,
+            array_key_exists('onvifEventsRequested', $input) || array_key_exists('onvif_events_requested', $input)
+                ? (self::apiBool($input['onvifEventsRequested'] ?? $input['onvif_events_requested']) ? 1 : 0)
+                : (int)($current['onvif_events_requested'] ?? 0),
+            self::apiBlockedValue($input, $current),
+            $stream,
+        ];
+
+        $pdo = DB::pdo();
+        if ($id > 0) {
+            $pdo->prepare('UPDATE cameras SET name=?, source_url=?, server_id=?, server_selection=?, latitude=?, longitude=?, direction_deg=?, view_angle_deg=?, retention_days=?, dvr_control_mode=?, agent_id=?, agent_camera_id=?, onvif_events_requested=?, blocked=?, dvr_stream_name=?, updated_at=? WHERE id=?')
+                ->execute([...$values, Util::now(), $id]);
+        } else {
+            $pdo->prepare('INSERT INTO cameras(name, source_url, server_id, server_selection, latitude, longitude, direction_deg, view_angle_deg, retention_days, dvr_control_mode, agent_id, agent_camera_id, onvif_events_requested, blocked, dvr_stream_name, created_at, updated_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+                ->execute([...$values, Util::now(), Util::now()]);
+            $id = DB::lastInsertId('cameras');
+        }
+        if (array_key_exists('groupIds', $input) || array_key_exists('group_ids', $input)) {
+            self::replaceLinks('camera_groups', 'camera_id', $id, 'group_id', self::apiIntArray($input['groupIds'] ?? $input['group_ids'] ?? []));
+        }
+        $syncRequested = array_key_exists('sync', $input)
+            ? self::apiBool($input['sync'])
+            : empty($input['skipSync']);
+        $sync = $syncRequested ? DvrClient::syncCamera($id) : ['ok' => true, 'message' => 'sync skipped'];
+        Audit::log('camera.save', $name . ' mode=' . $controlMode . ' sync=' . ($sync['message'] ?? ''));
+        self::apiJson(['camera' => self::apiCameraRow(self::apiCameraById($id), true), 'sync' => $sync], $current ? 200 : 201);
+    }
+
+    private static function apiFavorites(array $parts): void
+    {
+        $user = self::apiRequireUser();
+        $method = self::apiMethod();
+        if (count($parts) === 1 && $method === 'GET') {
+            $list = Repo::accessibleCamerasPage($user, 'favorites', self::viewerSearchQuery(), (int)($_GET['page'] ?? 1), self::apiPageSize(25, 500));
+            self::apiJson([
+                'cameraIds' => array_map(static fn($row) => (int)$row['id'], $list['rows']),
+                'cameras' => array_map([self::class, 'apiCameraRow'], $list['rows']),
+                'pagination' => self::apiPagination($list),
+            ]);
+            return;
+        }
+        $cameraId = isset($parts[1]) ? (int)$parts[1] : 0;
+        if ($cameraId <= 0 || !Repo::cameraAllowedForUser($user, $cameraId)) {
+            self::apiError(404, 'not_found', 'Camera not found');
+            return;
+        }
+        if ($method === 'PUT' || $method === 'POST') {
+            DB::pdo()->prepare(DB::insertIgnoreSql('favorites', ['user_id', 'camera_id', 'created_at']))
+                ->execute([(int)$user['id'], $cameraId, Util::now()]);
+            self::apiJson(['ok' => true, 'favorite' => true]);
+            return;
+        }
+        if ($method === 'DELETE') {
+            DB::pdo()->prepare('DELETE FROM favorites WHERE user_id = ? AND camera_id = ?')->execute([(int)$user['id'], $cameraId]);
+            self::apiJson(['ok' => true, 'favorite' => false]);
+            return;
+        }
+        self::apiError(405, 'method_not_allowed', 'Method is not allowed');
+    }
+
+    private static function apiAgents(array $parts): void
+    {
+        self::apiRequireAdmin();
+        $method = self::apiMethod();
+        $input = in_array($method, ['POST', 'PUT', 'PATCH', 'DELETE'], true) ? self::apiInput() : [];
+        $serverId = (int)($_GET['server_id'] ?? $_GET['serverId'] ?? $input['server_id'] ?? $input['serverId'] ?? 0);
+        if ($serverId <= 0) {
+            self::apiError(422, 'validation_failed', 'serverId is required');
+            return;
+        }
+        $agentId = isset($parts[1]) ? trim((string)$parts[1]) : '';
+
+        if (count($parts) === 1) {
+            if ($method === 'GET') {
+                self::apiJson(DvrClient::listAgents($serverId));
+                return;
+            }
+            if ($method === 'POST') {
+                $payload = [
+                    'id' => trim((string)($input['id'] ?? $input['agent_id'] ?? $input['agentId'] ?? '')),
+                    'name' => trim((string)($input['name'] ?? '')),
+                    'enabled' => array_key_exists('enabled', $input) ? self::apiBool($input['enabled']) : true,
+                    'capabilities' => is_array($input['capabilities'] ?? null)
+                        ? array_values($input['capabilities'])
+                        : self::agentCapabilitiesFromText((string)($input['capabilities'] ?? '')),
+                ];
+                if ($payload['id'] === '') {
+                    self::apiError(422, 'validation_failed', 'agent id is required');
+                    return;
+                }
+                if ($payload['name'] === '') {
+                    $payload['name'] = $payload['id'];
+                }
+                if (!empty($input['password'])) {
+                    $payload['password'] = (string)$input['password'];
+                }
+                self::apiJson(DvrClient::createAgent($serverId, $payload), 201);
+                return;
+            }
+        }
+        if ($agentId === '') {
+            self::apiError(404, 'not_found', 'Agent not found');
+            return;
+        }
+        if (count($parts) === 2) {
+            if ($method === 'GET') {
+                self::apiJson([
+                    'agentId' => $agentId,
+                    'cameras' => DvrClient::agentCameras($serverId, $agentId),
+                    'commands' => DvrClient::agentCommands($serverId, $agentId),
+                    'logs' => DvrClient::agentLogs($serverId, $agentId),
+                ]);
+                return;
+            }
+            if ($method === 'PATCH' || $method === 'PUT') {
+                $payload = [];
+                if (array_key_exists('name', $input)) {
+                    $payload['name'] = trim((string)$input['name']) ?: $agentId;
+                }
+                if (array_key_exists('enabled', $input)) {
+                    $payload['enabled'] = self::apiBool($input['enabled']);
+                }
+                if (array_key_exists('capabilities', $input)) {
+                    $payload['capabilities'] = is_array($input['capabilities'])
+                        ? array_values($input['capabilities'])
+                        : self::agentCapabilitiesFromText((string)$input['capabilities']);
+                }
+                self::apiJson(DvrClient::updateAgent($serverId, $agentId, $payload));
+                return;
+            }
+            if ($method === 'DELETE') {
+                self::apiJson(DvrClient::deleteAgent($serverId, $agentId));
+                return;
+            }
+        }
+        $tail = array_slice($parts, 2);
+        if ($method === 'GET' && $tail === ['cameras']) {
+            self::apiJson(DvrClient::agentCameras($serverId, $agentId));
+            return;
+        }
+        if ($method === 'GET' && $tail === ['commands']) {
+            self::apiJson(DvrClient::agentCommands($serverId, $agentId));
+            return;
+        }
+        if ($method === 'GET' && $tail === ['logs']) {
+            self::apiJson(DvrClient::agentLogs($serverId, $agentId));
+            return;
+        }
+        if ($method === 'POST' && $tail === ['enrollment-password']) {
+            self::apiJson(DvrClient::setAgentEnrollmentPassword($serverId, $agentId, (string)($input['password'] ?? '')));
+            return;
+        }
+        if ($method === 'POST' && $tail === ['revoke']) {
+            self::apiJson(DvrClient::revokeAgent($serverId, $agentId));
+            return;
+        }
+        if ($method === 'POST' && $tail === ['rotate-secret']) {
+            self::apiJson(DvrClient::rotateAgentSecret($serverId, $agentId));
+            return;
+        }
+        if ($method === 'POST' && $tail === ['cameras', 'scan']) {
+            self::apiJson(DvrClient::scanAgentCameras($serverId, $agentId));
+            return;
+        }
+        if ($method === 'POST' && $tail === ['diagnostics']) {
+            self::apiJson(DvrClient::agentDiagnostics($serverId, $agentId));
+            return;
+        }
+        if ($method === 'POST' && $tail === ['commands']) {
+            $payload = is_array($input['payload'] ?? null) ? $input['payload'] : [];
+            self::apiJson(DvrClient::agentCommand($serverId, $agentId, trim((string)($input['command'] ?? 'test_camera')) ?: 'test_camera', $payload, isset($input['timeoutMs']) ? (int)$input['timeoutMs'] : null));
+            return;
+        }
+        self::apiError(404, 'not_found', 'Unknown agents endpoint');
+    }
+
+    private static function apiAudit(array $parts): void
+    {
+        self::apiRequireAdmin();
+        if (count($parts) !== 1 || self::apiMethod() !== 'GET') {
+            self::apiError(404, 'not_found', 'Unknown audit endpoint');
+            return;
+        }
+        $list = self::filteredAudit(self::apiPageSize(50, 500));
+        self::apiJson(['events' => array_map([self::class, 'apiAuditRow'], $list['rows']), 'pagination' => self::apiPagination($list)]);
+    }
+
+    private static function apiUserRow(?array $user, bool $detailed = false): array
+    {
+        if (!$user) {
+            return [];
+        }
+        $row = [
+            'id' => (int)$user['id'],
+            'login' => (string)$user['login'],
+            'role' => (string)$user['role'],
+            'blocked' => (int)($user['blocked'] ?? 0) === 1,
+            'hasStaticToken' => !empty($user['static_token_hash']),
+            'createdAt' => $user['created_at'] ?? null,
+            'lastLoginAt' => $user['last_login_at'] ?? null,
+        ];
+        if ($detailed) {
+            $row['groupIds'] = self::linkedIds('user_groups', 'user_id', (int)$user['id'], 'group_id');
+        }
+        return $row;
+    }
+
+    private static function apiGroupRow(?array $group, bool $detailed = false): array
+    {
+        if (!$group) {
+            return [];
+        }
+        $row = [
+            'id' => (int)$group['id'],
+            'name' => (string)$group['name'],
+            'description' => (string)($group['description'] ?? ''),
+            'blocked' => (int)($group['blocked'] ?? 0) === 1,
+            'createdAt' => $group['created_at'] ?? null,
+        ];
+        if ($detailed) {
+            $id = (int)$group['id'];
+            $row['userIds'] = self::linkedIds('user_groups', 'group_id', $id, 'user_id');
+            $row['cameraIds'] = self::linkedIds('camera_groups', 'group_id', $id, 'camera_id');
+        }
+        return $row;
+    }
+
+    private static function apiServerRow(?array $server, bool $detailed = false): array
+    {
+        if (!$server) {
+            return [];
+        }
+        $row = [
+            'id' => (int)$server['id'],
+            'name' => (string)$server['name'],
+            'baseUrl' => (string)$server['base_url'],
+            'blocked' => (int)($server['blocked'] ?? 0) === 1,
+            'hasManagementToken' => trim((string)($server['management_token_enc'] ?? '')) !== '',
+            'lastCheckAt' => $server['last_check_at'] ?? null,
+            'lastCheckResult' => $server['last_check_result'] ?? null,
+            'lastMetricsAt' => $server['last_metrics_at'] ?? null,
+            'createdAt' => $server['created_at'] ?? null,
+        ];
+        if ($detailed) {
+            $metrics = json_decode((string)($server['last_metrics_json'] ?? ''), true);
+            $row['lastMetrics'] = is_array($metrics) ? $metrics : null;
+        }
+        return $row;
+    }
+
+    private static function apiCameraById(int $id): ?array
+    {
+        $stmt = DB::pdo()->prepare('SELECT c.*, s.name AS server_name, s.base_url AS server_url, s.last_metrics_json AS server_metrics_json FROM cameras c LEFT JOIN dvr_servers s ON s.id = c.server_id WHERE c.id = ?');
+        $stmt->execute([$id]);
+        return $stmt->fetch() ?: null;
+    }
+
+    private static function apiCameraRow(?array $camera, bool $detailed = false): array
+    {
+        if (!$camera) {
+            return [];
+        }
+        $row = [
+            'id' => (int)$camera['id'],
+            'name' => (string)$camera['name'],
+            'sourceUrl' => (string)($camera['source_url'] ?? ''),
+            'serverId' => $camera['server_id'] !== null ? (int)$camera['server_id'] : null,
+            'serverName' => $camera['server_name'] ?? null,
+            'serverSelection' => (string)($camera['server_selection'] ?? 'manual'),
+            'latitude' => $camera['latitude'] !== null ? (float)$camera['latitude'] : null,
+            'longitude' => $camera['longitude'] !== null ? (float)$camera['longitude'] : null,
+            'directionDeg' => (int)($camera['direction_deg'] ?? 0),
+            'viewAngleDeg' => (int)($camera['view_angle_deg'] ?? 60),
+            'retentionDays' => (string)($camera['retention_days'] ?? '7d'),
+            'dvrControlMode' => (string)($camera['dvr_control_mode'] ?? 'managed'),
+            'agentId' => $camera['agent_id'] ?? null,
+            'agentCameraId' => $camera['agent_camera_id'] ?? null,
+            'onvifEventsRequested' => (int)($camera['onvif_events_requested'] ?? 0) === 1,
+            'blocked' => (int)($camera['blocked'] ?? 0) === 1,
+            'dvrStreamName' => (string)($camera['dvr_stream_name'] ?? ''),
+            'streamUnavailable' => self::cameraStreamUnavailable($camera),
+            'lastSyncAt' => $camera['last_sync_at'] ?? null,
+            'lastSyncOk' => $camera['last_sync_ok'] === null ? null : (int)$camera['last_sync_ok'] === 1,
+            'lastSyncMessage' => $camera['last_sync_message'] ?? null,
+            'createdAt' => $camera['created_at'] ?? null,
+            'updatedAt' => $camera['updated_at'] ?? null,
+        ];
+        if ($detailed) {
+            $row['groupIds'] = self::linkedIds('camera_groups', 'camera_id', (int)$camera['id'], 'group_id');
+        }
+        return $row;
+    }
+
+    private static function apiAuditRow(array $row): array
+    {
+        return [
+            'id' => (int)$row['id'],
+            'actorUserId' => $row['actor_user_id'] !== null ? (int)$row['actor_user_id'] : null,
+            'actorLogin' => $row['login'] ?? null,
+            'action' => (string)$row['action'],
+            'details' => (string)$row['details'],
+            'createdAt' => (string)$row['created_at'],
+        ];
     }
 
     private static function dashboard(): void
@@ -2902,7 +3833,7 @@ final class App
         self::layout(self::t('users.title', 'Пользователи'), function () use ($users, $edit, $message, $staticToken, $list) {
             self::notice($message);
             if ($staticToken) {
-                echo '<div class="alert">' . self::t('token.static', 'Статический token') . ': <code>' . Util::h($staticToken) . '</code></div>';
+                echo '<div class="alert"><strong>' . self::t('token.staticIssued', 'Новый static token. Сохраните его сейчас: позже Portal покажет только наличие token') . '</strong><br><code>' . Util::h($staticToken) . '</code></div>';
             }
             echo '<div class="admin-grid">';
             echo '<section class="panel"><h2>' . ($edit ? self::t('users.edit', 'Изменить пользователя') : self::t('users.new', 'Новый пользователь')) . '</h2>';
@@ -2913,7 +3844,7 @@ final class App
             echo '<label>' . self::t('column.role', 'Роль') . '<select name="role"><option value="user">user</option><option value="admin" ' . (($edit['role'] ?? '') === 'admin' ? 'selected' : '') . '>admin</option></select></label>';
             echo '<label class="check"><input type="checkbox" name="blocked" ' . (!empty($edit['blocked']) ? 'checked' : '') . '> ' . self::t('users.blocked', 'Заблокирован') . '</label>';
             echo '<button class="primary">' . self::t('action.save', 'Сохранить') . '</button></form></section>';
-            self::table(self::t('users.title', 'Пользователи'), ['login', 'role', 'blocked', 'last_login_at'], $users, '/admin/users', false, $list);
+            self::table(self::t('users.title', 'Пользователи'), ['login', 'role', 'blocked', 'static_token_hash', 'last_login_at'], $users, '/admin/users', false, $list);
             echo '</div>';
         });
     }
@@ -4302,7 +5233,7 @@ final class App
         $count->execute($params);
         $total = (int)$count->fetchColumn();
 
-        $stmt = $pdo->prepare('SELECT c.*, s.name AS server_name FROM cameras c LEFT JOIN dvr_servers s ON s.id = c.server_id' . $where . ' ORDER BY c.name ASC LIMIT ? OFFSET ?');
+        $stmt = $pdo->prepare('SELECT c.*, s.name AS server_name, s.base_url AS server_url, s.last_metrics_json AS server_metrics_json FROM cameras c LEFT JOIN dvr_servers s ON s.id = c.server_id' . $where . ' ORDER BY c.name ASC LIMIT ? OFFSET ?');
         $bind = [...$params, $pageSize, ($page - 1) * $pageSize];
         foreach ($bind as $idx => $value) {
             $stmt->bindValue($idx + 1, $value, is_int($value) ? PDO::PARAM_INT : PDO::PARAM_STR);
@@ -4432,8 +5363,17 @@ final class App
                 self::smallPost($base, ['action' => 'delete', 'id' => $row['id']], self::t('action.delete', 'Удалить'), 'danger');
             }
             if ($base === '/admin/users') {
-                self::smallPost($base, ['action' => 'issue_static', 'id' => $row['id']], self::t('token.static', 'Статический token'));
-                self::smallPost($base, ['action' => 'revoke_static', 'id' => $row['id']], self::t('action.revoke', 'Отозвать'));
+                $hasStaticToken = trim((string)($row['static_token_hash'] ?? '')) !== '';
+                self::smallPost(
+                    $base,
+                    ['action' => 'issue_static', 'id' => $row['id']],
+                    $hasStaticToken ? self::t('token.staticReplace', 'Заменить статический токен') : self::t('token.staticIssue', 'Выпустить статический токен'),
+                    '',
+                    $hasStaticToken ? self::t('token.staticReplaceConfirm', 'Старый статический токен сразу перестанет работать. Выпустить новый токен?') : ''
+                );
+                if ($hasStaticToken) {
+                    self::smallPost($base, ['action' => 'revoke_static', 'id' => $row['id']], self::t('action.revoke', 'Отозвать'));
+                }
             }
             echo '</div></td></tr>';
         }
@@ -4451,6 +5391,15 @@ final class App
 
     private static function tableCell(string $column, mixed $value): void
     {
+        if ($column === 'static_token_hash') {
+            $hasToken = trim((string)$value) !== '';
+            $label = $hasToken
+                ? self::t('token.staticPresent', 'есть')
+                : self::t('token.staticMissing', 'нет');
+            echo '<td><span class="pill ' . ($hasToken ? 'success' : 'danger') . '">' . Util::h($label) . '</span></td>';
+            return;
+        }
+
         if (in_array($column, ['last_check_result', 'last_sync_message'], true)) {
             $text = trim((string)$value);
             if ($text === '') {
@@ -4557,9 +5506,14 @@ final class App
         echo '</nav>';
     }
 
-    private static function smallPost(string $path, array $fields, string $label, string $class = ''): void
+    private static function smallPost(string $path, array $fields, string $label, string $class = '', string $confirm = ''): void
     {
-        echo '<form method="post" action="' . Util::h($path) . '" class="inline-form">' . Csrf::field();
+        echo '<form method="post" action="' . Util::h($path) . '" class="inline-form"';
+        if ($confirm !== '') {
+            $confirmJson = json_encode($confirm, JSON_UNESCAPED_UNICODE | JSON_HEX_APOS | JSON_HEX_QUOT);
+            echo ' onsubmit="return confirm(' . Util::h($confirmJson === false ? '""' : $confirmJson) . ')"';
+        }
+        echo '>' . Csrf::field();
         foreach ($fields as $key => $value) {
             echo '<input type="hidden" name="' . Util::h($key) . '" value="' . Util::h($value) . '">';
         }
