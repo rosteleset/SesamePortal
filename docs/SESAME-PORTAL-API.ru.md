@@ -76,6 +76,7 @@ Cache-Control: no-store
 | Нет session/static token | `401` | `unauthorized` |
 | Недостаточно прав | `403` | `forbidden` |
 | Сущность не найдена | `404` | `not_found` |
+| Конфликт с существующей сущностью | `409` | зависит от endpoint |
 | Невалидный JSON | `400` | `invalid_json` |
 | Ошибка валидации | `422` | `validation_failed` |
 | Метод не поддержан | `405` | `method_not_allowed` |
@@ -178,6 +179,7 @@ Payload создания/обновления:
 
 ```json
 {
+  "id": 1001,
   "name": "Operators",
   "parentGroupId": null,
   "description": "Main operator group",
@@ -189,6 +191,13 @@ Payload создания/обновления:
 
 `id` в объекте группы - это стабильный group id из Portal DB. Его нужно
 использовать в endpoints `/groups/{id}` и `/groups/{id}/...`.
+
+При создании группы `id` можно явно передать в payload. Это полезно для внешних
+интеграций, которые синхронизируют группы из своей системы. Если `id` не
+передан, Portal сгенерирует его автоматически. Явный `id` должен быть
+положительным integer и не должен уже существовать; при конфликте Portal
+вернёт `409 group_id_exists`. При обновлении группы менять `id` нельзя:
+`PATCH`/`PUT /groups/{id}` с другим `id` вернёт `422 validation_failed`.
 
 `parentGroupId` задаёт родительскую группу. `null`, `0` или пустое значение
 делают группу корневой. Portal не позволит назначить родителем саму группу или
@@ -279,7 +288,8 @@ Content-Type: application/json
 ```
 
 `POST /groups/{id}/children` принимает тот же payload, что и создание группы,
-но `parentGroupId` принудительно устанавливается в `{id}`.
+включая опциональный явный `id`, но `parentGroupId` принудительно
+устанавливается в `{id}`.
 
 Ответ `/groups/{id}/users`:
 

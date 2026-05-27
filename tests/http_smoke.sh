@@ -380,6 +380,41 @@ api_child_parent="$(printf "%s" "$api_child_group" | php -r '$d=json_decode(stre
 test "$api_child_parent" = "$api_group_id"
 api_child_group_id="$(printf "%s" "$api_child_group" | php -r '$d=json_decode(stream_get_contents(STDIN), true); echo $d["group"]["id"] ?? "";')"
 test -n "$api_child_group_id"
+api_explicit_group="$(
+  curl -fsS -b "$COOKIE_JAR" -H 'Content-Type: application/json' \
+    -d '{"id":9001,"name":"API Explicit Group","description":"explicit id"}' \
+    "http://127.0.0.1:$PORT/api/portal/v1/groups"
+)"
+printf "%s" "$api_explicit_group" | grep -q '"id": 9001'
+curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/api/portal/v1/groups/9001" | grep -q '"API Explicit Group"'
+api_explicit_child="$(
+  curl -fsS -b "$COOKIE_JAR" -H 'Content-Type: application/json' \
+    -d '{"id":"9002","name":"API Explicit Subgroup","description":"explicit child id"}' \
+    "http://127.0.0.1:$PORT/api/portal/v1/groups/9001/children"
+)"
+printf "%s" "$api_explicit_child" | grep -q '"id": 9002'
+printf "%s" "$api_explicit_child" | grep -q '"parentGroupId": 9001'
+duplicate_group_id_status="$(
+  curl -sS -o "$STATE_DIR/api_duplicate_group_id.json" -w '%{http_code}' -b "$COOKIE_JAR" -H 'Content-Type: application/json' \
+    -d '{"id":9001,"name":"API Duplicate Explicit Group"}' \
+    "http://127.0.0.1:$PORT/api/portal/v1/groups"
+)"
+test "$duplicate_group_id_status" = "409"
+grep -q '"code": "group_id_exists"' "$STATE_DIR/api_duplicate_group_id.json"
+invalid_group_id_status="$(
+  curl -sS -o "$STATE_DIR/api_invalid_group_id.json" -w '%{http_code}' -b "$COOKIE_JAR" -H 'Content-Type: application/json' \
+    -d '{"id":"bad","name":"API Invalid Explicit Group"}' \
+    "http://127.0.0.1:$PORT/api/portal/v1/groups"
+)"
+test "$invalid_group_id_status" = "422"
+grep -q '"code": "validation_failed"' "$STATE_DIR/api_invalid_group_id.json"
+group_id_change_status="$(
+  curl -sS -o "$STATE_DIR/api_group_id_change.json" -w '%{http_code}' -b "$COOKIE_JAR" -X PATCH -H 'Content-Type: application/json' \
+    -d '{"id":9003,"name":"API Explicit Group Renamed"}' \
+    "http://127.0.0.1:$PORT/api/portal/v1/groups/9001"
+)"
+test "$group_id_change_status" = "422"
+grep -q '"id cannot be changed"' "$STATE_DIR/api_group_id_change.json"
 cycle_status="$(
   curl -sS -o /dev/null -w '%{http_code}' -b "$COOKIE_JAR" -X PATCH -H 'Content-Type: application/json' \
     -d "{\"parentGroupId\":$api_child_group_id}" \

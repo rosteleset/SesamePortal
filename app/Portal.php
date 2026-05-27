@@ -3409,6 +3409,20 @@ final class App
 
     private static function apiSaveGroup(int $id, array $input): void
     {
+        [$explicitId, $explicitIdError] = self::explicitGroupIdFromInput($input);
+        if ($explicitIdError !== '') {
+            self::apiError(422, 'validation_failed', $explicitIdError);
+            return;
+        }
+        if ($id > 0 && $explicitId !== null && $explicitId !== $id) {
+            self::apiError(422, 'validation_failed', 'id cannot be changed');
+            return;
+        }
+        if ($id === 0 && $explicitId !== null && self::rowById('portal_groups', $explicitId)) {
+            self::apiError(409, 'group_id_exists', 'group id already exists');
+            return;
+        }
+
         $current = $id > 0 ? self::rowById('portal_groups', $id) : null;
         if ($id > 0 && !$current) {
             self::apiError(404, 'not_found', 'Group not found');
@@ -3431,6 +3445,11 @@ final class App
         if ($id > 0) {
             $pdo->prepare('UPDATE portal_groups SET parent_group_id=?, name=?, description=?, blocked=? WHERE id=?')
                 ->execute([$parentId, $name, $description, $blocked, $id]);
+        } elseif ($explicitId !== null) {
+            $pdo->prepare('INSERT INTO portal_groups(id, parent_group_id, name, description, blocked, created_at) VALUES(?, ?, ?, ?, ?, ?)')
+                ->execute([$explicitId, $parentId, $name, $description, $blocked, Util::now()]);
+            self::syncPortalGroupIdentityAfterExplicitInsert();
+            $id = $explicitId;
         } else {
             $pdo->prepare('INSERT INTO portal_groups(parent_group_id, name, description, blocked, created_at) VALUES(?, ?, ?, ?, ?)')
                 ->execute([$parentId, $name, $description, $blocked, Util::now()]);
@@ -6354,6 +6373,52 @@ final class App
         }
         $int = (int)$value;
         return $int > 0 ? $int : null;
+    }
+
+    private static function explicitGroupIdFromInput(array $input): array
+    {
+        if (!array_key_exists('id', $input)) {
+            return [null, ''];
+        }
+
+        $value = $input['id'];
+        if (is_int($value)) {
+            return $value > 0 ? [$value, ''] : [null, 'id must be a positive integer'];
+        }
+        if (is_string($value)) {
+            $value = trim($value);
+            if ($value !== '' && ctype_digit($value)) {
+                $parsed = filter_var($value, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
+                if (is_int($parsed)) {
+                    return [$parsed, ''];
+                }
+            }
+        }
+
+        return [null, 'id must be a positive integer'];
+    }
+
+    private static function syncPortalGroupIdentityAfterExplicitInsert(): void
+    {
+        if (DB::driver() !== 'pgsql') {
+            return;
+        }
+
+        $pdo = DB::pdo();
+        $sequence = (string)$pdo->query("SELECT pg_get_serial_sequence('portal_groups', 'id')")->fetchColumn();
+        if ($sequence === '') {
+            return;
+        }
+
+        $current = (int)$pdo->query('SELECT last_value FROM ' . self::quoteQualifiedIdentifier($sequence))->fetchColumn();
+        $max = (int)$pdo->query('SELECT COALESCE(MAX(id), 1) FROM portal_groups')->fetchColumn();
+        $pdo->prepare('SELECT setval(?::regclass, ?, true)')->execute([$sequence, max($current, $max)]);
+    }
+
+    private static function quoteQualifiedIdentifier(string $name): string
+    {
+        $parts = array_filter(explode('.', $name), static fn(string $part): bool => $part !== '');
+        return implode('.', array_map(static fn(string $part): string => '"' . str_replace('"', '""', $part) . '"', $parts));
     }
 
     private static function groupName(int $id): ?string
