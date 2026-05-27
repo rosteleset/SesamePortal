@@ -186,10 +186,25 @@ printf "%s" "$admin_groups_filtered" | grep -q "<td>Moscow</td><td>Test Group 1<
 admin_cameras_form="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/admin/cameras?edit=1")"
 printf "%s" "$admin_cameras_form" | grep -q "Название потока"
 printf "%s" "$admin_cameras_form" | grep -q "Техническое имя потока"
+printf "%s" "$admin_cameras_form" | grep -F -q 'pattern="[A-Za-z0-9_-]+"'
 printf "%s" "$admin_cameras_form" | grep -q "group-tree-checkbox-list"
 printf "%s" "$admin_cameras_form" | grep -F -q 'name="group_ids[]"'
 printf "%s" "$admin_cameras_form" | grep -q "data-group-tree-toggle"
 printf "%s" "$admin_cameras_form" | grep -q "Smoke Subgroup"
+camera_csrf="$(printf "%s" "$admin_cameras_form" | sed -n 's/.*name="csrf" value="\([^"]*\)".*/\1/p' | head -n 1)"
+test -n "$camera_csrf"
+invalid_camera_form="$(
+  curl -fsS -b "$COOKIE_JAR" -c "$COOKIE_JAR" \
+    -d "csrf=$camera_csrf" -d "action=save" -d "id=1" \
+    --data-urlencode "display_name=Smoke Cam" \
+    -d "dvr_control_mode=managed" \
+    --data-urlencode "source_url=rtsp://example.invalid/smoke" \
+    -d "server_id=1" -d "server_selection=manual" \
+    --data-urlencode "dvr_stream_name=Invalid Stream, 1" \
+    -d "retention_days=1d" -d "direction_deg=90" -d "view_angle_deg=60" \
+    "http://127.0.0.1:$PORT/admin/cameras?edit=1"
+)"
+printf "%s" "$invalid_camera_form" | grep -q "Техническое имя потока может содержать"
 curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/admin/servers" | grep -q "technical-result"
 admin_cameras="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/admin/cameras?q=Read")"
 printf "%s" "$admin_cameras" | grep -q "read_only"
@@ -312,6 +327,19 @@ api_display_camera="$(
 printf "%s" "$api_display_camera" | grep -q '"name": "Display Smoke Cam"'
 printf "%s" "$api_display_camera" | grep -q '"displayName": "Display Smoke Cam"'
 printf "%s" "$api_display_camera" | grep -q '"dvrStreamName": "display-smoke-cam"'
+api_generated_camera="$(
+  curl -fsS -b "$COOKIE_JAR" -H 'Content-Type: application/json' \
+    -d '{"displayName":"Домофон. г. Сухум, ул. Киараз 9, п1","sourceUrl":"rtsp://example.invalid/generated","serverId":1,"skipSync":true}' \
+    "http://127.0.0.1:$PORT/api/portal/v1/cameras"
+)"
+printf "%s" "$api_generated_camera" | grep -q '"dvrStreamName": "domofon-g-sukhum-ul-kiaraz-9-p1"'
+api_invalid_stream_status="$(
+  curl -sS -o "$STATE_DIR/api_invalid_stream.json" -w '%{http_code}' -b "$COOKIE_JAR" -H 'Content-Type: application/json' \
+    -d '{"displayName":"Bad Stream","sourceUrl":"rtsp://example.invalid/bad","serverId":1,"dvrStreamName":"Bad Stream, 1","skipSync":true}' \
+    "http://127.0.0.1:$PORT/api/portal/v1/cameras"
+)"
+test "$api_invalid_stream_status" = "422"
+grep -q '"code": "invalid_stream_name"' "$STATE_DIR/api_invalid_stream.json"
 api_technical_camera="$(
   curl -fsS -b "$COOKIE_JAR" -H 'Content-Type: application/json' \
     -d '{"sourceUrl":"rtsp://example.invalid/technical","serverId":1,"dvrStreamName":"technical-only-cam","skipSync":true}' \

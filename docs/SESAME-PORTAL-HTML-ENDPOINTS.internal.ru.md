@@ -352,7 +352,7 @@ Query parameters:
 | Параметр | Описание |
 | --- | --- |
 | `display_name` / `displayName` / `name` | Название потока. Используется как имя камеры в Portal. |
-| `stream` / `dvr_stream_name` / `dvrStreamName` | Техническое имя потока SesameDVR. |
+| `stream` / `dvr_stream_name` / `dvrStreamName` | Техническое имя потока SesameDVR: только `A-Z`, `a-z`, `0-9`, `-` и `_`, максимум 128 символов. |
 | `source_url` | URL источника. |
 | `server_id` | ID DVR-сервера. |
 | `retention_days` | Глубина архива, например `7d`. |

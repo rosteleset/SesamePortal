@@ -507,6 +507,9 @@ final class DB
 
 final class Util
 {
+    public const DVR_STREAM_NAME_HTML_PATTERN = '[A-Za-z0-9_-]+';
+    public const DVR_STREAM_NAME_MAX_BYTES = 128;
+
     public static function h(mixed $value): string
     {
         return htmlspecialchars((string)$value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
@@ -542,6 +545,63 @@ final class Util
     public static function checkbox(string $key): int
     {
         return isset($_POST[$key]) ? 1 : 0;
+    }
+
+    public static function isDvrStreamName(string $name): bool
+    {
+        $name = trim($name);
+        return $name !== ''
+            && strlen($name) <= self::DVR_STREAM_NAME_MAX_BYTES
+            && preg_match('/^' . self::DVR_STREAM_NAME_HTML_PATTERN . '$/', $name) === 1;
+    }
+
+    public static function dvrStreamSlug(string $value): string
+    {
+        $source = trim($value);
+        $ascii = self::asciiTransliterate($source);
+        $slug = strtolower($ascii);
+        $slug = preg_replace('/[^a-z0-9_-]+/', '-', $slug);
+        $slug = trim((string)$slug, '-_');
+
+        if ($slug === '') {
+            $slug = 'camera-' . substr(hash('sha256', $source), 0, 12);
+        }
+
+        if (strlen($slug) > self::DVR_STREAM_NAME_MAX_BYTES) {
+            $slug = trim(substr($slug, 0, self::DVR_STREAM_NAME_MAX_BYTES), '-_');
+        }
+
+        return $slug !== '' ? $slug : 'camera-' . substr(hash('sha256', $source), 0, 12);
+    }
+
+    private static function asciiTransliterate(string $value): string
+    {
+        $value = strtr($value, [
+            'А' => 'A', 'Б' => 'B', 'В' => 'V', 'Г' => 'G', 'Д' => 'D', 'Е' => 'E', 'Ё' => 'E',
+            'Ж' => 'Zh', 'З' => 'Z', 'И' => 'I', 'Й' => 'Y', 'К' => 'K', 'Л' => 'L', 'М' => 'M',
+            'Н' => 'N', 'О' => 'O', 'П' => 'P', 'Р' => 'R', 'С' => 'S', 'Т' => 'T', 'У' => 'U',
+            'Ф' => 'F', 'Х' => 'Kh', 'Ц' => 'Ts', 'Ч' => 'Ch', 'Ш' => 'Sh', 'Щ' => 'Sch',
+            'Ъ' => '', 'Ы' => 'Y', 'Ь' => '', 'Э' => 'E', 'Ю' => 'Yu', 'Я' => 'Ya',
+            'а' => 'a', 'б' => 'b', 'в' => 'v', 'г' => 'g', 'д' => 'd', 'е' => 'e', 'ё' => 'e',
+            'ж' => 'zh', 'з' => 'z', 'и' => 'i', 'й' => 'y', 'к' => 'k', 'л' => 'l', 'м' => 'm',
+            'н' => 'n', 'о' => 'o', 'п' => 'p', 'р' => 'r', 'с' => 's', 'т' => 't', 'у' => 'u',
+            'ф' => 'f', 'х' => 'kh', 'ц' => 'ts', 'ч' => 'ch', 'ш' => 'sh', 'щ' => 'sch',
+            'ъ' => '', 'ы' => 'y', 'ь' => '', 'э' => 'e', 'ю' => 'yu', 'я' => 'ya',
+        ]);
+
+        if (function_exists('transliterator_transliterate')) {
+            $transliterated = transliterator_transliterate('Any-Latin; Latin-ASCII', $value);
+            if (is_string($transliterated) && $transliterated !== '') {
+                $value = $transliterated;
+            }
+        } elseif (function_exists('iconv')) {
+            $transliterated = @iconv('UTF-8', 'ASCII//TRANSLIT//IGNORE', $value);
+            if (is_string($transliterated) && $transliterated !== '') {
+                $value = $transliterated;
+            }
+        }
+
+        return preg_replace('/[^\x20-\x7E]/', '', $value) ?? '';
     }
 }
 
@@ -693,6 +753,8 @@ final class I18n
                 'cameras.displayName' => 'Название потока',
                 'cameras.streamName' => 'Техническое имя потока',
                 'cameras.nameOrStreamRequired' => 'Укажите название потока или техническое имя потока',
+                'cameras.invalidStreamName' => 'Техническое имя потока может содержать только латинские буквы, цифры, дефис и подчёркивание, до 128 символов.',
+                'cameras.streamNameHint' => 'Только A-Z, a-z, 0-9, дефис и подчёркивание. Если оставить пустым, портал создаст имя сам.',
                 'cameras.deleteTitle' => 'Удалить камеру',
                 'cameras.deleteMissing' => 'Камера уже удалена или не найдена',
                 'cameras.deleteConfirmRequired' => 'Подтвердите удаление камеры',
@@ -873,6 +935,8 @@ final class I18n
                 'cameras.selectionAuto' => 'automatic random',
                 'cameras.streamName' => 'Technical stream name',
                 'cameras.nameOrStreamRequired' => 'Stream title or technical stream name is required',
+                'cameras.invalidStreamName' => 'Technical stream name can contain only Latin letters, digits, hyphen, and underscore, up to 128 characters.',
+                'cameras.streamNameHint' => 'Only A-Z, a-z, 0-9, hyphen, and underscore. Leave empty to generate it.',
                 'cameras.position' => 'Position on map',
                 'cameras.clearPosition' => 'Clear point',
                 'cameras.direction' => 'Direction',
@@ -1712,6 +1776,8 @@ final class I18n
             'cameras.selectionAuto' => 'automatisch zufällig',
             'cameras.streamName' => 'Technischer Streamname',
             'cameras.nameOrStreamRequired' => 'Stream-Titel oder technischer Streamname ist erforderlich',
+            'cameras.invalidStreamName' => 'Der technische Streamname darf nur lateinische Buchstaben, Ziffern, Bindestrich und Unterstrich enthalten, maximal 128 Zeichen.',
+            'cameras.streamNameHint' => 'Nur A-Z, a-z, 0-9, Bindestrich und Unterstrich. Leer lassen, um den Namen automatisch zu erzeugen.',
             'cameras.clearPosition' => 'Punkt löschen',
             'cameras.viewAngle' => 'Blickwinkel',
             'cameras.blocked' => 'Gesperrt',
@@ -2214,6 +2280,10 @@ final class DvrClient
         $name = trim((string)($camera['dvr_stream_name'] ?: $camera['name']));
         $displayName = trim((string)($camera['name'] ?? ''));
         $displayName = $displayName !== '' ? $displayName : $name;
+        if (!Util::isDvrStreamName($name)) {
+            return self::storeCameraSync($cameraId, false, I18n::t('cameras.invalidStreamName', 'Technical stream name can contain only Latin letters, digits, hyphen, and underscore, up to 128 characters.'));
+        }
+
         if ($controlMode === 'edge_agent') {
             $agentId = trim((string)($camera['agent_id'] ?? ''));
             $agentCameraId = trim((string)($camera['agent_camera_id'] ?? ''));
@@ -2297,6 +2367,9 @@ final class DvrClient
         $name = trim((string)($camera['dvr_stream_name'] ?: $camera['name']));
         if ($name === '') {
             return ['ok' => false, 'message' => 'DVR stream name is empty'];
+        }
+        if (!Util::isDvrStreamName($name)) {
+            return ['ok' => false, 'message' => I18n::t('cameras.invalidStreamName', 'Technical stream name can contain only Latin letters, digits, hyphen, and underscore, up to 128 characters.')];
         }
 
         $endpoint = rtrim($server['base_url'], '/') . '/api/streams/' . rawurlencode($name);
@@ -3541,6 +3614,14 @@ final class App
             self::apiError(422, 'validation_failed', 'displayName or dvrStreamName is required');
             return;
         }
+        if (!Util::isDvrStreamName($stream)) {
+            self::apiError(422, 'invalid_stream_name', I18n::t('cameras.invalidStreamName', 'Technical stream name can contain only Latin letters, digits, hyphen, and underscore, up to 128 characters.'), [
+                'field' => 'dvrStreamName',
+                'pattern' => Util::DVR_STREAM_NAME_HTML_PATTERN,
+                'maxBytes' => Util::DVR_STREAM_NAME_MAX_BYTES,
+            ]);
+            return;
+        }
         $agentId = trim((string)($input['agentId'] ?? $input['agent_id'] ?? ($current['agent_id'] ?? '')));
         $agentCameraId = trim((string)($input['agentCameraId'] ?? $input['agent_camera_id'] ?? ($current['agent_camera_id'] ?? '')));
         if ($controlMode === 'managed' && $sourceUrl === '') {
@@ -4533,7 +4614,7 @@ final class App
             return;
         }
         $name = (string)($camera['name'] ?? $cameraId);
-        $stream = self::slug($name);
+        $stream = Util::dvrStreamSlug($name);
         $snapshotUrl = '/admin/agents/snapshot?' . http_build_query(['server_id' => $serverId, 'agent_id' => $agentId, 'camera_id' => $cameraId]);
         $createUrl = '/admin/cameras?' . http_build_query([
             'mode' => 'edge_agent',
@@ -4642,6 +4723,8 @@ final class App
                 $agentCameraId = trim((string)Util::post('agent_camera_id'));
                 if ($name === '' || $stream === '') {
                     $message = I18n::t('cameras.nameOrStreamRequired', 'Stream title or technical stream name is required');
+                } elseif (!Util::isDvrStreamName($stream)) {
+                    $message = I18n::t('cameras.invalidStreamName', 'Technical stream name can contain only Latin letters, digits, hyphen, and underscore, up to 128 characters.');
                 } elseif ($controlMode === 'managed' && $sourceUrl === '') {
                     $message = I18n::t('cameras.sourceRequired', 'Source URL is required for full DVR management mode');
                 } elseif ($controlMode === 'edge_agent' && (!$serverId || $agentId === '' || $agentCameraId === '')) {
@@ -4739,7 +4822,8 @@ final class App
             }
             echo '</select></label>';
             echo '<label>' . self::t('cameras.serverSelection', 'Выбор сервера') . '<select name="server_selection"><option value="manual">' . self::t('cameras.selectionManual', 'конкретный') . '</option><option value="auto" ' . (($form['server_selection'] ?? '') === 'auto' ? 'selected' : '') . '>' . self::t('cameras.selectionAuto', 'автоматический случайный') . '</option></select></label>';
-            echo '<label>' . self::t('cameras.streamName', 'Техническое имя потока') . '<input name="dvr_stream_name" value="' . Util::h($form['dvr_stream_name'] ?? '') . '"></label>';
+            $streamNameHint = self::t('cameras.streamNameHint', 'Only A-Z, a-z, 0-9, hyphen, and underscore. Leave empty to generate it.');
+            echo '<label>' . self::t('cameras.streamName', 'Техническое имя потока') . '<input name="dvr_stream_name" value="' . Util::h($form['dvr_stream_name'] ?? '') . '" maxlength="' . Util::DVR_STREAM_NAME_MAX_BYTES . '" pattern="' . Util::DVR_STREAM_NAME_HTML_PATTERN . '" placeholder="domofon-g-sukhum-ul-kiaraz-9-p1" autocomplete="off" autocapitalize="none" spellcheck="false" title="' . Util::h($streamNameHint) . '"></label>';
             echo '<div class="form-row"><label>' . self::t('cameras.agentId', 'Agent ID') . '<input name="agent_id" value="' . Util::h($form['agent_id'] ?? '') . '"></label><label>' . self::t('cameras.agentCameraId', 'Agent camera ID') . '<input name="agent_camera_id" value="' . Util::h($form['agent_camera_id'] ?? '') . '"></label></div>';
             echo '<label class="check"><input type="checkbox" name="onvif_events_requested" ' . (!empty($form['onvif_events_requested']) ? 'checked' : '') . '> ' . self::t('cameras.onvifEvents', 'Запускать ONVIF events через агента') . '</label>';
             $lat = $form['latitude'] ?? '';
@@ -4779,7 +4863,7 @@ final class App
         $displayName = trim((string)$displayValue);
         $streamName = trim((string)$streamValue);
         if ($streamName === '' && $displayName !== '') {
-            $streamName = self::slug($displayName);
+            $streamName = Util::dvrStreamSlug($displayName);
         }
         if ($displayName === '' && $streamName !== '') {
             $displayName = $streamName;
@@ -6472,11 +6556,6 @@ final class App
         return $value === '' ? null : (float)$value;
     }
 
-    private static function slug(string $value): string
-    {
-        $slug = preg_replace('/[^a-zA-Z0-9_-]+/', '_', trim($value));
-        return trim((string)$slug, '_') ?: 'camera_' . random_int(1000, 9999);
-    }
 }
 
 final class Cli

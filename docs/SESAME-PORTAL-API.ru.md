@@ -377,8 +377,9 @@ Payload камеры:
 это значение как имя камеры. Если `displayName`/`name` не передан, имя камеры
 берётся из технического `dvrStreamName`.
 
-`dvrStreamName` - техническое имя потока в SesameDVR и playback URL. Если оно
-не передано, Portal сгенерирует его из `displayName`/`name`.
+`dvrStreamName` - техническое имя потока в SesameDVR и playback URL. Допустимы
+только `A-Z`, `a-z`, `0-9`, `-` и `_`, максимум 128 символов. Если оно не
+передано, Portal сгенерирует валидное имя из `displayName`/`name`.
 
 Для Edge Agent камеры:
 
