@@ -323,12 +323,14 @@ api_cameras_search="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/api/por
 printf "%s" "$api_cameras_search" | grep -q '"Read Only Cam"'
 api_display_camera="$(
   curl -fsS -b "$COOKIE_JAR" -H 'Content-Type: application/json' \
-    -d '{"displayName":"Display Smoke Cam","sourceUrl":"rtsp://example.invalid/display","serverId":1,"dvrStreamName":"display-smoke-cam","skipSync":true}' \
+    -d '{"displayName":"Display Smoke Cam","sourceUrl":"rtsp://example.invalid/display","serverId":1,"dvrStreamName":"display-smoke-cam","groupIds":[1,2],"skipSync":true}' \
     "http://127.0.0.1:$PORT/api/portal/v1/cameras"
 )"
 printf "%s" "$api_display_camera" | grep -q '"name": "Display Smoke Cam"'
 printf "%s" "$api_display_camera" | grep -q '"displayName": "Display Smoke Cam"'
 printf "%s" "$api_display_camera" | grep -q '"dvrStreamName": "display-smoke-cam"'
+display_camera_groups="$(printf "%s" "$api_display_camera" | php -r '$d=json_decode(stream_get_contents(STDIN), true); echo implode(",", $d["camera"]["groupIds"] ?? []);')"
+test "$display_camera_groups" = "1,2"
 api_generated_camera="$(
   curl -fsS -b "$COOKIE_JAR" -H 'Content-Type: application/json' \
     -d '{"displayName":"Домофон. г. Сухум, ул. Киараз 9, п1","sourceUrl":"rtsp://example.invalid/generated","serverId":1,"skipSync":true}' \
@@ -342,6 +344,23 @@ api_invalid_stream_status="$(
 )"
 test "$api_invalid_stream_status" = "422"
 grep -q '"code": "invalid_stream_name"' "$STATE_DIR/api_invalid_stream.json"
+api_invalid_camera_group_status="$(
+  curl -sS -o "$STATE_DIR/api_invalid_camera_group.json" -w '%{http_code}' -b "$COOKIE_JAR" -H 'Content-Type: application/json' \
+    -d '{"displayName":"Bad Group Cam","sourceUrl":"rtsp://example.invalid/bad-group","serverId":1,"dvrStreamName":"bad-group-cam","groupIds":[99999],"skipSync":true}' \
+    "http://127.0.0.1:$PORT/api/portal/v1/cameras"
+)"
+test "$api_invalid_camera_group_status" = "422"
+grep -q '"field": "groupIds"' "$STATE_DIR/api_invalid_camera_group.json"
+bad_group_cam_count="$(
+  php <<'PHP'
+<?php
+require getenv('ROOT') . '/app/Portal.php';
+$stmt = \SesamePortal\DB::pdo()->prepare('SELECT COUNT(*) FROM cameras WHERE dvr_stream_name = ?');
+$stmt->execute(['bad-group-cam']);
+echo (string)$stmt->fetchColumn();
+PHP
+)"
+test "$bad_group_cam_count" = "0"
 api_technical_camera="$(
   curl -fsS -b "$COOKIE_JAR" -H 'Content-Type: application/json' \
     -d '{"sourceUrl":"rtsp://example.invalid/technical","serverId":1,"dvrStreamName":"technical-only-cam","skipSync":true}' \
@@ -371,6 +390,23 @@ api_created_group="$(
 )"
 api_group_id="$(printf "%s" "$api_created_group" | php -r '$d=json_decode(stream_get_contents(STDIN), true); echo $d["group"]["id"] ?? "";')"
 test -n "$api_group_id"
+api_invalid_group_camera_status="$(
+  curl -sS -o "$STATE_DIR/api_invalid_group_camera.json" -w '%{http_code}' -b "$COOKIE_JAR" -H 'Content-Type: application/json' \
+    -d '{"name":"API Invalid Camera Link Group","cameraIds":[99999]}' \
+    "http://127.0.0.1:$PORT/api/portal/v1/groups"
+)"
+test "$api_invalid_group_camera_status" = "422"
+grep -q '"field": "cameraIds"' "$STATE_DIR/api_invalid_group_camera.json"
+invalid_group_count="$(
+  php <<'PHP'
+<?php
+require getenv('ROOT') . '/app/Portal.php';
+$stmt = \SesamePortal\DB::pdo()->prepare('SELECT COUNT(*) FROM portal_groups WHERE name = ?');
+$stmt->execute(['API Invalid Camera Link Group']);
+echo (string)$stmt->fetchColumn();
+PHP
+)"
+test "$invalid_group_count" = "0"
 api_child_group="$(
   curl -fsS -b "$COOKIE_JAR" -H 'Content-Type: application/json' \
     -d '{"name":"API Smoke Subgroup","description":"api child"}' \

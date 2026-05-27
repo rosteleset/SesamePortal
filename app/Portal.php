@@ -3098,6 +3098,18 @@ final class App
         return array_keys($ids);
     }
 
+    private static function apiValidateExistingIds(string $field, string $table, array $ids): void
+    {
+        $missing = self::missingIds($table, $ids);
+        if ($missing === []) {
+            return;
+        }
+        self::apiError(422, 'validation_failed', $field . ' contains unknown id(s): ' . implode(', ', $missing), [
+            'field' => $field,
+            'missingIds' => $missing,
+        ]);
+    }
+
     private static function apiPagination(array $pager): array
     {
         return [
@@ -3367,6 +3379,9 @@ final class App
                 self::apiError(422, 'validation_failed', $inputKey . ' is required');
                 return;
             }
+            if ($method !== 'DELETE') {
+                self::apiValidateExistingIds($inputKey, $isUsers ? 'users' : 'cameras', $ids);
+            }
 
             if ($method === 'POST') {
                 self::addLinks($linkTable, 'group_id', $groupId, $targetKey, $ids);
@@ -3441,25 +3456,44 @@ final class App
             self::apiError(422, 'validation_failed', $parentError);
             return;
         }
+        $userIdsProvided = array_key_exists('userIds', $input) || array_key_exists('user_ids', $input);
+        $cameraIdsProvided = array_key_exists('cameraIds', $input) || array_key_exists('camera_ids', $input);
+        $userIds = $userIdsProvided ? self::apiIntArray($input['userIds'] ?? $input['user_ids'] ?? []) : [];
+        $cameraIds = $cameraIdsProvided ? self::apiIntArray($input['cameraIds'] ?? $input['camera_ids'] ?? []) : [];
+        if ($userIdsProvided) {
+            self::apiValidateExistingIds('userIds', 'users', $userIds);
+        }
+        if ($cameraIdsProvided) {
+            self::apiValidateExistingIds('cameraIds', 'cameras', $cameraIds);
+        }
         $pdo = DB::pdo();
-        if ($id > 0) {
-            $pdo->prepare('UPDATE portal_groups SET parent_group_id=?, name=?, description=?, blocked=? WHERE id=?')
-                ->execute([$parentId, $name, $description, $blocked, $id]);
-        } elseif ($explicitId !== null) {
-            $pdo->prepare('INSERT INTO portal_groups(id, parent_group_id, name, description, blocked, created_at) VALUES(?, ?, ?, ?, ?, ?)')
-                ->execute([$explicitId, $parentId, $name, $description, $blocked, Util::now()]);
-            self::syncPortalGroupIdentityAfterExplicitInsert();
-            $id = $explicitId;
-        } else {
-            $pdo->prepare('INSERT INTO portal_groups(parent_group_id, name, description, blocked, created_at) VALUES(?, ?, ?, ?, ?)')
-                ->execute([$parentId, $name, $description, $blocked, Util::now()]);
-            $id = DB::lastInsertId('portal_groups');
-        }
-        if (array_key_exists('userIds', $input) || array_key_exists('user_ids', $input)) {
-            self::replaceLinks('user_groups', 'group_id', $id, 'user_id', self::apiIntArray($input['userIds'] ?? $input['user_ids'] ?? []));
-        }
-        if (array_key_exists('cameraIds', $input) || array_key_exists('camera_ids', $input)) {
-            self::replaceLinks('camera_groups', 'group_id', $id, 'camera_id', self::apiIntArray($input['cameraIds'] ?? $input['camera_ids'] ?? []));
+        $pdo->beginTransaction();
+        try {
+            if ($id > 0) {
+                $pdo->prepare('UPDATE portal_groups SET parent_group_id=?, name=?, description=?, blocked=? WHERE id=?')
+                    ->execute([$parentId, $name, $description, $blocked, $id]);
+            } elseif ($explicitId !== null) {
+                $pdo->prepare('INSERT INTO portal_groups(id, parent_group_id, name, description, blocked, created_at) VALUES(?, ?, ?, ?, ?, ?)')
+                    ->execute([$explicitId, $parentId, $name, $description, $blocked, Util::now()]);
+                self::syncPortalGroupIdentityAfterExplicitInsert();
+                $id = $explicitId;
+            } else {
+                $pdo->prepare('INSERT INTO portal_groups(parent_group_id, name, description, blocked, created_at) VALUES(?, ?, ?, ?, ?)')
+                    ->execute([$parentId, $name, $description, $blocked, Util::now()]);
+                $id = DB::lastInsertId('portal_groups');
+            }
+            if ($userIdsProvided) {
+                self::replaceLinks('user_groups', 'group_id', $id, 'user_id', $userIds);
+            }
+            if ($cameraIdsProvided) {
+                self::replaceLinks('camera_groups', 'group_id', $id, 'camera_id', $cameraIds);
+            }
+            $pdo->commit();
+        } catch (\Throwable $error) {
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+            throw $error;
         }
         Audit::log('group.save', $name);
         self::apiJson(['group' => self::apiGroupRow(self::rowById('portal_groups', $id), true)], $current ? 200 : 201);
@@ -3679,17 +3713,32 @@ final class App
             $stream,
         ];
 
-        $pdo = DB::pdo();
-        if ($id > 0) {
-            $pdo->prepare('UPDATE cameras SET name=?, source_url=?, server_id=?, server_selection=?, latitude=?, longitude=?, direction_deg=?, view_angle_deg=?, retention_days=?, dvr_control_mode=?, agent_id=?, agent_camera_id=?, onvif_events_requested=?, blocked=?, dvr_stream_name=?, updated_at=? WHERE id=?')
-                ->execute([...$values, Util::now(), $id]);
-        } else {
-            $pdo->prepare('INSERT INTO cameras(name, source_url, server_id, server_selection, latitude, longitude, direction_deg, view_angle_deg, retention_days, dvr_control_mode, agent_id, agent_camera_id, onvif_events_requested, blocked, dvr_stream_name, created_at, updated_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
-                ->execute([...$values, Util::now(), Util::now()]);
-            $id = DB::lastInsertId('cameras');
-        }
         if (array_key_exists('groupIds', $input) || array_key_exists('group_ids', $input)) {
-            self::replaceLinks('camera_groups', 'camera_id', $id, 'group_id', self::apiIntArray($input['groupIds'] ?? $input['group_ids'] ?? []));
+            $groupIds = self::apiIntArray($input['groupIds'] ?? $input['group_ids'] ?? []);
+            self::apiValidateExistingIds('groupIds', 'portal_groups', $groupIds);
+        } else {
+            $groupIds = null;
+        }
+        $pdo = DB::pdo();
+        $pdo->beginTransaction();
+        try {
+            if ($id > 0) {
+                $pdo->prepare('UPDATE cameras SET name=?, source_url=?, server_id=?, server_selection=?, latitude=?, longitude=?, direction_deg=?, view_angle_deg=?, retention_days=?, dvr_control_mode=?, agent_id=?, agent_camera_id=?, onvif_events_requested=?, blocked=?, dvr_stream_name=?, updated_at=? WHERE id=?')
+                    ->execute([...$values, Util::now(), $id]);
+            } else {
+                $pdo->prepare('INSERT INTO cameras(name, source_url, server_id, server_selection, latitude, longitude, direction_deg, view_angle_deg, retention_days, dvr_control_mode, agent_id, agent_camera_id, onvif_events_requested, blocked, dvr_stream_name, created_at, updated_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+                    ->execute([...$values, Util::now(), Util::now()]);
+                $id = DB::lastInsertId('cameras');
+            }
+            if ($groupIds !== null) {
+                self::replaceLinks('camera_groups', 'camera_id', $id, 'group_id', $groupIds);
+            }
+            $pdo->commit();
+        } catch (\Throwable $error) {
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+            throw $error;
         }
         $syncRequested = array_key_exists('sync', $input)
             ? self::apiBool($input['sync'])
@@ -6364,6 +6413,20 @@ final class App
             }
         }
         return $rows;
+    }
+
+    private static function missingIds(string $table, array $ids): array
+    {
+        $ids = array_values(array_unique(array_filter(array_map('intval', $ids), static fn(int $id): bool => $id > 0)));
+        if ($ids === []) {
+            return [];
+        }
+
+        $placeholders = implode(', ', array_fill(0, count($ids), '?'));
+        $stmt = DB::pdo()->prepare('SELECT id FROM ' . $table . ' WHERE id IN (' . $placeholders . ')');
+        $stmt->execute($ids);
+        $existing = array_fill_keys(array_map('intval', array_column($stmt->fetchAll(), 'id')), true);
+        return array_values(array_filter($ids, static fn(int $id): bool => !isset($existing[$id])));
     }
 
     private static function nullableInt(mixed $value): ?int
