@@ -1013,6 +1013,7 @@ GET /<camera>/timeline_ranges.json
 GET /<camera>/motion_events.json
 GET /<camera>/preview.mp4
 GET /<camera>/preview.jpg
+GET /<camera>/archive-<from_unix>-<duration_seconds>.mp4
 POST /<camera>/whep/
 DELETE /<camera>/whep/<session_id>
 ```
@@ -1044,12 +1045,11 @@ embed-плееру для режима просмотра по событиям:
 
 Для административного API `GET /api/onvif/devices/:id/events` параметры `page`/`pageSize` и `before`/`after` загружают список кусками. `timelineFrom`/`timelineTo` задают отдельный кусок `timelineEvents`, `timelineCarry=true` добавляет последнее событие перед началом окна для восстановления состояния, а `events=false` отключает выдачу страницы списка и используется для лёгких timeline-only запросов.
 
-Archive/data endpoints:
+Прямые archive/data endpoints:
 
 ```text
 GET /dvr/<camera>/...
 GET /dvr/v/<volume_id>/<camera>/...
-GET /<camera>/archive-<from_unix>-<duration_seconds>.mp4
 ```
 
 Management API используется admin UI и требует management token/session:

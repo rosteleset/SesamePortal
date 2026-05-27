@@ -489,8 +489,8 @@ curl -X PATCH \
 ### GET /api/sesamedvr/auth
 
 Machine-facing endpoint для SesameDVR auth backend. DVR вызывает его перед
-выдачей playback/live/preview доступа, чтобы Portal проверил token пользователя
-и права на конкретный stream.
+выдачей playback/live/archive/preview доступа, чтобы Portal проверил token
+пользователя и права на конкретный stream.
 
 Аутентификация здесь не через session cookie, а через playback token в query.
 CSRF не используется.
