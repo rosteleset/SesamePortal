@@ -178,7 +178,7 @@ printf "%s" "$admin_groups" | grep -q "assignment-picker"
 printf "%s" "$admin_groups" | grep -q "assignment-search"
 printf "%s" "$admin_groups" | grep -q "assignment-selected-only"
 printf "%s" "$admin_groups" | grep -q "Smoke Cam"
-admin_groups_filtered="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/admin/groups?q=test")"
+admin_groups_filtered="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/admin/groups?q=tEsT")"
 printf "%s" "$admin_groups_filtered" | grep -q "Test Group 1"
 printf "%s" "$admin_groups_filtered" | grep -q "Moscow"
 printf "%s" "$admin_groups_filtered" | grep -q "<td>Moscow</td><td>Test Group 1</td>"
@@ -206,7 +206,7 @@ invalid_camera_form="$(
 )"
 printf "%s" "$invalid_camera_form" | grep -q "Техническое имя потока может содержать"
 curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/admin/servers" | grep -q "technical-result"
-admin_cameras="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/admin/cameras?q=Read")"
+admin_cameras="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/admin/cameras?q=read")"
 printf "%s" "$admin_cameras" | grep -q "read_only"
 printf "%s" "$admin_cameras" | grep -q "Read-only mode"
 printf "%s" "$admin_cameras" | grep -q "technical-result"
@@ -253,12 +253,12 @@ printf "%s" "$mosaic_page" | grep -q 'data-cols="6"'
 printf "%s" "$mosaic_page" | grep -q "cols=6"
 printf "%s" "$mosaic_page" | grep -q "pager"
 ! printf "%s" "$mosaic_page" | grep -q "group_q"
-search_page="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/?q=Smoke%20Extra%2030&cols=5")"
+search_page="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/?q=smoke%20extra%2030&cols=5")"
 printf "%s" "$search_page" | grep -q "camera-grid cols-5"
 printf "%s" "$search_page" | grep -q "Smoke Extra 30"
 ! printf "%s" "$search_page" | grep -q "Smoke Extra 29"
-printf "%s" "$search_page" | grep -q 'value="Smoke Extra 30"'
-printf "%s" "$search_page" | grep -F -q "q=Smoke+Extra+30"
+printf "%s" "$search_page" | grep -q 'value="smoke extra 30"'
+printf "%s" "$search_page" | grep -F -q "q=smoke+extra+30"
 cols_page="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/?cols=2&page=2")"
 printf "%s" "$cols_page" | grep -q "camera-grid cols-2"
 printf "%s" "$cols_page" | grep -q "Smoke Extra 23"
@@ -277,7 +277,7 @@ printf "%s" "$map_page" | grep -q "leaflet.markercluster"
 printf "%s" "$map_page" | grep -q "direction"
 printf "%s" "$map_page" | grep -q "viewAngle"
 printf "%s" "$map_page" | grep -q "window.SESAME_CSRF"
-map_search_page="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/viewer/map?q=Smoke%20Cam")"
+map_search_page="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/viewer/map?q=smoke%20cam")"
 printf "%s" "$map_search_page" | grep -q "Smoke Cam"
 ! printf "%s" "$map_search_page" | grep -q "Read Only Cam"
 curl -fsS "http://127.0.0.1:$PORT/assets/app.js" | grep -q "camera-view-cone"
@@ -319,6 +319,8 @@ printf "%s" "$api_dashboard" | grep -q '"lastMetrics"'
 api_cameras="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/api/portal/v1/cameras?pageSize=3")"
 printf "%s" "$api_cameras" | grep -q '"pageSize": 3'
 printf "%s" "$api_cameras" | grep -q '"Smoke Cam"'
+api_cameras_search="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/api/portal/v1/cameras?q=read")"
+printf "%s" "$api_cameras_search" | grep -q '"Read Only Cam"'
 api_display_camera="$(
   curl -fsS -b "$COOKIE_JAR" -H 'Content-Type: application/json' \
     -d '{"displayName":"Display Smoke Cam","sourceUrl":"rtsp://example.invalid/display","serverId":1,"dvrStreamName":"display-smoke-cam","skipSync":true}' \
@@ -357,6 +359,8 @@ printf "%s" "$api_group" | grep -q '"childGroupIds"'
 printf "%s" "$api_group" | grep -q '"Smoke Subgroup"'
 printf "%s" "$api_group" | grep -q '"userIds"'
 printf "%s" "$api_group" | grep -q '"cameraIds"'
+api_groups_search="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/api/portal/v1/groups?q=sMoKe%20sUb")"
+printf "%s" "$api_groups_search" | grep -q '"Smoke Subgroup"'
 api_group_children="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/api/portal/v1/groups/1/children")"
 printf "%s" "$api_group_children" | grep -q '"Smoke Subgroup"'
 printf "%s" "$api_group_children" | grep -q '"childGroupIds"'

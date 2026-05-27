@@ -146,6 +146,13 @@ final class DB
         return self::driver() === 'mysql' ? 'RAND()' : 'RANDOM()';
     }
 
+    public static function caseInsensitiveLike(string $column): string
+    {
+        return self::driver() === 'pgsql'
+            ? $column . ' ILIKE ?'
+            : 'LOWER(' . $column . ') LIKE LOWER(?)';
+    }
+
     public static function lastInsertId(string $table): int
     {
         if (self::driver() === 'pgsql') {
@@ -2837,7 +2844,7 @@ final class Repo
 
         $query = trim($query);
         if ($query !== '') {
-            $where[] = '(LOWER(c.name) LIKE LOWER(?) OR LOWER(c.dvr_stream_name) LIKE LOWER(?))';
+            $where[] = '(' . DB::caseInsensitiveLike('c.name') . ' OR ' . DB::caseInsensitiveLike('c.dvr_stream_name') . ')';
             $needle = '%' . $query . '%';
             $params[] = $needle;
             $params[] = $needle;
@@ -5702,7 +5709,7 @@ final class App
         if ($q !== '') {
             $likes = [];
             foreach ($searchColumns as $column) {
-                $likes[] = $column . ' LIKE ?';
+                $likes[] = DB::caseInsensitiveLike($column);
                 $params[] = '%' . $q . '%';
             }
             $where = ' WHERE ' . implode(' OR ', $likes);
@@ -5729,8 +5736,9 @@ final class App
         $where = '';
         $params = [];
         if ($q !== '') {
-            $where = ' WHERE LOWER(c.name) LIKE LOWER(?) OR LOWER(c.source_url) LIKE LOWER(?) OR LOWER(c.dvr_stream_name) LIKE LOWER(?) OR LOWER(c.dvr_control_mode) LIKE LOWER(?) OR LOWER(c.agent_id) LIKE LOWER(?) OR LOWER(c.agent_camera_id) LIKE LOWER(?) OR LOWER(s.name) LIKE LOWER(?) OR LOWER(c.last_sync_message) LIKE LOWER(?)';
-            $params = array_fill(0, 8, '%' . $q . '%');
+            $columns = ['c.name', 'c.source_url', 'c.dvr_stream_name', 'c.dvr_control_mode', 'c.agent_id', 'c.agent_camera_id', 's.name', 'c.last_sync_message'];
+            $where = ' WHERE ' . implode(' OR ', array_map([DB::class, 'caseInsensitiveLike'], $columns));
+            $params = array_fill(0, count($columns), '%' . $q . '%');
         }
 
         $pdo = DB::pdo();
@@ -5757,7 +5765,7 @@ final class App
         $params = [];
 
         if ($q !== '') {
-            $where[] = '(a.action LIKE ? OR a.details LIKE ? OR u.login LIKE ?)';
+            $where[] = '(' . implode(' OR ', array_map([DB::class, 'caseInsensitiveLike'], ['a.action', 'a.details', 'u.login'])) . ')';
             array_push($params, '%' . $q . '%', '%' . $q . '%', '%' . $q . '%');
         }
         if ($action !== '') {
