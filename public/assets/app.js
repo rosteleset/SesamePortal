@@ -5,6 +5,7 @@
   initPlayer();
   initPreviewRefresh();
   initDensitySwitch();
+  initGroupTreePickers();
   initAssignmentPickers();
   initLocalTimes();
   initPlayerBackBridge();
@@ -577,6 +578,99 @@
       if (url.pathname !== "/") return;
       url.searchParams.set("cols", cols);
       link.setAttribute("href", url.pathname + url.search + url.hash);
+    });
+  }
+
+  function initGroupTreePickers(root = document) {
+    const pickers = Array.from(root.querySelectorAll("[data-group-tree-picker]"));
+    const toggles = Array.from(root.querySelectorAll("[data-group-tree-toggle]"));
+    if (!pickers.length && !toggles.length) return;
+
+    const closePicker = (picker) => {
+      const trigger = picker.querySelector(".group-tree-trigger");
+      const menu = picker.querySelector("[data-group-tree-menu]");
+      if (!trigger || !menu) return;
+      menu.hidden = true;
+      trigger.setAttribute("aria-expanded", "false");
+    };
+
+    const openPicker = (picker) => {
+      pickers.forEach((other) => {
+        if (other !== picker) closePicker(other);
+      });
+      const trigger = picker.querySelector(".group-tree-trigger");
+      const menu = picker.querySelector("[data-group-tree-menu]");
+      if (!trigger || !menu) return;
+      menu.hidden = false;
+      trigger.setAttribute("aria-expanded", "true");
+    };
+
+    const toggleNode = (toggle) => {
+      const node = toggle.closest("[data-group-tree-node]");
+      const children = Array.from(node?.children || []).find((child) => child.matches("[data-group-tree-children]"));
+      if (!children) return;
+      const expanded = toggle.getAttribute("aria-expanded") === "true";
+      const nextExpanded = !expanded;
+      children.hidden = !nextExpanded;
+      toggle.setAttribute("aria-expanded", nextExpanded ? "true" : "false");
+      toggle.textContent = nextExpanded ? "-" : "+";
+      toggle.setAttribute("aria-label", nextExpanded ? (toggle.dataset.collapseLabel || "") : (toggle.dataset.expandLabel || ""));
+      node?.classList.toggle("is-expanded", nextExpanded);
+    };
+
+    toggles.forEach((toggle) => {
+      toggle.addEventListener("click", (event) => {
+        event.preventDefault();
+        toggleNode(toggle);
+      });
+    });
+
+    pickers.forEach((picker) => {
+      const trigger = picker.querySelector(".group-tree-trigger");
+      const menu = picker.querySelector("[data-group-tree-menu]");
+      if (!trigger || !menu) return;
+
+      trigger.addEventListener("click", (event) => {
+        event.preventDefault();
+        if (menu.hidden) {
+          openPicker(picker);
+        } else {
+          closePicker(picker);
+        }
+      });
+
+      picker.addEventListener("click", (event) => {
+        const option = event.target.closest("[data-group-tree-select-value]");
+        if (!option || !picker.contains(option)) return;
+        event.preventDefault();
+        const input = picker.querySelector('input[type="hidden"]');
+        const label = picker.querySelector("[data-group-tree-trigger-label]");
+        if (input) input.value = option.dataset.groupTreeSelectValue || "";
+        if (label) label.textContent = option.dataset.groupTreeSelectLabel || option.textContent.trim();
+        picker.querySelectorAll("[data-group-tree-select-value]").forEach((candidate) => {
+          const active = candidate === option;
+          candidate.classList.toggle("active", active);
+          if (active) {
+            candidate.setAttribute("aria-current", "true");
+          } else {
+            candidate.removeAttribute("aria-current");
+          }
+        });
+        closePicker(picker);
+      });
+    });
+
+    document.addEventListener("click", (event) => {
+      pickers.forEach((picker) => {
+        if (!picker.contains(event.target)) {
+          closePicker(picker);
+        }
+      });
+    });
+
+    document.addEventListener("keydown", (event) => {
+      if (event.key !== "Escape") return;
+      pickers.forEach(closePicker);
     });
   }
 

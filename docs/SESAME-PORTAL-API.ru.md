@@ -163,6 +163,8 @@ Admin only.
 | `GET` | `/groups/{id}` | Получить группу с `userIds` и `cameraIds`. |
 | `PATCH`/`PUT` | `/groups/{id}` | Обновить группу. |
 | `DELETE` | `/groups/{id}` | Удалить группу. |
+| `GET` | `/groups/{id}/children` | Получить прямые подгруппы группы по group id. |
+| `POST` | `/groups/{id}/children` | Создать подгруппу внутри группы по group id. |
 | `GET` | `/groups/{id}/users` | Получить пользователей группы по group id. |
 | `PUT`/`PATCH` | `/groups/{id}/users` | Полностью заменить список пользователей группы. |
 | `POST` | `/groups/{id}/users` | Добавить пользователей в группу. |
@@ -177,6 +179,7 @@ Payload создания/обновления:
 ```json
 {
   "name": "Operators",
+  "parentGroupId": null,
   "description": "Main operator group",
   "blocked": false,
   "userIds": [2, 3],
@@ -187,17 +190,38 @@ Payload создания/обновления:
 `id` в объекте группы - это стабильный group id из Portal DB. Его нужно
 использовать в endpoints `/groups/{id}` и `/groups/{id}/...`.
 
+`parentGroupId` задаёт родительскую группу. `null`, `0` или пустое значение
+делают группу корневой. Portal не позволит назначить родителем саму группу или
+её подгруппу, чтобы не создать цикл.
+
 `userIds` и `cameraIds` заменяют связи только если ключ передан в payload.
+Membership, выданный пользователю на группу, распространяется на активные
+подгруппы этой группы. Фильтр камер `filter=group:{id}` также включает камеры
+из всех подгрупп выбранной группы.
 
 Пример объекта группы в ответе:
 
 ```json
 {
   "id": 1,
+  "parentGroupId": null,
+  "parentGroupName": null,
   "name": "Operators",
   "description": "Main operator group",
   "blocked": false,
   "createdAt": "2026-05-26T12:00:00+00:00",
+  "childGroupIds": [4],
+  "children": [
+    {
+      "id": 4,
+      "parentGroupId": 1,
+      "parentGroupName": "Operators",
+      "name": "Night shift",
+      "description": "",
+      "blocked": false,
+      "createdAt": "2026-05-26T12:10:00+00:00"
+    }
+  ],
   "userIds": [2, 3],
   "cameraIds": [10, 11]
 }
@@ -225,6 +249,37 @@ Content-Type: application/json
 
 { "cameraIds": [10, 11] }
 ```
+
+Ответ `/groups/{id}/children`:
+
+```json
+{
+  "group": {
+    "id": 1,
+    "parentGroupId": null,
+    "parentGroupName": null,
+    "name": "Operators",
+    "description": "Main operator group",
+    "blocked": false,
+    "createdAt": "2026-05-26T12:00:00+00:00"
+  },
+  "childGroupIds": [4],
+  "children": [
+    {
+      "id": 4,
+      "parentGroupId": 1,
+      "parentGroupName": "Operators",
+      "name": "Night shift",
+      "description": "",
+      "blocked": false,
+      "createdAt": "2026-05-26T12:10:00+00:00"
+    }
+  ]
+}
+```
+
+`POST /groups/{id}/children` принимает тот же payload, что и создание группы,
+но `parentGroupId` принудительно устанавливается в `{id}`.
 
 Ответ `/groups/{id}/users`:
 
@@ -292,7 +347,7 @@ Query для списка:
 | Параметр | Описание |
 | --- | --- |
 | `scope=accessible` | Даже для admin вернуть только viewer-доступную выборку. |
-| `filter` | `all`, `favorites`, `group:<id>`. |
+| `filter` | `all`, `favorites`, `group:<id>`. Фильтр по группе включает её подгруппы. |
 | `q` | Поиск по имени или `dvrStreamName`. |
 | `page`, `pageSize` | Пагинация. |
 
@@ -300,7 +355,7 @@ Payload камеры:
 
 ```json
 {
-  "name": "Entrance",
+  "displayName": "Entrance",
   "sourceUrl": "rtsp://camera/stream1",
   "serverId": 1,
   "serverSelection": "manual",
@@ -317,11 +372,19 @@ Payload камеры:
 }
 ```
 
+`displayName` - человекочитаемое название потока в SesameDVR. Для обратной
+совместимости вместо него можно передавать старое поле `name`. Portal сохраняет
+это значение как имя камеры. Если `displayName`/`name` не передан, имя камеры
+берётся из технического `dvrStreamName`.
+
+`dvrStreamName` - техническое имя потока в SesameDVR и playback URL. Если оно
+не передано, Portal сгенерирует его из `displayName`/`name`.
+
 Для Edge Agent камеры:
 
 ```json
 {
-  "name": "Edge cam 1",
+  "displayName": "Edge cam 1",
   "serverId": 1,
   "dvrControlMode": "edge_agent",
   "dvrStreamName": "edge-cam-1",

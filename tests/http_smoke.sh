@@ -59,8 +59,16 @@ for ($i = 1; $i <= 30; $i++) {
 }
 $pdo->prepare('INSERT INTO portal_groups(name, description, blocked, created_at) VALUES(?, ?, ?, ?)')
     ->execute(['Smoke Group', 'smoke test group', 0, $now]);
+$pdo->prepare('INSERT INTO portal_groups(parent_group_id, name, description, blocked, created_at) VALUES(?, ?, ?, ?, ?)')
+    ->execute([1, 'Smoke Subgroup', 'smoke child group', 0, $now]);
+$pdo->prepare('INSERT INTO portal_groups(name, description, blocked, created_at) VALUES(?, ?, ?, ?)')
+    ->execute(['Moscow', 'parent city group', 0, $now]);
+$pdo->prepare('INSERT INTO portal_groups(parent_group_id, name, description, blocked, created_at) VALUES(?, ?, ?, ?, ?)')
+    ->execute([3, 'Test Group 1', 'filtered child group', 0, $now]);
 $pdo->prepare('INSERT INTO camera_groups(camera_id, group_id) VALUES(?, ?)')
     ->execute([1, 1]);
+$pdo->prepare('INSERT INTO camera_groups(camera_id, group_id) VALUES(?, ?)')
+    ->execute([2, 2]);
 \SesamePortal\DvrClient::syncCamera(2);
 $pdo->prepare('INSERT INTO audit_logs(actor_user_id, action, details, created_at) VALUES(?, ?, ?, ?)')
     ->execute([1, 'camera.save', 'camera_id=1 sync=ok', $now]);
@@ -159,11 +167,29 @@ printf "%s" "$admin_users_page" | grep -q "Выпустить статическ
 printf "%s" "$admin_users_page" | grep -q ">нет<"
 admin_groups="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/admin/groups?edit=1")"
 printf "%s" "$admin_groups" | grep -q "<th>ID</th>"
+printf "%s" "$admin_groups" | grep -q "<th>Родитель</th>"
 printf "%s" "$admin_groups" | grep -q "<td>1</td>"
+printf "%s" "$admin_groups" | grep -q "Родительская группа"
+printf "%s" "$admin_groups" | grep -q "group-tree-select"
+printf "%s" "$admin_groups" | grep -q 'name="parent_group_id"'
+printf "%s" "$admin_groups" | grep -q "data-group-tree-select-value"
+printf "%s" "$admin_groups" | grep -q "Smoke Subgroup"
 printf "%s" "$admin_groups" | grep -q "assignment-picker"
 printf "%s" "$admin_groups" | grep -q "assignment-search"
 printf "%s" "$admin_groups" | grep -q "assignment-selected-only"
 printf "%s" "$admin_groups" | grep -q "Smoke Cam"
+admin_groups_filtered="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/admin/groups?q=test")"
+printf "%s" "$admin_groups_filtered" | grep -q "Test Group 1"
+printf "%s" "$admin_groups_filtered" | grep -q "Moscow"
+printf "%s" "$admin_groups_filtered" | grep -q "<td>Moscow</td><td>Test Group 1</td>"
+! printf "%s" "$admin_groups_filtered" | grep -q "<td>Без родителя</td><td>Test Group 1</td>"
+admin_cameras_form="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/admin/cameras?edit=1")"
+printf "%s" "$admin_cameras_form" | grep -q "Название потока"
+printf "%s" "$admin_cameras_form" | grep -q "Техническое имя потока"
+printf "%s" "$admin_cameras_form" | grep -q "group-tree-checkbox-list"
+printf "%s" "$admin_cameras_form" | grep -F -q 'name="group_ids[]"'
+printf "%s" "$admin_cameras_form" | grep -q "data-group-tree-toggle"
+printf "%s" "$admin_cameras_form" | grep -q "Smoke Subgroup"
 curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/admin/servers" | grep -q "technical-result"
 admin_cameras="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/admin/cameras?q=Read")"
 printf "%s" "$admin_cameras" | grep -q "read_only"
@@ -198,7 +224,11 @@ printf "%s" "$preview_headers" | grep -F -q "Location: https://dvr.example.inval
 printf "%s" "$preview_headers" | grep -F -q "_=smoke"
 printf "%s" "$preview_headers" | grep -F -q "Cache-Control: no-store"
 printf "%s" "$mosaic_page" | grep -q "group-filter"
+printf "%s" "$mosaic_page" | grep -q "group-tree-picker"
+printf "%s" "$mosaic_page" | grep -q "data-group-tree-toggle"
+printf "%s" "$mosaic_page" | grep -q 'data-group-tree-children hidden'
 printf "%s" "$mosaic_page" | grep -q "Smoke Group"
+printf "%s" "$mosaic_page" | grep -q "Smoke Subgroup"
 printf "%s" "$mosaic_page" | grep -q 'name="filter"'
 printf "%s" "$mosaic_page" | grep -q 'name="q"'
 printf "%s" "$mosaic_page" | grep -q "camera-search-input"
@@ -221,7 +251,9 @@ printf "%s" "$cols_page" | grep -q 'class="active" href="/?page=2&amp;cols=2"'
 refresh_off_page="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/?refresh=off")"
 printf "%s" "$refresh_off_page" | grep -q 'data-preview-refresh="off"'
 ! printf "%s" "$refresh_off_page" | grep -q "data-preview-refresh-ms"
-curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/?filter=group:1" | grep -q "Smoke Cam"
+group_page="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/?filter=group:1")"
+printf "%s" "$group_page" | grep -q "Smoke Cam"
+printf "%s" "$group_page" | grep -q "Read Only Cam"
 curl -fsS "http://127.0.0.1:$PORT/assets/styles.css" | grep -q "aspect-ratio: 16 / 9"
 map_page="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/viewer/map")"
 printf "%s" "$map_page" | grep -q '"/viewer/preview?id=1"'
@@ -272,12 +304,34 @@ printf "%s" "$api_dashboard" | grep -q '"lastMetrics"'
 api_cameras="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/api/portal/v1/cameras?pageSize=3")"
 printf "%s" "$api_cameras" | grep -q '"pageSize": 3'
 printf "%s" "$api_cameras" | grep -q '"Smoke Cam"'
+api_display_camera="$(
+  curl -fsS -b "$COOKIE_JAR" -H 'Content-Type: application/json' \
+    -d '{"displayName":"Display Smoke Cam","sourceUrl":"rtsp://example.invalid/display","serverId":1,"dvrStreamName":"display-smoke-cam","skipSync":true}' \
+    "http://127.0.0.1:$PORT/api/portal/v1/cameras"
+)"
+printf "%s" "$api_display_camera" | grep -q '"name": "Display Smoke Cam"'
+printf "%s" "$api_display_camera" | grep -q '"displayName": "Display Smoke Cam"'
+printf "%s" "$api_display_camera" | grep -q '"dvrStreamName": "display-smoke-cam"'
+api_technical_camera="$(
+  curl -fsS -b "$COOKIE_JAR" -H 'Content-Type: application/json' \
+    -d '{"sourceUrl":"rtsp://example.invalid/technical","serverId":1,"dvrStreamName":"technical-only-cam","skipSync":true}' \
+    "http://127.0.0.1:$PORT/api/portal/v1/cameras"
+)"
+printf "%s" "$api_technical_camera" | grep -q '"name": "technical-only-cam"'
+printf "%s" "$api_technical_camera" | grep -q '"displayName": "technical-only-cam"'
 api_accessible="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/api/portal/v1/cameras?scope=accessible&filter=group:1")"
 printf "%s" "$api_accessible" | grep -q '"Smoke Cam"'
+printf "%s" "$api_accessible" | grep -q '"Read Only Cam"'
 api_group="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/api/portal/v1/groups/1")"
 printf "%s" "$api_group" | grep -q '"id": 1'
+printf "%s" "$api_group" | grep -q '"parentGroupId": null'
+printf "%s" "$api_group" | grep -q '"childGroupIds"'
+printf "%s" "$api_group" | grep -q '"Smoke Subgroup"'
 printf "%s" "$api_group" | grep -q '"userIds"'
 printf "%s" "$api_group" | grep -q '"cameraIds"'
+api_group_children="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/api/portal/v1/groups/1/children")"
+printf "%s" "$api_group_children" | grep -q '"Smoke Subgroup"'
+printf "%s" "$api_group_children" | grep -q '"childGroupIds"'
 api_created_group="$(
   curl -fsS -b "$COOKIE_JAR" -H 'Content-Type: application/json' \
     -d '{"name":"API Smoke Group","description":"api","userIds":[1],"cameraIds":[1]}' \
@@ -285,6 +339,21 @@ api_created_group="$(
 )"
 api_group_id="$(printf "%s" "$api_created_group" | php -r '$d=json_decode(stream_get_contents(STDIN), true); echo $d["group"]["id"] ?? "";')"
 test -n "$api_group_id"
+api_child_group="$(
+  curl -fsS -b "$COOKIE_JAR" -H 'Content-Type: application/json' \
+    -d '{"name":"API Smoke Subgroup","description":"api child"}' \
+    "http://127.0.0.1:$PORT/api/portal/v1/groups/$api_group_id/children"
+)"
+api_child_parent="$(printf "%s" "$api_child_group" | php -r '$d=json_decode(stream_get_contents(STDIN), true); echo $d["group"]["parentGroupId"] ?? "";')"
+test "$api_child_parent" = "$api_group_id"
+api_child_group_id="$(printf "%s" "$api_child_group" | php -r '$d=json_decode(stream_get_contents(STDIN), true); echo $d["group"]["id"] ?? "";')"
+test -n "$api_child_group_id"
+cycle_status="$(
+  curl -sS -o /dev/null -w '%{http_code}' -b "$COOKIE_JAR" -X PATCH -H 'Content-Type: application/json' \
+    -d "{\"parentGroupId\":$api_child_group_id}" \
+    "http://127.0.0.1:$PORT/api/portal/v1/groups/$api_group_id"
+)"
+test "$cycle_status" = "422"
 api_group_users="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/api/portal/v1/groups/$api_group_id/users")"
 printf "%s" "$api_group_users" | grep -q '"userIds"'
 printf "%s" "$api_group_users" | grep -q '"login": "admin"'
