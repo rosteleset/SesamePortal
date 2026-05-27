@@ -20,6 +20,34 @@ export SESAME_PORTAL_STATE_DIR="$STATE_DIR"
 export SESAME_PORTAL_SECRET="test-secret"
 export ROOT
 
+OLD_UNIQUE_STATE="$STATE_DIR/old-unique"
+mkdir -p "$OLD_UNIQUE_STATE"
+sqlite_duplicate_group_migration="$(
+  SESAME_PORTAL_STATE_DIR="$OLD_UNIQUE_STATE" SESAME_PORTAL_SECRET="test-secret" php <<'PHP'
+<?php
+require getenv('ROOT') . '/app/Portal.php';
+$pdo = \SesamePortal\DB::pdo();
+$now = \SesamePortal\Util::now();
+$pdo->exec('CREATE TABLE portal_groups (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    parent_group_id INTEGER REFERENCES portal_groups(id) ON DELETE SET NULL,
+    name TEXT NOT NULL UNIQUE,
+    description TEXT NOT NULL DEFAULT "",
+    blocked INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL
+)');
+$pdo->prepare('INSERT INTO portal_groups(name, description, blocked, created_at) VALUES(?, ?, ?, ?)')
+    ->execute(['Duplicate Group Name', 'before migration', 0, $now]);
+\SesamePortal\DB::migrate();
+$pdo->prepare('INSERT INTO portal_groups(name, description, blocked, created_at) VALUES(?, ?, ?, ?)')
+    ->execute(['Duplicate Group Name', 'after migration', 0, $now]);
+$stmt = $pdo->prepare('SELECT COUNT(*) FROM portal_groups WHERE name = ?');
+$stmt->execute(['Duplicate Group Name']);
+echo (string)$stmt->fetchColumn();
+PHP
+)"
+test "$sqlite_duplicate_group_migration" = "2"
+
 php "$ROOT/bin/portal" migrate >/dev/null
 php "$ROOT/bin/portal" create-admin admin admin123 >/dev/null
 
@@ -390,6 +418,27 @@ api_created_group="$(
 )"
 api_group_id="$(printf "%s" "$api_created_group" | php -r '$d=json_decode(stream_get_contents(STDIN), true); echo $d["group"]["id"] ?? "";')"
 test -n "$api_group_id"
+api_duplicate_name_group="$(
+  curl -fsS -b "$COOKIE_JAR" -H 'Content-Type: application/json' \
+    -d '{"name":"API Smoke Group","description":"api duplicate name","userIds":[1],"cameraIds":[2]}' \
+    "http://127.0.0.1:$PORT/api/portal/v1/groups"
+)"
+api_duplicate_name_group_id="$(printf "%s" "$api_duplicate_name_group" | php -r '$d=json_decode(stream_get_contents(STDIN), true); echo $d["group"]["id"] ?? "";')"
+test -n "$api_duplicate_name_group_id"
+test "$api_duplicate_name_group_id" != "$api_group_id"
+printf "%s" "$api_duplicate_name_group" | grep -q '"name": "API Smoke Group"'
+printf "%s" "$api_duplicate_name_group" | grep -q '"api duplicate name"'
+duplicate_name_count="$(
+  php <<'PHP'
+<?php
+require getenv('ROOT') . '/app/Portal.php';
+$stmt = \SesamePortal\DB::pdo()->prepare('SELECT COUNT(*) FROM portal_groups WHERE name = ?');
+$stmt->execute(['API Smoke Group']);
+echo (string)$stmt->fetchColumn();
+PHP
+)"
+test "$duplicate_name_count" = "2"
+curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/api/portal/v1/groups/$api_duplicate_name_group_id/cameras" | grep -q '"Read Only Cam"'
 api_invalid_group_camera_status="$(
   curl -sS -o "$STATE_DIR/api_invalid_group_camera.json" -w '%{http_code}' -b "$COOKIE_JAR" -H 'Content-Type: application/json' \
     -d '{"name":"API Invalid Camera Link Group","cameraIds":[99999]}' \
