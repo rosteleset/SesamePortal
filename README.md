@@ -38,14 +38,21 @@ switch from the language dropdown or with `?lang=<code>`.
 
 ## Camera Modes
 
-Each camera can run in one of two modes:
+Each camera can run in one of three modes:
 
 - `managed`: SesamePortal writes the stream configuration to the selected
-  SesameDVR server through the management API. The camera `name` is sent as the
-  stream `displayName`; `dvr_stream_name` stays the URL-safe technical stream
-  name used by DVR endpoints.
+  SesameDVR server through the management API. The stream title
+  (`display_name`/`displayName`) is sent as the stream `displayName`;
+  `dvr_stream_name` stays the URL-safe technical stream name used by DVR
+  endpoints.
+- `edge_agent`: SesamePortal creates a push stream on the DVR with
+  `publisherKind=agent`, linked to `agent_id` and `agent_camera_id`.
 - `read_only`: SesamePortal does not change DVR configuration and only uses the
   selected DVR server plus `dvr_stream_name` for preview, auth, and playback.
+
+Per camera, Portal can add an HTML/CSS watermark with the current user's login
+over the Portal player and control its intensity. The video stream is not
+transcoded for this.
 
 ## Viewer UI
 
