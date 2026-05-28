@@ -127,6 +127,8 @@ final class DB
         self::ensureColumn('cameras', 'agent_id', self::driver() === 'mysql' ? 'VARCHAR(255)' : 'TEXT');
         self::ensureColumn('cameras', 'agent_camera_id', self::driver() === 'mysql' ? 'VARCHAR(255)' : 'TEXT');
         self::ensureColumn('cameras', 'onvif_events_requested', 'INTEGER NOT NULL DEFAULT 0');
+        self::ensureColumn('cameras', 'watermark_enabled', 'INTEGER NOT NULL DEFAULT 0');
+        self::ensureColumn('cameras', 'watermark_intensity', 'INTEGER NOT NULL DEFAULT 16');
         self::ensureIndex('cameras', 'idx_cameras_agent_id', 'agent_id');
         self::ensureIndex('cameras', 'idx_cameras_agent_camera_id', 'agent_camera_id');
     }
@@ -238,6 +240,8 @@ final class DB
                 agent_id TEXT,
                 agent_camera_id TEXT,
                 onvif_events_requested INTEGER NOT NULL DEFAULT 0,
+                watermark_enabled INTEGER NOT NULL DEFAULT 0,
+                watermark_intensity INTEGER NOT NULL DEFAULT 16,
                 blocked INTEGER NOT NULL DEFAULT 0,
                 dvr_stream_name TEXT NOT NULL,
                 last_sync_at TEXT,
@@ -323,6 +327,8 @@ final class DB
                 agent_id TEXT,
                 agent_camera_id TEXT,
                 onvif_events_requested INTEGER NOT NULL DEFAULT 0,
+                watermark_enabled INTEGER NOT NULL DEFAULT 0,
+                watermark_intensity INTEGER NOT NULL DEFAULT 16,
                 blocked INTEGER NOT NULL DEFAULT 0,
                 dvr_stream_name TEXT NOT NULL,
                 last_sync_at TEXT,
@@ -412,6 +418,8 @@ final class DB
                 agent_id VARCHAR(255),
                 agent_camera_id VARCHAR(255),
                 onvif_events_requested INTEGER NOT NULL DEFAULT 0,
+                watermark_enabled INTEGER NOT NULL DEFAULT 0,
+                watermark_intensity INTEGER NOT NULL DEFAULT 16,
                 blocked INTEGER NOT NULL DEFAULT 0,
                 dvr_stream_name VARCHAR(255) NOT NULL,
                 last_sync_at VARCHAR(64),
@@ -918,6 +926,8 @@ final class I18n
                 'cameras.agentId' => 'Agent ID',
                 'cameras.agentCameraId' => 'Agent camera ID',
                 'cameras.onvifEvents' => 'Запускать ONVIF events через агента',
+                'cameras.watermarkEnabled' => 'Показывать водяной знак с логином в плеере',
+                'cameras.watermarkIntensity' => 'Интенсивность водяного знака, %',
                 'cameras.agentRequired' => 'Для edge-agent режима нужны сервер, Agent ID и Agent camera ID',
                 'cameras.agentOverwriteBlocked' => 'Поток на DVR уже управляется Edge Agent. Переключите камеру Portal в режим Edge Agent или read-only, чтобы не перезаписать push-конфиг.',
                 'agents.title' => 'Edge-агенты',
@@ -1101,6 +1111,8 @@ final class I18n
                 'cameras.agentId' => 'Agent ID',
                 'cameras.agentCameraId' => 'Agent camera ID',
                 'cameras.onvifEvents' => 'Start ONVIF events through the agent',
+                'cameras.watermarkEnabled' => 'Show player watermark with user login',
+                'cameras.watermarkIntensity' => 'Watermark intensity, %',
                 'cameras.agentRequired' => 'Edge-agent mode requires server, Agent ID, and Agent camera ID',
                 'cameras.agentOverwriteBlocked' => 'This DVR stream is already managed by Edge Agent. Switch the Portal camera to Edge Agent or read-only mode to avoid overwriting push configuration.',
                 'cameras.deleteTitle' => 'Delete camera',
@@ -2176,8 +2188,31 @@ final class Audit
     public static function log(string $action, string $details = ''): void
     {
         $user = Auth::user();
+        self::logForUser($user['id'] ?? null, $action, $details);
+    }
+
+    public static function logForUser(int|string|null $userId, string $action, string $details = ''): void
+    {
         DB::pdo()->prepare('INSERT INTO audit_logs(actor_user_id, action, details, created_at) VALUES(?, ?, ?, ?)')
-            ->execute([$user['id'] ?? null, $action, $details, Util::now()]);
+            ->execute([$userId !== null ? (int)$userId : null, $action, $details, Util::now()]);
+    }
+
+    public static function clientIp(): string
+    {
+        $raw = (string)(
+            $_SERVER['HTTP_X_FORWARDED_FOR']
+            ?? $_SERVER['HTTP_X_REAL_IP']
+            ?? $_SERVER['REMOTE_ADDR']
+            ?? ''
+        );
+        $ip = trim(explode(',', $raw, 2)[0]);
+        return substr(preg_replace('/[^\w:. -]/', '', $ip) ?: '', 0, 80);
+    }
+
+    public static function cleanValue(string $value, int $maxBytes = 160): string
+    {
+        $value = preg_replace('/\s+/', ' ', trim($value)) ?: '';
+        return mb_strcut($value, 0, $maxBytes, 'UTF-8');
     }
 }
 
@@ -2347,6 +2382,7 @@ final class Auth
         $stmt->execute([$login]);
         $user = $stmt->fetch();
         if (!$user || !password_verify($password, $user['password_hash'])) {
+            Audit::logForUser($user['id'] ?? null, 'auth.login_failed', 'login=' . Audit::cleanValue($login) . ' ip=' . Audit::clientIp());
             return false;
         }
 
@@ -2355,6 +2391,7 @@ final class Auth
         $_SESSION['user_id'] = (int)$user['id'];
         TokenService::ensureUserTokens((int)$user['id']);
         DB::pdo()->prepare('UPDATE users SET last_login_at = ? WHERE id = ?')->execute([Util::now(), $user['id']]);
+        Audit::logForUser((int)$user['id'], 'auth.login', 'login=' . Audit::cleanValue((string)$user['login']) . ' ip=' . Audit::clientIp());
         return true;
     }
 
@@ -3850,6 +3887,12 @@ final class App
             array_key_exists('onvifEventsRequested', $input) || array_key_exists('onvif_events_requested', $input)
                 ? (self::apiBool($input['onvifEventsRequested'] ?? $input['onvif_events_requested']) ? 1 : 0)
                 : (int)($current['onvif_events_requested'] ?? 0),
+            array_key_exists('watermarkEnabled', $input) || array_key_exists('watermark_enabled', $input)
+                ? (self::apiBool($input['watermarkEnabled'] ?? $input['watermark_enabled']) ? 1 : 0)
+                : (int)($current['watermark_enabled'] ?? 0),
+            array_key_exists('watermarkIntensity', $input) || array_key_exists('watermark_intensity', $input)
+                ? self::watermarkIntensity($input['watermarkIntensity'] ?? $input['watermark_intensity'])
+                : self::watermarkIntensity($current['watermark_intensity'] ?? 16),
             self::apiBlockedValue($input, $current),
             $stream,
         ];
@@ -3864,10 +3907,10 @@ final class App
         $pdo->beginTransaction();
         try {
             if ($id > 0) {
-                $pdo->prepare('UPDATE cameras SET name=?, source_url=?, server_id=?, server_selection=?, latitude=?, longitude=?, direction_deg=?, view_angle_deg=?, retention_days=?, dvr_control_mode=?, agent_id=?, agent_camera_id=?, onvif_events_requested=?, blocked=?, dvr_stream_name=?, updated_at=? WHERE id=?')
+                $pdo->prepare('UPDATE cameras SET name=?, source_url=?, server_id=?, server_selection=?, latitude=?, longitude=?, direction_deg=?, view_angle_deg=?, retention_days=?, dvr_control_mode=?, agent_id=?, agent_camera_id=?, onvif_events_requested=?, watermark_enabled=?, watermark_intensity=?, blocked=?, dvr_stream_name=?, updated_at=? WHERE id=?')
                     ->execute([...$values, Util::now(), $id]);
             } else {
-                $pdo->prepare('INSERT INTO cameras(name, source_url, server_id, server_selection, latitude, longitude, direction_deg, view_angle_deg, retention_days, dvr_control_mode, agent_id, agent_camera_id, onvif_events_requested, blocked, dvr_stream_name, created_at, updated_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+                $pdo->prepare('INSERT INTO cameras(name, source_url, server_id, server_selection, latitude, longitude, direction_deg, view_angle_deg, retention_days, dvr_control_mode, agent_id, agent_camera_id, onvif_events_requested, watermark_enabled, watermark_intensity, blocked, dvr_stream_name, created_at, updated_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
                     ->execute([...$values, Util::now(), Util::now()]);
                 $id = DB::lastInsertId('cameras');
             }
@@ -4145,6 +4188,8 @@ final class App
             'agentId' => $camera['agent_id'] ?? null,
             'agentCameraId' => $camera['agent_camera_id'] ?? null,
             'onvifEventsRequested' => (int)($camera['onvif_events_requested'] ?? 0) === 1,
+            'watermarkEnabled' => (int)($camera['watermark_enabled'] ?? 0) === 1,
+            'watermarkIntensity' => self::watermarkIntensity($camera['watermark_intensity'] ?? 16),
             'blocked' => (int)($camera['blocked'] ?? 0) === 1,
             'dvrStreamName' => (string)($camera['dvr_stream_name'] ?? ''),
             'streamUnavailable' => self::cameraStreamUnavailable($camera),
@@ -4772,12 +4817,12 @@ final class App
         echo '<button>' . self::t('action.save', 'Сохранить') . '</button></form>';
         echo '</details>';
         echo '<div class="agent-action-block"><strong>' . self::t('agents.actions', 'Действия') . '</strong>';
-        echo '<div class="row-actions agent-actions">';
-        self::smallPost('/admin/agents', ['action' => 'scan', 'server_id' => $serverId, 'agent_id' => $id], self::t('agents.scan', 'Сканировать ONVIF'));
-        self::smallPost('/admin/agents', ['action' => 'diagnostics', 'server_id' => $serverId, 'agent_id' => $id], self::t('agents.diagnostics', 'Диагностика'));
-        self::smallPost('/admin/agents', ['action' => 'revoke', 'server_id' => $serverId, 'agent_id' => $id], self::t('agents.revoke', 'Отозвать секрет'));
-        self::smallPost('/admin/agents', ['action' => 'rotate', 'server_id' => $serverId, 'agent_id' => $id], self::t('agents.rotateSecret', 'Сменить секрет'));
-        self::smallPost('/admin/agents', ['action' => 'delete', 'server_id' => $serverId, 'agent_id' => $id], self::t('action.delete', 'Удалить'), 'danger');
+        echo '<div class="row-actions row-actions-icons agent-actions">';
+        self::smallPost('/admin/agents', ['action' => 'scan', 'server_id' => $serverId, 'agent_id' => $id], self::t('agents.scan', 'Сканировать ONVIF'), '', '', 'scan');
+        self::smallPost('/admin/agents', ['action' => 'diagnostics', 'server_id' => $serverId, 'agent_id' => $id], self::t('agents.diagnostics', 'Диагностика'), '', '', 'diagnostics');
+        self::smallPost('/admin/agents', ['action' => 'revoke', 'server_id' => $serverId, 'agent_id' => $id], self::t('agents.revoke', 'Отозвать секрет'), '', '', 'ban');
+        self::smallPost('/admin/agents', ['action' => 'rotate', 'server_id' => $serverId, 'agent_id' => $id], self::t('agents.rotateSecret', 'Сменить секрет'), '', '', 'key');
+        self::smallPost('/admin/agents', ['action' => 'delete', 'server_id' => $serverId, 'agent_id' => $id], self::t('action.delete', 'Удалить'), 'danger', '', 'trash');
         echo '</div></div>';
         echo '<details class="agent-settings-details"><summary>' . self::t('agents.enrollment', 'Enrollment') . '</summary>';
         echo '<form method="post" class="agent-password-form">' . Csrf::field();
@@ -4960,14 +5005,16 @@ final class App
                         $agentId !== '' ? $agentId : null,
                         $agentCameraId !== '' ? $agentCameraId : null,
                         Util::checkbox('onvif_events_requested'),
+                        Util::checkbox('watermark_enabled'),
+                        self::watermarkIntensity(Util::post('watermark_intensity', 16)),
                         Util::checkbox('blocked'),
                         $stream,
                     ];
                     if ($id > 0) {
-                        $pdo->prepare('UPDATE cameras SET name=?, source_url=?, server_id=?, server_selection=?, latitude=?, longitude=?, direction_deg=?, view_angle_deg=?, retention_days=?, dvr_control_mode=?, agent_id=?, agent_camera_id=?, onvif_events_requested=?, blocked=?, dvr_stream_name=?, updated_at=? WHERE id=?')
+                        $pdo->prepare('UPDATE cameras SET name=?, source_url=?, server_id=?, server_selection=?, latitude=?, longitude=?, direction_deg=?, view_angle_deg=?, retention_days=?, dvr_control_mode=?, agent_id=?, agent_camera_id=?, onvif_events_requested=?, watermark_enabled=?, watermark_intensity=?, blocked=?, dvr_stream_name=?, updated_at=? WHERE id=?')
                             ->execute([...$values, Util::now(), $id]);
                     } else {
-                        $pdo->prepare('INSERT INTO cameras(name, source_url, server_id, server_selection, latitude, longitude, direction_deg, view_angle_deg, retention_days, dvr_control_mode, agent_id, agent_camera_id, onvif_events_requested, blocked, dvr_stream_name, created_at, updated_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+                        $pdo->prepare('INSERT INTO cameras(name, source_url, server_id, server_selection, latitude, longitude, direction_deg, view_angle_deg, retention_days, dvr_control_mode, agent_id, agent_camera_id, onvif_events_requested, watermark_enabled, watermark_intensity, blocked, dvr_stream_name, created_at, updated_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
                             ->execute([...$values, Util::now(), Util::now()]);
                         $id = DB::lastInsertId('cameras');
                     }
@@ -5023,7 +5070,11 @@ final class App
             if ($delete) {
                 self::cameraDeletePanel($delete);
             }
-            echo '<div class="admin-grid"><section class="panel"><h2>' . ($edit ? self::t('cameras.edit', 'Изменить камеру') : self::t('cameras.new', 'Новая камера')) . '</h2>';
+            echo '<div class="admin-grid"><section class="panel"><div class="section-head"><h2>' . ($edit ? self::t('cameras.edit', 'Изменить камеру') : self::t('cameras.new', 'Новая камера')) . '</h2>';
+            if ($edit) {
+                echo '<a class="btn" href="/admin/cameras">' . self::t('cameras.new', 'Новая камера') . '</a>';
+            }
+            echo '</div>';
             echo '<form method="post" class="form">' . Csrf::field();
             echo '<input type="hidden" name="action" value="save"><input type="hidden" name="id" value="' . Util::h($edit['id'] ?? 0) . '">';
             echo '<label>' . self::t('cameras.displayName', 'Название потока') . '<input name="display_name" value="' . Util::h($form['name'] ?? '') . '"></label>';
@@ -5042,6 +5093,8 @@ final class App
             echo '<label>' . self::t('cameras.streamName', 'Техническое имя потока') . '<input name="dvr_stream_name" value="' . Util::h($form['dvr_stream_name'] ?? '') . '" maxlength="' . Util::DVR_STREAM_NAME_MAX_BYTES . '" pattern="' . Util::DVR_STREAM_NAME_HTML_PATTERN . '" placeholder="domofon-g-sukhum-ul-kiaraz-9-p1" autocomplete="off" autocapitalize="none" spellcheck="false" title="' . Util::h($streamNameHint) . '"></label>';
             echo '<div class="form-row"><label>' . self::t('cameras.agentId', 'Agent ID') . '<input name="agent_id" value="' . Util::h($form['agent_id'] ?? '') . '"></label><label>' . self::t('cameras.agentCameraId', 'Agent camera ID') . '<input name="agent_camera_id" value="' . Util::h($form['agent_camera_id'] ?? '') . '"></label></div>';
             echo '<label class="check"><input type="checkbox" name="onvif_events_requested" ' . (!empty($form['onvif_events_requested']) ? 'checked' : '') . '> ' . self::t('cameras.onvifEvents', 'Запускать ONVIF events через агента') . '</label>';
+            echo '<div class="form-row"><label class="check"><input type="checkbox" name="watermark_enabled" ' . (!empty($form['watermark_enabled']) ? 'checked' : '') . '> ' . self::t('cameras.watermarkEnabled', 'Показывать водяной знак с логином в плеере') . '</label>';
+            echo '<label>' . self::t('cameras.watermarkIntensity', 'Интенсивность водяного знака, %') . '<input name="watermark_intensity" type="number" min="1" max="100" value="' . Util::h(self::watermarkIntensity($form['watermark_intensity'] ?? 16)) . '"></label></div>';
             $lat = $form['latitude'] ?? '';
             $lng = $form['longitude'] ?? '';
             echo '<div class="form-row"><label>' . self::t('geo.latitude', 'Широта') . '<input id="camera-latitude" name="latitude" value="' . Util::h($lat) . '"></label><label>' . self::t('geo.longitude', 'Долгота') . '<input id="camera-longitude" name="longitude" value="' . Util::h($lng) . '"></label></div>';
@@ -5061,6 +5114,12 @@ final class App
     {
         $mode = trim((string)$value);
         return in_array($mode, ['managed', 'edge_agent', 'read_only'], true) ? $mode : 'managed';
+    }
+
+    private static function watermarkIntensity(mixed $value): int
+    {
+        $intensity = (int)$value;
+        return max(1, min(100, $intensity > 0 ? $intensity : 16));
     }
 
     private static function cameraNamesFromInput(array $input, ?array $current): array
@@ -5123,6 +5182,8 @@ final class App
             'agent_id' => (string)($_GET['agent_id'] ?? ''),
             'agent_camera_id' => (string)($_GET['agent_camera_id'] ?? ''),
             'onvif_events_requested' => !empty($_GET['onvif_events_requested']) ? 1 : 0,
+            'watermark_enabled' => !empty($_GET['watermark_enabled']) ? 1 : 0,
+            'watermark_intensity' => self::watermarkIntensity($_GET['watermark_intensity'] ?? 16),
             'blocked' => 0,
             'dvr_stream_name' => $stream,
         ];
@@ -5343,9 +5404,18 @@ final class App
 
         $back = self::safeBackPath((string)($_GET['back'] ?? ($_SERVER['HTTP_REFERER'] ?? '/')));
         $embed = self::embedUrl($camera, (string)($user['daily_token'] ?? ''), $back, self::t('action.back', 'Назад'));
-        self::layout(self::t('player.title', 'Плеер'), function () use ($embed) {
+        $watermarkLogin = (int)($camera['watermark_enabled'] ?? 0) === 1 ? (string)$user['login'] : '';
+        $watermarkAlpha = number_format(self::watermarkIntensity($camera['watermark_intensity'] ?? 16) / 100, 2, '.', '');
+        self::layout(self::t('player.title', 'Плеер'), function () use ($embed, $watermarkLogin, $watermarkAlpha) {
             echo '<section class="player-page">';
             echo '<div class="player-stage"><iframe class="player-frame" src="' . Util::h($embed) . '" allow="autoplay; fullscreen; picture-in-picture" allowfullscreen webkitallowfullscreen referrerpolicy="no-referrer-when-downgrade"></iframe>';
+            if ($watermarkLogin !== '') {
+                echo '<div class="player-watermark" style="--player-watermark-alpha:' . Util::h($watermarkAlpha) . '" aria-hidden="true">';
+                for ($i = 0; $i < 24; $i++) {
+                    echo '<span>' . Util::h($watermarkLogin) . '</span>';
+                }
+                echo '</div>';
+            }
             echo '</div>';
             echo '</section>';
         }, [], 'player-view', false);
@@ -5421,7 +5491,7 @@ final class App
             return;
         }
 
-        $stmt = DB::pdo()->prepare('SELECT id FROM cameras WHERE (dvr_stream_name = ? OR name = ?) AND blocked = 0 LIMIT 1');
+        $stmt = DB::pdo()->prepare('SELECT id, name, dvr_stream_name FROM cameras WHERE (dvr_stream_name = ? OR name = ?) AND blocked = 0 LIMIT 1');
         $stmt->execute([$cameraName, $cameraName]);
         $camera = $stmt->fetch();
         if (!$camera || !Repo::cameraAllowedForUser($user, (int)$camera['id'])) {
@@ -5430,7 +5500,36 @@ final class App
             return;
         }
 
+        $audit = self::authBackendAuditEvent($camera);
+        if ($audit !== null) {
+            Audit::logForUser((int)$user['id'], $audit['action'], $audit['details']);
+        }
+
         echo "ok\n";
+    }
+
+    private static function authBackendAuditEvent(array $camera): ?array
+    {
+        $target = self::authRequestTarget();
+        $path = (string)(parse_url($target, PHP_URL_PATH) ?: '');
+        $file = basename($path);
+        if (!preg_match('/^archive-(\d+)-(\d+)\.mp4$/', $file, $match)) {
+            return null;
+        }
+
+        $stream = (string)($camera['dvr_stream_name'] ?? $camera['name'] ?? '');
+        return [
+            'action' => 'archive.download',
+            'details' => implode(' ', [
+                'camera_id=' . (int)$camera['id'],
+                'stream=' . Audit::cleanValue($stream),
+                'from=' . $match[1],
+                'duration=' . $match[2],
+                'method=' . self::authRequestMethod(),
+                'path=' . Audit::cleanValue($path, 240),
+                'ip=' . Audit::clientIp(),
+            ]),
+        ];
     }
 
     private static function layout(string $title, callable $body, ?array $userOverride = [], string $bodyClass = '', bool $showChrome = true): void
@@ -5510,6 +5609,14 @@ final class App
             'agent' => '<path d="M12 3 4 7v10l8 4 8-4V7l-8-4z"/><path d="M8 9h8M8 13h8M10 17h4"/>',
             'audit' => '<path d="M6 3h12v18H6z"/><path d="M9 7h6M9 11h6M9 15h4"/>',
             'logout' => '<path d="M10 4H5v16h5"/><path d="M14 8l4 4-4 4M18 12H9"/>',
+            'edit' => '<path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M4 20h4L18.5 9.5a2.1 2.1 0 0 0-3-3L5 17v3z"/><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="m14.5 7.5 2 2"/>',
+            'check' => '<path fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" d="M20 6 9 17l-5-5"/>',
+            'sync' => '<path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M4 7h11a5 5 0 0 1 5 5M4 7l4-4M4 7l4 4M20 17H9a5 5 0 0 1-5-5m16 5-4-4m4 4-4 4"/>',
+            'trash' => '<path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M4 7h16M10 11v6M14 11v6M8 7l1-3h6l1 3M7 7l1 14h8l1-14"/>',
+            'key' => '<path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M15 7a4 4 0 1 0 2.8 1.2L21 5l-2-2-3.2 3.2A4 4 0 0 0 15 7zM9 13l-6 6m3-3 2 2"/>',
+            'ban' => '<path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M5 5a10 10 0 0 1 14 14M19 5A10 10 0 0 0 5 19M5 5l14 14"/>',
+            'scan' => '<path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M4 7V5a1 1 0 0 1 1-1h2M17 4h2a1 1 0 0 1 1 1v2M20 17v2a1 1 0 0 1-1 1h-2M7 20H5a1 1 0 0 1-1-1v-2M8 12h8M12 8v8"/>',
+            'diagnostics' => '<path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M3 12h4l2-6 4 12 2-6h6"/>',
         ];
         return '<svg viewBox="0 0 24 24" aria-hidden="true">' . ($paths[$name] ?? $paths['grid']) . '</svg>';
     }
@@ -6072,17 +6179,18 @@ final class App
             foreach ($columns as $column) {
                 self::tableCell($column, $row[$column] ?? '');
             }
-            echo '<td><div class="row-actions"><a href="' . $base . '?edit=' . (int)$row['id'] . '">' . self::t('action.edit', 'Изменить') . '</a>';
+            echo '<td><div class="row-actions row-actions-icons">';
+            self::iconActionLink($base . '?edit=' . (int)$row['id'], self::t('action.edit', 'Изменить'), 'edit');
             if ($actions && str_contains($base, 'servers')) {
-                self::smallPost($base, ['action' => 'check', 'id' => $row['id']], self::t('action.check', 'Проверить'));
+                self::smallPost($base, ['action' => 'check', 'id' => $row['id']], self::t('action.check', 'Проверить'), '', '', 'check');
             }
             if ($actions && str_contains($base, 'cameras')) {
-                self::smallPost($base, ['action' => 'sync', 'id' => $row['id']], self::t('action.sync', 'Синхронизировать'));
+                self::smallPost($base, ['action' => 'sync', 'id' => $row['id']], self::t('action.sync', 'Синхронизировать'), '', '', 'sync');
             }
             if ($base === '/admin/cameras') {
-                echo '<a class="danger" href="' . $base . '?delete=' . (int)$row['id'] . '">' . self::t('action.delete', 'Удалить') . '</a>';
+                self::iconActionLink($base . '?delete=' . (int)$row['id'], self::t('action.delete', 'Удалить'), 'trash', 'danger');
             } else {
-                self::smallPost($base, ['action' => 'delete', 'id' => $row['id']], self::t('action.delete', 'Удалить'), 'danger');
+                self::smallPost($base, ['action' => 'delete', 'id' => $row['id']], self::t('action.delete', 'Удалить'), 'danger', '', 'trash');
             }
             if ($base === '/admin/users') {
                 $hasStaticToken = trim((string)($row['static_token_hash'] ?? '')) !== '';
@@ -6091,10 +6199,11 @@ final class App
                     ['action' => 'issue_static', 'id' => $row['id']],
                     $hasStaticToken ? self::t('token.staticReplace', 'Заменить статический токен') : self::t('token.staticIssue', 'Выпустить статический токен'),
                     '',
-                    $hasStaticToken ? self::t('token.staticReplaceConfirm', 'Старый статический токен сразу перестанет работать. Выпустить новый токен?') : ''
+                    $hasStaticToken ? self::t('token.staticReplaceConfirm', 'Старый статический токен сразу перестанет работать. Выпустить новый токен?') : '',
+                    'key'
                 );
                 if ($hasStaticToken) {
-                    self::smallPost($base, ['action' => 'revoke_static', 'id' => $row['id']], self::t('action.revoke', 'Отозвать'));
+                    self::smallPost($base, ['action' => 'revoke_static', 'id' => $row['id']], self::t('action.revoke', 'Отозвать'), '', '', 'ban');
                 }
             }
             echo '</div></td></tr>';
@@ -6122,7 +6231,12 @@ final class App
             return;
         }
 
-        if (in_array($column, ['last_check_result', 'last_sync_message'], true)) {
+        if ($column === 'last_sync_message') {
+            self::syncResultCell(trim((string)$value));
+            return;
+        }
+
+        if ($column === 'last_check_result') {
             $text = trim((string)$value);
             if ($text === '') {
                 echo '<td class="muted">-</td>';
@@ -6172,6 +6286,65 @@ final class App
             return $text;
         }
         return rtrim(substr($text, 0, 77)) . '...';
+    }
+
+    private static function syncResultCell(string $text): void
+    {
+        if ($text === '') {
+            echo '<td class="muted">-</td>';
+            return;
+        }
+
+        $status = self::syncResultStatus($text);
+        echo '<td class="table-result"><span class="sync-result-dot sync-result-dot-' . Util::h($status) . '" title="' . Util::h($text) . '" aria-label="' . Util::h($text) . '" role="img"></span></td>';
+    }
+
+    private static function syncResultStatus(string $text): string
+    {
+        $lower = mb_strtolower($text, 'UTF-8');
+        if (str_contains($lower, 'read-only') || str_contains($lower, 'read_only') || str_contains($lower, 'readonly') || str_contains($lower, 'только чт')) {
+            return 'readonly';
+        }
+
+        if (preg_match('/\\bHTTP\\s+(\\d{3})\\b/i', $text, $match) && (int)$match[1] >= 400) {
+            return 'bad';
+        }
+
+        $badMarkers = [
+            'error',
+            'failed',
+            'failure',
+            'timeout',
+            'unavailable',
+            'blocked',
+            'missing',
+            'invalid',
+            'denied',
+            'forbidden',
+            'unauthorized',
+            'cannot',
+            'refused',
+            'mismatch',
+            'not_found',
+            'not configured',
+            'no sesamedvr',
+            'ошиб',
+            'не выполн',
+            'недоступ',
+            'заблок',
+            'не указан',
+            'не настро',
+            'нельзя',
+            'отказ',
+            'таймаут',
+        ];
+        foreach ($badMarkers as $marker) {
+            if (str_contains($lower, $marker)) {
+                return 'bad';
+            }
+        }
+
+        return 'ok';
     }
 
     private static function pager(string $base, array $pager, array $extraParams = []): void
@@ -6228,7 +6401,13 @@ final class App
         echo '</nav>';
     }
 
-    private static function smallPost(string $path, array $fields, string $label, string $class = '', string $confirm = ''): void
+    private static function iconActionLink(string $href, string $label, string $icon, string $class = ''): void
+    {
+        $classes = trim('icon-action ' . $class);
+        echo '<a href="' . Util::h($href) . '" class="' . Util::h($classes) . '" title="' . Util::h($label) . '" aria-label="' . Util::h($label) . '">' . self::icon($icon) . '<span class="sr-only">' . Util::h($label) . '</span></a>';
+    }
+
+    private static function smallPost(string $path, array $fields, string $label, string $class = '', string $confirm = '', string $icon = ''): void
     {
         echo '<form method="post" action="' . Util::h($path) . '" class="inline-form"';
         if ($confirm !== '') {
@@ -6239,7 +6418,18 @@ final class App
         foreach ($fields as $key => $value) {
             echo '<input type="hidden" name="' . Util::h($key) . '" value="' . Util::h($value) . '">';
         }
-        echo '<button class="' . Util::h($class) . '">' . Util::h($label) . '</button></form>';
+        $buttonClass = trim($class . ($icon !== '' ? ' icon-action' : ''));
+        echo '<button class="' . Util::h($buttonClass) . '"';
+        if ($icon !== '') {
+            echo ' title="' . Util::h($label) . '" aria-label="' . Util::h($label) . '"';
+        }
+        echo '>';
+        if ($icon !== '') {
+            echo self::icon($icon) . '<span class="sr-only">' . Util::h($label) . '</span>';
+        } else {
+            echo Util::h($label);
+        }
+        echo '</button></form>';
     }
 
     private static function checkboxList(string $title, string $name, array $rows, array $selected, string $labelKey): void
@@ -6492,8 +6682,8 @@ final class App
             }
         }
 
-        foreach (['uri', 'path', 'request_uri'] as $key) {
-            $query = parse_url((string)($_GET[$key] ?? ''), PHP_URL_QUERY);
+        foreach (self::authRequestTargets() as $target) {
+            $query = parse_url($target, PHP_URL_QUERY);
             if (!$query) {
                 continue;
             }
@@ -6523,14 +6713,48 @@ final class App
             }
         }
 
-        foreach (['uri', 'path', 'request_uri'] as $key) {
-            if (!empty($_GET[$key])) {
-                $path = trim((string)parse_url((string)$_GET[$key], PHP_URL_PATH), '/');
+        foreach (self::authRequestTargets() as $target) {
+            $path = trim((string)parse_url($target, PHP_URL_PATH), '/');
+            if ($path !== '') {
                 return basename(explode('/', $path)[0] ?? '');
             }
         }
 
         return '';
+    }
+
+    private static function authRequestTarget(): string
+    {
+        return self::authRequestTargets()[0] ?? '';
+    }
+
+    private static function authRequestTargets(): array
+    {
+        $values = [];
+        foreach (['uri', 'path', 'request_uri', 'original_uri'] as $key) {
+            if (!empty($_GET[$key])) {
+                $values[] = (string)$_GET[$key];
+            }
+        }
+        foreach (['HTTP_X_ORIGINAL_URI', 'HTTP_X_ORIGINAL_URL', 'HTTP_X_FORWARDED_URI', 'HTTP_X_REQUEST_URI'] as $key) {
+            if (!empty($_SERVER[$key])) {
+                $values[] = (string)$_SERVER[$key];
+            }
+        }
+        return array_values(array_unique(array_filter(array_map('trim', $values), static fn(string $value): bool => $value !== '')));
+    }
+
+    private static function authRequestMethod(): string
+    {
+        $method = (string)(
+            $_GET['method']
+            ?? $_GET['request_method']
+            ?? $_SERVER['HTTP_X_ORIGINAL_METHOD']
+            ?? $_SERVER['HTTP_X_FORWARDED_METHOD']
+            ?? 'GET'
+        );
+        $method = strtoupper(preg_replace('/[^A-Z]/i', '', $method) ?: 'GET');
+        return substr($method, 0, 12);
     }
 
     private static function rowById(string $table, int $id): ?array

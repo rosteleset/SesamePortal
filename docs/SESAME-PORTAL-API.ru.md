@@ -382,6 +382,8 @@ Payload камеры:
   "longitude": 37.618423,
   "directionDeg": 90,
   "viewAngleDeg": 60,
+  "watermarkEnabled": true,
+  "watermarkIntensity": 16,
   "blocked": false,
   "groupIds": [1, 2],
   "sync": true
@@ -396,6 +398,11 @@ Payload камеры:
 `dvrStreamName` - техническое имя потока в SesameDVR и playback URL. Допустимы
 только `A-Z`, `a-z`, `0-9`, `-` и `_`, максимум 128 символов. Если оно не
 передано, Portal сгенерирует валидное имя из `displayName`/`name`.
+
+`watermarkEnabled=true` включает HTML/CSS watermark с login текущего
+пользователя поверх video-зоны Portal player. `watermarkIntensity` задаёт
+интенсивность в процентах, по умолчанию `16`. Видеопоток при этом не
+транскодируется.
 
 Для Edge Agent камеры:
 
@@ -476,6 +483,10 @@ Payload команды:
 
 Admin only. Возвращает журнал действий.
 
+UI login пишет события `auth.login` и `auth.login_failed` с login и IP. MP4
+archive export/download через SesameDVR auth backend пишет `archive.download`
+после успешной проверки playback token.
+
 Query:
 
 | Параметр | Описание |
@@ -520,6 +531,7 @@ Token можно передать одним из способов:
 | `playback_token=<value>` | Alias. |
 | `qs=<query-string>` | Portal распарсит query string и найдёт `token`, `auth_token` или `playback_token`. |
 | `uri=<url-or-path>` / `path=<url-or-path>` / `request_uri=<url-or-path>` | Portal распарсит query из этого значения и найдёт token aliases. |
+| `original_uri=<url-or-path>` | Alias для оригинального URI запроса. |
 
 Stream/camera можно передать одним из способов:
 
@@ -529,6 +541,7 @@ Stream/camera можно передать одним из способов:
 | `stream=<name>` | Alias. |
 | `name=<name>` | Alias. |
 | `uri=<url-or-path>` / `path=<url-or-path>` / `request_uri=<url-or-path>` | Portal берёт первый path segment как имя stream. |
+| `original_uri=<url-or-path>` | Alias для оригинального URI запроса. |
 
 Проверка доступа:
 
@@ -547,6 +560,13 @@ Stream/camera можно передать одним из способов:
 | --- | --- | --- |
 | Доступ разрешён | `200` | `ok\n` |
 | Token пустой/неверный, stream пустой, камера недоступна | `403` | `denied\n` |
+
+Если доступ разрешён и оригинальный URI соответствует
+`/<stream>/archive-<from>-<duration>.mp4`, Portal пишет в audit событие
+`archive.download` с actor user, `camera_id`, `stream`, `from`, `duration`,
+методом и IP (`X-Forwarded-For`/`X-Real-IP`/`REMOTE_ADDR`). Для этого DVR/nginx
+должен передавать оригинальный URI в `uri`, `path`, `request_uri`,
+`original_uri` или соответствующем `X-Original-URI` header.
 
 Примеры:
 

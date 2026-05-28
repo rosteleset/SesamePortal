@@ -139,6 +139,11 @@ Query parameters:
 В iframe передаётся daily playback token текущего пользователя. При наличии
 `back` Portal передаёт в DVR absolute `back_url` и `back_label`.
 
+Если у камеры включён `watermark_enabled`, Portal поверх iframe добавляет
+HTML/CSS watermark с login текущего пользователя. Overlay ограничен верхней
+video-зоной player и не должен заходить на нижнюю панель controls. Интенсивность
+задаётся через `watermark_intensity`. Поток при этом не транскодируется.
+
 ### GET /viewer/preview
 
 Прокси/redirect для preview выбранной камеры.
@@ -161,6 +166,11 @@ Query parameters:
 
 Endpoint специально не вшивает token в HTML надолго: при каждом запросе берётся
 актуальный daily token текущей сессии.
+
+Скачивание MP4 архива не идёт через отдельный HTML endpoint Portal: DVR
+вызывает `/api/sesamedvr/auth` для URL вида
+`/<stream>/archive-<from>-<duration>.mp4`, а Portal пишет событие
+`archive.download` в audit после успешной проверки token и доступа.
 
 ### POST /favorite/toggle
 
@@ -360,6 +370,8 @@ Query parameters:
 | `agent_id` | Edge Agent ID. |
 | `agent_camera_id` | ID камеры внутри агента. |
 | `onvif_events_requested` | Непустое значение включает ONVIF events через агента. |
+| `watermark_enabled` | Непустое значение включает watermark с login пользователя в player. |
+| `watermark_intensity` | Интенсивность watermark в процентах, по умолчанию `16`. |
 
 Ответ: HTML.
 
@@ -391,6 +403,8 @@ Actions:
 | `agent_id` | Edge Agent ID. Обязателен для `edge_agent`. |
 | `agent_camera_id` | ID камеры на стороне агента. Обязателен для `edge_agent`. |
 | `onvif_events_requested` | Checkbox для ONVIF events через агента. |
+| `watermark_enabled` | Checkbox для watermark с login пользователя поверх player. |
+| `watermark_intensity` | Интенсивность watermark в процентах, `1`-`100`. |
 | `latitude`, `longitude` | Координаты камеры. Пустые значения сохраняются как `NULL`. |
 | `direction_deg` | Направление камеры, градусы. |
 | `view_angle_deg` | Угол обзора, градусы. |
@@ -507,6 +521,12 @@ GET /api/agents/<agent_id>/cameras/<camera_id>/snapshot.jpg?timeoutMs=2500[&fres
 Журнал действий Portal.
 
 Требует admin.
+
+В журнал попадают, среди прочего:
+
+- `auth.login` / `auth.login_failed` с login и IP входа в UI;
+- `archive.download` с user, IP, camera/stream и диапазоном MP4 архива после
+  успешной проверки `/api/sesamedvr/auth`.
 
 Query parameters:
 

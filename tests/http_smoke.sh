@@ -79,6 +79,7 @@ $pdo->prepare('INSERT INTO dvr_servers(name, base_url, management_token_enc, las
     ->execute(['No Token DVR', 'https://no-token.example.invalid', null, '', $now]);
 $pdo->prepare('INSERT INTO cameras(name, source_url, server_id, server_selection, retention_days, dvr_stream_name, latitude, longitude, direction_deg, created_at, updated_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
     ->execute(['Smoke Cam', 'rtsp://example.invalid/smoke', 1, 'manual', '1d', 'smoke-cam', 25.2048, 55.2708, 90, $now, $now]);
+$pdo->exec('UPDATE cameras SET watermark_enabled = 1 WHERE id = 1');
 $pdo->prepare('INSERT INTO cameras(name, source_url, server_id, server_selection, retention_days, dvr_control_mode, dvr_stream_name, created_at, updated_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)')
     ->execute(['Read Only Cam', '', 1, 'manual', '1d', 'read_only', 'readonly-cam', $now, $now]);
 $extraCamera = $pdo->prepare('INSERT INTO cameras(name, source_url, server_id, server_selection, retention_days, dvr_stream_name, created_at, updated_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?)');
@@ -193,6 +194,11 @@ printf "%s" "$admin_users_page" | grep -q "admin"
 printf "%s" "$admin_users_page" | grep -q "Статический токен"
 printf "%s" "$admin_users_page" | grep -q "Выпустить статический токен"
 printf "%s" "$admin_users_page" | grep -q ">нет<"
+printf "%s" "$admin_users_page" | grep -F -q 'class="row-actions row-actions-icons"'
+printf "%s" "$admin_users_page" | grep -F -q 'aria-label="Изменить"'
+printf "%s" "$admin_users_page" | grep -F -q 'aria-label="Выпустить статический токен"'
+printf "%s" "$admin_users_page" | grep -F -q 'aria-label="Удалить"'
+! printf "%s" "$admin_users_page" | grep -F -q '>Удалить</button>'
 admin_groups="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/admin/groups?edit=1")"
 printf "%s" "$admin_groups" | grep -q "<th>ID</th>"
 printf "%s" "$admin_groups" | grep -q "<th>Родитель</th>"
@@ -206,14 +212,20 @@ printf "%s" "$admin_groups" | grep -q "assignment-picker"
 printf "%s" "$admin_groups" | grep -q "assignment-search"
 printf "%s" "$admin_groups" | grep -q "assignment-selected-only"
 printf "%s" "$admin_groups" | grep -q "Smoke Cam"
+printf "%s" "$admin_groups" | grep -F -q 'aria-label="Изменить"'
+printf "%s" "$admin_groups" | grep -F -q 'aria-label="Удалить"'
 admin_groups_filtered="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/admin/groups?q=tEsT")"
 printf "%s" "$admin_groups_filtered" | grep -q "Test Group 1"
 printf "%s" "$admin_groups_filtered" | grep -q "Moscow"
 printf "%s" "$admin_groups_filtered" | grep -q "<td>Moscow</td><td>Test Group 1</td>"
 ! printf "%s" "$admin_groups_filtered" | grep -q "<td>Без родителя</td><td>Test Group 1</td>"
 admin_cameras_form="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/admin/cameras?edit=1")"
+printf "%s" "$admin_cameras_form" | grep -q "Изменить камеру"
+printf "%s" "$admin_cameras_form" | grep -F -q 'href="/admin/cameras">Новая камера</a>'
 printf "%s" "$admin_cameras_form" | grep -q "Название потока"
 printf "%s" "$admin_cameras_form" | grep -q "Техническое имя потока"
+printf "%s" "$admin_cameras_form" | grep -q "Показывать водяной знак"
+printf "%s" "$admin_cameras_form" | grep -q "Интенсивность водяного знака"
 printf "%s" "$admin_cameras_form" | grep -F -q 'pattern="[A-Za-z0-9_-]+"'
 printf "%s" "$admin_cameras_form" | grep -q "group-tree-checkbox-list"
 printf "%s" "$admin_cameras_form" | grep -F -q 'name="group_ids[]"'
@@ -233,13 +245,23 @@ invalid_camera_form="$(
     "http://127.0.0.1:$PORT/admin/cameras?edit=1"
 )"
 printf "%s" "$invalid_camera_form" | grep -q "Техническое имя потока может содержать"
-curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/admin/servers" | grep -q "technical-result"
+admin_servers="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/admin/servers")"
+printf "%s" "$admin_servers" | grep -q "technical-result"
+printf "%s" "$admin_servers" | grep -F -q 'aria-label="Изменить"'
+printf "%s" "$admin_servers" | grep -F -q 'aria-label="Проверить"'
+printf "%s" "$admin_servers" | grep -F -q 'aria-label="Удалить"'
 admin_cameras="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/admin/cameras?q=read")"
 printf "%s" "$admin_cameras" | grep -q "read_only"
 printf "%s" "$admin_cameras" | grep -q "Read-only mode"
-printf "%s" "$admin_cameras" | grep -q "technical-result"
+printf "%s" "$admin_cameras" | grep -q "sync-result-dot-readonly"
+printf "%s" "$admin_cameras" | grep -q "table-result"
+! printf "%s" "$admin_cameras" | grep -q "technical-result"
 printf "%s" "$admin_cameras" | grep -q "table-cameras"
 printf "%s" "$admin_cameras" | grep -q "table-wrap"
+printf "%s" "$admin_cameras" | grep -F -q 'aria-label="Изменить"'
+printf "%s" "$admin_cameras" | grep -F -q 'aria-label="Синхронизировать"'
+printf "%s" "$admin_cameras" | grep -F -q 'aria-label="Удалить"'
+! printf "%s" "$admin_cameras" | grep -F -q '>Синхронизировать</button>'
 ! printf "%s" "$admin_cameras" | grep -q 'class="crumb"'
 printf "%s" "$admin_cameras" | grep -q "camera-position-map"
 printf "%s" "$admin_cameras" | grep -q "camera-direction"
@@ -248,6 +270,10 @@ printf "%s" "$audit_page" | grep -q "camera_id"
 printf "%s" "$audit_page" | grep -q "table-audit"
 printf "%s" "$audit_page" | grep -q "audit-action"
 printf "%s" "$audit_page" | grep -q 'class="local-time"'
+login_audit_page="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/admin/audit?q=auth.login&action=auth.login&actor=1")"
+printf "%s" "$login_audit_page" | grep -q "auth.login"
+printf "%s" "$login_audit_page" | grep -q "login=admin"
+printf "%s" "$login_audit_page" | grep -q "ip=127.0.0.1"
 mosaic_page="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/")"
 printf "%s" "$mosaic_page" | grep -q "/viewer/player"
 printf "%s" "$mosaic_page" | grep -q "data-preview-refresh-ms"
@@ -327,6 +353,9 @@ curl -fsS "http://127.0.0.1:$PORT/assets/styles.css" | grep -q "local-time"
 player_page="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/viewer/player?id=1")"
 printf "%s" "$player_page" | grep -q "back_url="
 printf "%s" "$player_page" | grep -q "back_label="
+printf "%s" "$player_page" | grep -q "player-watermark"
+printf "%s" "$player_page" | grep -q -- "--player-watermark-alpha:0.16"
+printf "%s" "$player_page" | grep -q ">admin<"
 ! printf "%s" "$player_page" | grep -q "back-link"
 ! printf "%s" "$player_page" | grep -q "player-fullscreen"
 ! printf "%s" "$player_page" | grep -q "player-edge-swipe"
@@ -347,6 +376,8 @@ printf "%s" "$api_dashboard" | grep -q '"lastMetrics"'
 api_cameras="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/api/portal/v1/cameras?pageSize=3")"
 printf "%s" "$api_cameras" | grep -q '"pageSize": 3'
 printf "%s" "$api_cameras" | grep -q '"Smoke Cam"'
+printf "%s" "$api_cameras" | grep -q '"watermarkEnabled": true'
+printf "%s" "$api_cameras" | grep -q '"watermarkIntensity": 16'
 api_cameras_search="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/api/portal/v1/cameras?q=read")"
 printf "%s" "$api_cameras_search" | grep -q '"Read Only Cam"'
 api_display_camera="$(
@@ -578,5 +609,17 @@ allowed="$(
     "http://127.0.0.1:$PORT/api/sesamedvr/auth?token=NonAvailable&qs=$qs&name=smoke-cam"
 )"
 test "$allowed" = "200"
+archive_uri="$(TOKEN="$TOKEN" php -r 'echo rawurlencode("/smoke-cam/archive-1700000000-60.mp4?token=" . getenv("TOKEN"));')"
+archive_allowed="$(
+  curl -sS -o /dev/null -w '%{http_code}' -H 'X-Forwarded-For: 203.0.113.9' \
+    "http://127.0.0.1:$PORT/api/sesamedvr/auth?uri=$archive_uri"
+)"
+test "$archive_allowed" = "200"
+archive_audit_page="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/admin/audit?q=archive.download&action=archive.download&actor=1")"
+printf "%s" "$archive_audit_page" | grep -q "archive.download"
+printf "%s" "$archive_audit_page" | grep -q "camera_id=1"
+printf "%s" "$archive_audit_page" | grep -q "from=1700000000"
+printf "%s" "$archive_audit_page" | grep -q "duration=60"
+printf "%s" "$archive_audit_page" | grep -q "ip=203.0.113.9"
 
 echo "http smoke ok"
