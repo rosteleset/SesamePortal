@@ -932,6 +932,10 @@ final class I18n
                 'cameras.nameOrStreamRequired' => 'Укажите название потока или техническое имя потока',
                 'cameras.invalidStreamName' => 'Техническое имя потока может содержать только латинские буквы, цифры, дефис и подчёркивание, до 128 символов.',
                 'cameras.streamNameHint' => 'Только A-Z, a-z, 0-9, дефис и подчёркивание. Если оставить пустым, портал создаст имя сам.',
+                'cameras.saveDone' => 'Камера сохранена',
+                'cameras.saveSyncFailed' => 'Камера сохранена, но синхронизация с DVR не выполнена',
+                'cameras.syncDone' => 'Синхронизация выполнена',
+                'cameras.syncFailed' => 'Синхронизация не выполнена',
                 'cameras.deleteTitle' => 'Удалить камеру',
                 'cameras.deleteMissing' => 'Камера уже удалена или не найдена',
                 'cameras.deleteConfirmRequired' => 'Подтвердите удаление камеры',
@@ -1116,6 +1120,10 @@ final class I18n
                 'cameras.nameOrStreamRequired' => 'Stream title or technical stream name is required',
                 'cameras.invalidStreamName' => 'Technical stream name can contain only Latin letters, digits, hyphen, and underscore, up to 128 characters.',
                 'cameras.streamNameHint' => 'Only A-Z, a-z, 0-9, hyphen, and underscore. Leave empty to generate it.',
+                'cameras.saveDone' => 'Camera saved',
+                'cameras.saveSyncFailed' => 'Camera saved, but DVR sync failed',
+                'cameras.syncDone' => 'Sync completed',
+                'cameras.syncFailed' => 'Sync failed',
                 'cameras.position' => 'Position on map',
                 'cameras.clearPosition' => 'Clear point',
                 'cameras.direction' => 'Direction',
@@ -5041,7 +5049,7 @@ final class App
                     }
                     self::replaceLinks('camera_groups', 'camera_id', $id, 'group_id', $_POST['group_ids'] ?? []);
                     $sync = DvrClient::syncCamera($id);
-                    $message = $sync['message'];
+                    $message = self::cameraSaveNotice($sync);
                     Audit::log('camera.save', $name . ' mode=' . $controlMode . ' sync=' . $sync['message']);
                 }
             } elseif ($action === 'delete' && $id > 0) {
@@ -5074,7 +5082,7 @@ final class App
                 }
             } elseif ($action === 'sync' && $id > 0) {
                 $result = DvrClient::syncCamera($id);
-                $message = $result['message'];
+                $message = self::cameraSyncNotice($result);
             }
         }
 
@@ -5093,7 +5101,7 @@ final class App
             }
             echo '<div class="admin-grid"><section class="panel"><div class="section-head"><h2>' . ($edit ? self::t('cameras.edit', 'Изменить камеру') : self::t('cameras.new', 'Новая камера')) . '</h2>';
             if ($edit) {
-                echo '<a class="btn" href="/admin/cameras">' . self::t('cameras.new', 'Новая камера') . '</a>';
+                echo '<a class="btn" href="' . Util::h(self::tableActionUrl('/admin/cameras', [], $list)) . '">' . self::t('cameras.new', 'Новая камера') . '</a>';
             }
             echo '</div>';
             echo '<form method="post" class="form">' . Csrf::field();
@@ -5176,6 +5184,20 @@ final class App
             }
         }
         return $fallback;
+    }
+
+    private static function cameraSaveNotice(array $sync): string
+    {
+        return !empty($sync['ok'])
+            ? self::t('cameras.saveDone', 'Камера сохранена')
+            : self::t('cameras.saveSyncFailed', 'Камера сохранена, но синхронизация с DVR не выполнена');
+    }
+
+    private static function cameraSyncNotice(array $sync): string
+    {
+        return !empty($sync['ok'])
+            ? self::t('cameras.syncDone', 'Синхронизация выполнена')
+            : self::t('cameras.syncFailed', 'Синхронизация не выполнена');
     }
 
     private static function cameraFormDefaults(?array $edit): array
@@ -5298,7 +5320,7 @@ final class App
         if ($mode === 'map') {
             $cameras = Repo::accessibleCameras($user, $filter, $searchQuery);
         } else {
-            $cameraPager = Repo::accessibleCamerasPage($user, $filter, $searchQuery, (int)($_GET['page'] ?? 1), self::viewerPageSize());
+            $cameraPager = Repo::accessibleCamerasPage($user, $filter, $searchQuery, (int)($_GET['page'] ?? 1), self::viewerPageSize($cols));
             $cameras = $cameraPager['rows'];
         }
         $favorites = Repo::favoritesMap((int)$user['id']);
@@ -5330,9 +5352,16 @@ final class App
         return function_exists('mb_substr') ? mb_substr($query, 0, 120) : substr($query, 0, 120);
     }
 
-    private static function viewerPageSize(): int
+    private static function viewerPageSize(int $cols): int
     {
-        return 24;
+        return match ($cols) {
+            2 => 4,
+            3 => 6,
+            4 => 12,
+            5 => 15,
+            6 => 18,
+            default => 6,
+        };
     }
 
     private static function viewerPreviewRefresh(): string
@@ -6194,6 +6223,7 @@ final class App
         foreach ($columns as $column) {
             echo '<th>' . Util::h(self::columnLabel($column)) . '</th>';
         }
+        $actionUrl = self::tableActionUrl($base, [], $pager);
         echo '<th></th></tr></thead><tbody>';
         foreach ($rows as $row) {
             echo '<tr>';
@@ -6201,22 +6231,22 @@ final class App
                 self::tableCell($column, $row[$column] ?? '');
             }
             echo '<td><div class="row-actions row-actions-icons">';
-            self::iconActionLink($base . '?edit=' . (int)$row['id'], self::t('action.edit', 'Изменить'), 'edit');
+            self::iconActionLink(self::tableActionUrl($base, ['edit' => (int)$row['id']], $pager), self::t('action.edit', 'Изменить'), 'edit');
             if ($actions && str_contains($base, 'servers')) {
-                self::smallPost($base, ['action' => 'check', 'id' => $row['id']], self::t('action.check', 'Проверить'), '', '', 'check');
+                self::smallPost($actionUrl, ['action' => 'check', 'id' => $row['id']], self::t('action.check', 'Проверить'), '', '', 'check');
             }
             if ($actions && str_contains($base, 'cameras')) {
-                self::smallPost($base, ['action' => 'sync', 'id' => $row['id']], self::t('action.sync', 'Синхронизировать'), '', '', 'sync');
+                self::smallPost($actionUrl, ['action' => 'sync', 'id' => $row['id']], self::t('action.sync', 'Синхронизировать'), '', '', 'sync');
             }
             if ($base === '/admin/cameras') {
-                self::iconActionLink($base . '?delete=' . (int)$row['id'], self::t('action.delete', 'Удалить'), 'trash', 'danger');
+                self::iconActionLink(self::tableActionUrl($base, ['delete' => (int)$row['id']], $pager), self::t('action.delete', 'Удалить'), 'trash', 'danger');
             } else {
-                self::smallPost($base, ['action' => 'delete', 'id' => $row['id']], self::t('action.delete', 'Удалить'), 'danger', '', 'trash');
+                self::smallPost($actionUrl, ['action' => 'delete', 'id' => $row['id']], self::t('action.delete', 'Удалить'), 'danger', '', 'trash');
             }
             if ($base === '/admin/users') {
                 $hasStaticToken = trim((string)($row['static_token_hash'] ?? '')) !== '';
                 self::smallPost(
-                    $base,
+                    $actionUrl,
                     ['action' => 'issue_static', 'id' => $row['id']],
                     $hasStaticToken ? self::t('token.staticReplace', 'Заменить статический токен') : self::t('token.staticIssue', 'Выпустить статический токен'),
                     '',
@@ -6224,7 +6254,7 @@ final class App
                     'key'
                 );
                 if ($hasStaticToken) {
-                    self::smallPost($base, ['action' => 'revoke_static', 'id' => $row['id']], self::t('action.revoke', 'Отозвать'), '', '', 'ban');
+                    self::smallPost($actionUrl, ['action' => 'revoke_static', 'id' => $row['id']], self::t('action.revoke', 'Отозвать'), '', '', 'ban');
                 }
             }
             echo '</div></td></tr>';
@@ -6420,6 +6450,31 @@ final class App
             echo '<a href="' . Util::h($pageHref($currentPage + 1)) . '">&rsaquo;</a>';
         }
         echo '</nav>';
+    }
+
+    private static function tableActionUrl(string $base, array $params = [], ?array $pager = null): string
+    {
+        $query = [];
+        if ($pager) {
+            $q = trim((string)($pager['q'] ?? ''));
+            if ($q !== '') {
+                $query['q'] = $q;
+            }
+            $page = (int)($pager['page'] ?? 1);
+            if ($page > 1) {
+                $query['page'] = $page;
+            }
+        }
+
+        foreach ($params as $key => $value) {
+            if ($value === '' || $value === null || $value === 0) {
+                continue;
+            }
+            $query[$key] = $value;
+        }
+
+        $encoded = http_build_query($query);
+        return $base . ($encoded !== '' ? '?' . $encoded : '');
     }
 
     private static function iconActionLink(string $href, string $label, string $icon, string $class = ''): void

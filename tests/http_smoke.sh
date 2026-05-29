@@ -250,6 +250,33 @@ invalid_camera_form="$(
     "http://127.0.0.1:$PORT/admin/cameras?edit=1"
 )"
 printf "%s" "$invalid_camera_form" | grep -q "Техническое имя потока может содержать"
+readonly_camera_save="$(
+  curl -fsS -b "$COOKIE_JAR" -c "$COOKIE_JAR" \
+    -d "csrf=$camera_csrf" -d "action=save" -d "id=2" \
+    --data-urlencode "display_name=Read Only Cam" \
+    -d "dvr_control_mode=read_only" \
+    -d "server_id=1" -d "server_selection=manual" \
+    --data-urlencode "dvr_stream_name=readonly-cam" \
+    -d "retention_days=1d" -d "direction_deg=0" -d "view_angle_deg=60" \
+    -d "group_ids[]=2" \
+    "http://127.0.0.1:$PORT/admin/cameras?edit=2"
+)"
+printf "%s" "$readonly_camera_save" | grep -F -q '<div class="alert">Камера сохранена</div>'
+! printf "%s" "$readonly_camera_save" | grep -F -q '<div class="alert">Read-only mode'
+failed_camera_save="$(
+  curl -fsS -b "$COOKIE_JAR" -c "$COOKIE_JAR" \
+    -d "csrf=$camera_csrf" -d "action=save" \
+    --data-urlencode "display_name=No Sync Notice Cam" \
+    -d "dvr_control_mode=managed" \
+    --data-urlencode "source_url=rtsp://example.invalid/no-sync-notice" \
+    -d "server_selection=manual" \
+    --data-urlencode "dvr_stream_name=no-sync-notice-cam" \
+    -d "retention_days=1d" -d "direction_deg=0" -d "view_angle_deg=60" \
+    -d "blocked=1" \
+    "http://127.0.0.1:$PORT/admin/cameras"
+)"
+printf "%s" "$failed_camera_save" | grep -F -q '<div class="alert">Камера сохранена, но синхронизация с DVR не выполнена</div>'
+! printf "%s" "$failed_camera_save" | grep -F -q '<div class="alert">No SesameDVR server selected</div>'
 admin_servers="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/admin/servers")"
 printf "%s" "$admin_servers" | grep -q "technical-result"
 printf "%s" "$admin_servers" | grep -F -q 'aria-label="Изменить"'
@@ -268,6 +295,14 @@ printf "%s" "$admin_cameras" | grep -F -q 'aria-label="Синхронизиро�
 printf "%s" "$admin_cameras" | grep -F -q 'aria-label="Удалить"'
 ! printf "%s" "$admin_cameras" | grep -F -q '>Синхронизировать</button>'
 ! printf "%s" "$admin_cameras" | grep -q 'class="crumb"'
+admin_cameras_paged="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/admin/cameras?q=smoke&page=2")"
+printf "%s" "$admin_cameras_paged" | grep -F -q 'href="/admin/cameras?q=smoke&amp;page=2&amp;edit='
+printf "%s" "$admin_cameras_paged" | grep -F -q 'href="/admin/cameras?q=smoke&amp;page=2&amp;delete='
+printf "%s" "$admin_cameras_paged" | grep -F -q 'action="/admin/cameras?q=smoke&amp;page=2"'
+admin_cameras_paged_form="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/admin/cameras?q=smoke&page=2&edit=1")"
+printf "%s" "$admin_cameras_paged_form" | grep -F -q 'href="/admin/cameras?q=smoke&amp;page=2">Новая камера</a>'
+printf "%s" "$admin_cameras_paged_form" | grep -q 'value="smoke"'
+printf "%s" "$admin_cameras_paged_form" | grep -F -q 'class="active" href="/admin/cameras?q=smoke&amp;page=2"'
 printf "%s" "$admin_cameras" | grep -q "camera-position-map"
 printf "%s" "$admin_cameras" | grep -q "camera-direction"
 audit_page="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/admin/audit?q=camera&action=camera.save&actor=1")"
@@ -308,6 +343,7 @@ printf "%s" "$mosaic_page" | grep -q 'name="q"'
 printf "%s" "$mosaic_page" | grep -q "camera-search-input"
 printf "%s" "$mosaic_page" | grep -q "density-switch"
 printf "%s" "$mosaic_page" | grep -q "camera-grid cols-3"
+printf "%s" "$mosaic_page" | grep -q "Показано 1-6"
 printf "%s" "$mosaic_page" | grep -q 'data-cols="6"'
 printf "%s" "$mosaic_page" | grep -q "cols=6"
 printf "%s" "$mosaic_page" | grep -q "pager"
@@ -330,8 +366,16 @@ stream_search_page="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/?q=UNIC
 printf "%s" "$stream_search_page" | grep -q "Двор Камера"
 cols_page="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/?cols=2&page=2")"
 printf "%s" "$cols_page" | grep -q "camera-grid cols-2"
-printf "%s" "$cols_page" | grep -q "Smoke Extra 23"
+printf "%s" "$cols_page" | grep -q "Показано 5-8"
+printf "%s" "$cols_page" | grep -q "Smoke Extra 03"
+! printf "%s" "$cols_page" | grep -q "Smoke Extra 07"
 printf "%s" "$cols_page" | grep -q 'class="active" href="/?page=2&amp;cols=2"'
+cols4_page="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/?cols=4")"
+printf "%s" "$cols4_page" | grep -q "Показано 1-12"
+cols5_page="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/?cols=5")"
+printf "%s" "$cols5_page" | grep -q "Показано 1-15"
+cols6_page="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/?cols=6")"
+printf "%s" "$cols6_page" | grep -q "Показано 1-18"
 refresh_off_page="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/?refresh=off")"
 printf "%s" "$refresh_off_page" | grep -q 'data-preview-refresh="off"'
 ! printf "%s" "$refresh_off_page" | grep -q "data-preview-refresh-ms"
