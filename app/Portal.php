@@ -1900,6 +1900,26 @@ final class I18n
             $messages[$locale]['js.streamUnavailable'] = $streamLabel;
         }
 
+        foreach ([
+            'de' => ['Kamera gespeichert', 'Kamera gespeichert, aber DVR-Synchronisierung fehlgeschlagen', 'Synchronisierung abgeschlossen', 'Synchronisierung fehlgeschlagen'],
+            'fr' => ['Caméra enregistrée', 'Caméra enregistrée, mais la synchronisation DVR a échoué', 'Synchronisation terminée', 'Synchronisation échouée'],
+            'es' => ['Cámara guardada', 'Cámara guardada, pero falló la sincronización con DVR', 'Sincronización completada', 'Error de sincronización'],
+            'it' => ['Telecamera salvata', 'Telecamera salvata, ma la sincronizzazione DVR non è riuscita', 'Sincronizzazione completata', 'Sincronizzazione non riuscita'],
+            'pt' => ['Câmara guardada', 'Câmara guardada, mas a sincronização DVR falhou', 'Sincronização concluída', 'Falha na sincronização'],
+            'bg' => ['Камерата е запазена', 'Камерата е запазена, но синхронизацията с DVR не бе успешна', 'Синхронизацията е завършена', 'Синхронизацията не бе успешна'],
+            'pl' => ['Kamera zapisana', 'Kamera zapisana, ale synchronizacja DVR nie powiodła się', 'Synchronizacja zakończona', 'Synchronizacja nie powiodła się'],
+            'zh' => ['摄像机已保存', '摄像机已保存，但 DVR 同步失败', '同步完成', '同步失败'],
+            'ja' => ['カメラを保存しました', 'カメラを保存しましたが、DVR 同期に失敗しました', '同期が完了しました', '同期に失敗しました'],
+            'ko' => ['카메라가 저장되었습니다', '카메라가 저장되었지만 DVR 동기화에 실패했습니다', '동기화가 완료되었습니다', '동기화에 실패했습니다'],
+            'ar' => ['تم حفظ الكاميرا', 'تم حفظ الكاميرا، لكن مزامنة DVR فشلت', 'اكتملت المزامنة', 'فشلت المزامنة'],
+            'hy' => ['Տեսախցիկը պահպանվել է', 'Տեսախցիկը պահպանվել է, բայց DVR համաժամացումը ձախողվեց', 'Համաժամացումը ավարտվեց', 'Համաժամացումը ձախողվեց'],
+        ] as $locale => [$saveDone, $saveSyncFailed, $syncDone, $syncFailed]) {
+            $messages[$locale]['cameras.saveDone'] = $saveDone;
+            $messages[$locale]['cameras.saveSyncFailed'] = $saveSyncFailed;
+            $messages[$locale]['cameras.syncDone'] = $syncDone;
+            $messages[$locale]['cameras.syncFailed'] = $syncFailed;
+        }
+
         $messages['ru'] += [
             'nav.section.view' => 'Просмотр',
             'nav.section.admin' => 'Администрирование',
