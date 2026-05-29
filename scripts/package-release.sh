@@ -81,7 +81,7 @@ cat > "$PACKAGE_DIR/RELEASE.json" <<JSON
 }
 JSON
 
-tar -C "$STAGING" -czf "$OUTPUT" sesame-portal
+COPYFILE_DISABLE=1 tar --no-xattrs -C "$STAGING" -czf "$OUTPUT" sesame-portal
 
 if command -v sha256sum >/dev/null 2>&1; then
   sha256sum "$OUTPUT" > "$OUTPUT.sha256"
