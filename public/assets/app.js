@@ -534,7 +534,7 @@
     const grid = document.querySelector(".camera-grid");
     if (!switcher || !grid) return;
 
-    const setColumns = (cols, updateHistory = true) => {
+    const setColumns = (cols) => {
       const normalized = String(clamp(Math.round(Number(cols) || 3), 2, 6));
       grid.classList.remove("cols-2", "cols-3", "cols-4", "cols-5", "cols-6");
       grid.classList.add(`cols-${normalized}`);
@@ -549,23 +549,11 @@
         input.value = normalized;
       });
       updateViewerLinks(normalized);
-      if (updateHistory && window.history?.replaceState) {
-        const url = new URL(window.location.href);
-        url.searchParams.set("cols", normalized);
-        window.history.replaceState(null, "", url);
-      }
     };
-
-    switcher.querySelectorAll("[data-cols]").forEach((link) => {
-      link.addEventListener("click", (event) => {
-        event.preventDefault();
-        setColumns(link.dataset.cols);
-      });
-    });
 
     const current = switcher.querySelector("[data-cols].active")?.dataset.cols;
     if (current) {
-      setColumns(current, false);
+      setColumns(current);
     }
   }
 
