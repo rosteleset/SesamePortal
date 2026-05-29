@@ -56,6 +56,8 @@ rsync -a --delete \
   --exclude '*.sqlite' \
   --exclude '*.sqlite-shm' \
   --exclude '*.sqlite-wal' \
+  --exclude '.DS_Store' \
+  --exclude '._*' \
   "$ROOT/" "$PACKAGE_DIR/"
 
 chmod +x "$PACKAGE_DIR/bin/portal" "$PACKAGE_DIR/scripts/install.sh" "$PACKAGE_DIR/scripts/package-release.sh"
