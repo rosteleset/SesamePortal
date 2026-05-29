@@ -364,7 +364,7 @@ Query для списка:
 | --- | --- |
 | `scope=accessible` | Даже для admin вернуть только viewer-доступную выборку. |
 | `filter` | `all`, `favorites`, `group:<id>`. Фильтр по группе включает её подгруппы. |
-| `q` | Поиск по имени или `dvrStreamName`. |
+| `q` | Регистронезависимый поиск по названию камеры (`displayName`/`name`) или техническому имени потока `dvrStreamName`. |
 | `page`, `pageSize` | Пагинация. |
 
 Payload камеры:

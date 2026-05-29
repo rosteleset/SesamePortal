@@ -86,6 +86,9 @@ $extraCamera = $pdo->prepare('INSERT INTO cameras(name, source_url, server_id, s
 for ($i = 1; $i <= 30; $i++) {
     $extraCamera->execute([sprintf('Smoke Extra %02d', $i), 'rtsp://example.invalid/extra-' . $i, 1, 'manual', '1d', 'extra-cam-' . $i, $now, $now]);
 }
+$pdo->prepare('INSERT INTO cameras(name, source_url, server_id, server_selection, retention_days, dvr_stream_name, latitude, longitude, direction_deg, created_at, updated_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+    ->execute(['Двор Камера', 'rtsp://example.invalid/yard', 1, 'manual', '1d', 'unicode-yard-cam', 25.205, 55.271, 135, $now, $now]);
+$unicodeCameraId = \SesamePortal\DB::lastInsertId('cameras');
 $pdo->prepare('INSERT INTO portal_groups(name, description, blocked, created_at) VALUES(?, ?, ?, ?)')
     ->execute(['Smoke Group', 'smoke test group', 0, $now]);
 $pdo->prepare('INSERT INTO portal_groups(parent_group_id, name, description, blocked, created_at) VALUES(?, ?, ?, ?, ?)')
@@ -98,6 +101,8 @@ $pdo->prepare('INSERT INTO camera_groups(camera_id, group_id) VALUES(?, ?)')
     ->execute([1, 1]);
 $pdo->prepare('INSERT INTO camera_groups(camera_id, group_id) VALUES(?, ?)')
     ->execute([2, 2]);
+$pdo->prepare('INSERT INTO camera_groups(camera_id, group_id) VALUES(?, ?)')
+    ->execute([$unicodeCameraId, 1]);
 \SesamePortal\DvrClient::syncCamera(2);
 $pdo->prepare('INSERT INTO audit_logs(actor_user_id, action, details, created_at) VALUES(?, ?, ?, ?)')
     ->execute([1, 'camera.save', 'camera_id=1 sync=ok', $now]);
@@ -313,6 +318,16 @@ printf "%s" "$search_page" | grep -q "Smoke Extra 30"
 ! printf "%s" "$search_page" | grep -q "Smoke Extra 29"
 printf "%s" "$search_page" | grep -q 'value="smoke extra 30"'
 printf "%s" "$search_page" | grep -F -q "q=smoke+extra+30"
+unicode_search_page="$(
+  curl -G -fsS -b "$COOKIE_JAR" \
+    --data-urlencode "q=дВоР" \
+    --data-urlencode "cols=5" \
+    "http://127.0.0.1:$PORT/"
+)"
+printf "%s" "$unicode_search_page" | grep -q "Двор Камера"
+! printf "%s" "$unicode_search_page" | grep -q "Smoke Extra 30"
+stream_search_page="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/?q=UNICODE-YARD-CAM")"
+printf "%s" "$stream_search_page" | grep -q "Двор Камера"
 cols_page="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/?cols=2&page=2")"
 printf "%s" "$cols_page" | grep -q "camera-grid cols-2"
 printf "%s" "$cols_page" | grep -q "Smoke Extra 23"
@@ -334,6 +349,12 @@ printf "%s" "$map_page" | grep -q "window.SESAME_CSRF"
 map_search_page="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/viewer/map?q=smoke%20cam")"
 printf "%s" "$map_search_page" | grep -q "Smoke Cam"
 ! printf "%s" "$map_search_page" | grep -q "Read Only Cam"
+map_unicode_search_page="$(
+  curl -G -fsS -b "$COOKIE_JAR" \
+    --data-urlencode "q=дВоР" \
+    "http://127.0.0.1:$PORT/viewer/map"
+)"
+printf "%s" "$map_unicode_search_page" | grep -q "Двор Камера"
 curl -fsS "http://127.0.0.1:$PORT/assets/app.js" | grep -q "camera-view-cone"
 curl -fsS "http://127.0.0.1:$PORT/assets/app.js" | grep -q "markerHitSize"
 curl -fsS "http://127.0.0.1:$PORT/assets/app.js" | grep -q "markerClusterGroup"
@@ -380,6 +401,14 @@ printf "%s" "$api_cameras" | grep -q '"watermarkEnabled": true'
 printf "%s" "$api_cameras" | grep -q '"watermarkIntensity": 16'
 api_cameras_search="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/api/portal/v1/cameras?q=read")"
 printf "%s" "$api_cameras_search" | grep -q '"Read Only Cam"'
+api_cameras_unicode_search="$(
+  curl -G -fsS -b "$COOKIE_JAR" \
+    --data-urlencode "q=дВоР" \
+    "http://127.0.0.1:$PORT/api/portal/v1/cameras"
+)"
+printf "%s" "$api_cameras_unicode_search" | grep -q '"Двор Камера"'
+api_cameras_stream_search="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/api/portal/v1/cameras?q=UNICODE-YARD-CAM")"
+printf "%s" "$api_cameras_stream_search" | grep -q '"dvrStreamName": "unicode-yard-cam"'
 api_display_camera="$(
   curl -fsS -b "$COOKIE_JAR" -H 'Content-Type: application/json' \
     -d '{"displayName":"Display Smoke Cam","sourceUrl":"rtsp://example.invalid/display","serverId":1,"dvrStreamName":"display-smoke-cam","groupIds":[1,2],"skipSync":true}' \

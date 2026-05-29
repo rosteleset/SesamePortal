@@ -89,9 +89,28 @@ final class DB
         $pdo->setAttribute(PDO::ATTR_DEFAULT_FETCH_MODE, PDO::FETCH_ASSOC);
         if (self::driver() === 'sqlite') {
             $pdo->exec('PRAGMA foreign_keys = ON');
+            self::registerSqliteFunctions($pdo);
         }
         self::$pdo = $pdo;
         return $pdo;
+    }
+
+    private static function registerSqliteFunctions(PDO $pdo): void
+    {
+        if (!method_exists($pdo, 'sqliteCreateFunction')) {
+            return;
+        }
+
+        $flags = defined('PDO::SQLITE_DETERMINISTIC') ? PDO::SQLITE_DETERMINISTIC : 0;
+        $pdo->sqliteCreateFunction(
+            'sesame_portal_lower',
+            static function (mixed $value): string {
+                $text = (string)($value ?? '');
+                return function_exists('mb_strtolower') ? mb_strtolower($text, 'UTF-8') : strtolower($text);
+            },
+            1,
+            $flags
+        );
     }
 
     public static function driver(): string
@@ -151,9 +170,11 @@ final class DB
 
     public static function caseInsensitiveLike(string $column): string
     {
-        return self::driver() === 'pgsql'
-            ? $column . ' ILIKE ?'
-            : 'LOWER(' . $column . ') LIKE LOWER(?)';
+        return match (self::driver()) {
+            'pgsql' => $column . ' ILIKE ?',
+            'sqlite' => 'sesame_portal_lower(COALESCE(' . $column . ", '')) LIKE sesame_portal_lower(?)",
+            default => 'LOWER(COALESCE(' . $column . ", '')) LIKE LOWER(?)",
+        };
     }
 
     public static function lastInsertId(string $table): int
