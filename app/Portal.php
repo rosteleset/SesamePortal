@@ -898,6 +898,8 @@ final class I18n
                 'groups.nameRequired' => 'Название группы обязательно',
                 'groups.parentNotFound' => 'Родительская группа не найдена',
                 'groups.parentCycle' => 'Родительской группой нельзя выбрать саму группу или её подгруппу',
+                'groups.selectAll' => 'Выбрать все',
+                'groups.clearAll' => 'Снять все',
                 'nav.agents' => 'Edge Agents',
                 'column.id' => 'ID',
                 'column.name' => 'Название',
@@ -924,6 +926,7 @@ final class I18n
                 'filter.expandGroup' => 'Раскрыть группу %s',
                 'filter.collapseGroup' => 'Свернуть группу %s',
                 'filter.cameraSearchPlaceholder' => 'Название камеры или потока',
+                'filter.clearSearch' => 'Сбросить поиск',
                 'action.find' => 'Найти',
                 'js.streamUnavailable' => 'Поток недоступен',
                 'cameras.name' => 'Имя',
@@ -1050,6 +1053,7 @@ final class I18n
                 'filter.expandGroup' => 'Expand group %s',
                 'filter.collapseGroup' => 'Collapse group %s',
                 'filter.cameraSearchPlaceholder' => 'Camera or stream name',
+                'filter.clearSearch' => 'Clear search',
                 'viewer.openPlayer' => 'Open player',
                 'viewer.columnsPerRow' => 'Cameras per row',
                 'viewer.previewRefresh' => 'Preview refresh',
@@ -1105,6 +1109,8 @@ final class I18n
                 'groups.nameRequired' => 'Group name is required',
                 'groups.parentNotFound' => 'Parent group was not found',
                 'groups.parentCycle' => 'Parent group cannot be this group or its subgroup',
+                'groups.selectAll' => 'Select all',
+                'groups.clearAll' => 'Clear all',
                 'cameras.title' => 'Cameras',
                 'cameras.new' => 'New camera',
                 'cameras.edit' => 'Edit camera',
@@ -1881,6 +1887,23 @@ final class I18n
         }
 
         foreach ([
+            'de' => 'Suche zurücksetzen',
+            'fr' => 'Effacer la recherche',
+            'es' => 'Borrar búsqueda',
+            'it' => 'Cancella ricerca',
+            'pt' => 'Limpar pesquisa',
+            'bg' => 'Изчисти търсенето',
+            'pl' => 'Wyczyść wyszukiwanie',
+            'zh' => '清除搜索',
+            'ja' => '検索をクリア',
+            'ko' => '검색 지우기',
+            'ar' => 'مسح البحث',
+            'hy' => 'Մաքրել որոնումը',
+        ] as $locale => $label) {
+            $messages[$locale]['filter.clearSearch'] = $label;
+        }
+
+        foreach ([
             'de' => ['Vorschau aktualisieren', 'Aus', 'Stream nicht verfügbar', '%d Sek.'],
             'fr' => ['Actualisation des aperçus', 'Désactivée', 'Flux indisponible', '%d s'],
             'es' => ['Actualizar vistas previas', 'Desactivado', 'Stream no disponible', '%d s'],
@@ -1918,6 +1941,24 @@ final class I18n
             $messages[$locale]['cameras.saveSyncFailed'] = $saveSyncFailed;
             $messages[$locale]['cameras.syncDone'] = $syncDone;
             $messages[$locale]['cameras.syncFailed'] = $syncFailed;
+        }
+
+        foreach ([
+            'de' => ['Alle auswählen', 'Alle abwählen'],
+            'fr' => ['Tout sélectionner', 'Tout désélectionner'],
+            'es' => ['Seleccionar todo', 'Borrar selección'],
+            'it' => ['Seleziona tutto', 'Deseleziona tutto'],
+            'pt' => ['Selecionar tudo', 'Limpar seleção'],
+            'bg' => ['Избери всички', 'Изчисти избора'],
+            'pl' => ['Zaznacz wszystko', 'Wyczyść wybór'],
+            'zh' => ['全选', '清除选择'],
+            'ja' => ['すべて選択', '選択を解除'],
+            'ko' => ['모두 선택', '선택 해제'],
+            'ar' => ['تحديد الكل', 'إلغاء تحديد الكل'],
+            'hy' => ['Ընտրել բոլորը', 'Մաքրել ընտրությունը'],
+        ] as $locale => [$selectAll, $clearAll]) {
+            $messages[$locale]['groups.selectAll'] = $selectAll;
+            $messages[$locale]['groups.clearAll'] = $clearAll;
         }
 
         $messages['ru'] += [
@@ -4427,8 +4468,13 @@ final class App
                     } else {
                         $pdo->prepare('INSERT INTO users(login, password_hash, role, blocked, daily_token, daily_token_date, created_at) VALUES(?, ?, ?, ?, ?, ?, ?)')
                             ->execute([$login, password_hash($password, PASSWORD_DEFAULT), $role, $blocked, Util::randomToken(), TokenService::today(), Util::now()]);
+                        $id = DB::lastInsertId('users');
                     }
-                    Audit::log('user.save', $login);
+                    if ($message === '') {
+                        $groupIds = (array)($_POST['group_ids'] ?? []);
+                        self::replaceLinks('user_groups', 'user_id', $id, 'group_id', $groupIds);
+                        Audit::log('user.save', $login . ' groups=' . count($groupIds));
+                    }
                 }
             } elseif ($action === 'delete' && $id > 0) {
                 $pdo->prepare('DELETE FROM users WHERE id = ?')->execute([$id]);
@@ -4441,9 +4487,11 @@ final class App
         }
 
         $edit = self::rowById('users', (int)($_GET['edit'] ?? 0));
+        $linkedGroups = $edit ? self::linkedIds('user_groups', 'user_id', (int)$edit['id'], 'group_id') : [];
+        $groups = self::groupRowsWithDisplayLabels(Repo::all('portal_groups', 'name ASC'));
         $list = self::filteredRows('users', ['login', 'role'], 'login ASC');
         $users = $list['rows'];
-        self::layout(self::t('users.title', 'Пользователи'), function () use ($users, $edit, $message, $staticToken, $list) {
+        self::layout(self::t('users.title', 'Пользователи'), function () use ($users, $edit, $groups, $linkedGroups, $message, $staticToken, $list) {
             self::notice($message);
             if ($staticToken) {
                 echo '<div class="alert"><strong>' . self::t('token.staticIssued', 'Новый static token. Сохраните его сейчас: позже Portal покажет только наличие token') . '</strong><br><code>' . Util::h($staticToken) . '</code></div>';
@@ -4456,6 +4504,7 @@ final class App
             echo '<label>' . self::t('field.password', 'Пароль') . '<input name="password" type="password" minlength="6" placeholder="' . ($edit ? self::t('users.passwordPlaceholderEdit', 'оставьте пустым, чтобы не менять') : self::t('users.passwordPlaceholderNew', 'минимум 6 символов')) . '"></label>';
             echo '<label>' . self::t('column.role', 'Роль') . '<select name="role"><option value="user">user</option><option value="admin" ' . (($edit['role'] ?? '') === 'admin' ? 'selected' : '') . '>admin</option></select></label>';
             echo '<label class="check"><input type="checkbox" name="blocked" ' . (!empty($edit['blocked']) ? 'checked' : '') . '> ' . self::t('users.blocked', 'Заблокирован') . '</label>';
+            self::groupCheckboxTree(self::t('groups.title', 'Группы'), 'group_ids[]', $groups, $linkedGroups);
             echo '<button class="primary">' . self::t('action.save', 'Сохранить') . '</button></form></section>';
             self::table(self::t('users.title', 'Пользователи'), ['login', 'role', 'blocked', 'static_token_hash', 'last_login_at'], $users, '/admin/users', false, $list);
             echo '</div>';
@@ -5710,7 +5759,8 @@ final class App
 
         echo '<section class="filters viewer-filters">';
         $queryParam = $searchQuery === '' ? [] : ['q' => $searchQuery];
-        echo '<a class="' . ($filter === 'all' ? 'active' : '') . '" href="' . Util::h($url($viewParams($queryParam))) . '">' . self::t('filter.all', 'Все') . '</a>';
+        $clearHref = $url($viewParams());
+        echo '<a class="' . ($filter === 'all' ? 'active' : '') . '" href="' . Util::h($clearHref) . '">' . self::t('filter.all', 'Все') . '</a>';
         echo '<a class="' . ($filter === 'favorites' ? 'active' : '') . '" href="' . Util::h($url($viewParams(['filter' => 'favorites', ...$queryParam]))) . '">' . self::t('filter.favorites', 'Избранное') . '</a>';
         echo '<form method="get" action="' . Util::h($base) . '" class="group-filter">';
         if ($mode !== 'map') {
@@ -5721,6 +5771,7 @@ final class App
             return $url($viewParams(['filter' => 'group:' . $groupId, ...$queryParam]));
         });
         echo '<input class="camera-search-input" name="q" value="' . Util::h($searchQuery) . '" placeholder="' . Util::h(self::t('filter.cameraSearchPlaceholder', 'Название камеры')) . '">';
+        echo '<a class="camera-search-clear" href="' . Util::h($clearHref) . '" title="' . Util::h(self::t('filter.clearSearch', 'Сбросить поиск')) . '" aria-label="' . Util::h(self::t('filter.clearSearch', 'Сбросить поиск')) . '">&times;<span class="sr-only">' . Util::h(self::t('filter.clearSearch', 'Сбросить поиск')) . '</span></a>';
         echo '<button class="group-filter-submit">' . self::t('action.find', 'Найти') . '</button>';
         if ($mode !== 'map') {
             self::previewRefreshSelect($previewRefresh);
@@ -6549,6 +6600,10 @@ final class App
             return;
         }
 
+        echo '<div class="group-tree-actions">';
+        echo '<button type="button" data-group-tree-check-all>' . Util::h(self::t('groups.selectAll', 'Выбрать все')) . '</button>';
+        echo '<button type="button" data-group-tree-clear-all>' . Util::h(self::t('groups.clearAll', 'Снять все')) . '</button>';
+        echo '</div>';
         echo '<div class="group-tree-list group-tree-checkbox-list" role="tree" aria-label="' . Util::h($title) . '">';
         self::renderGroupTreeNodes($byId, $children, $expanded, static function (array $group, int $depth, bool $hasChildren, bool $isExpanded, callable $renderToggle) use ($name, $selectedSet): void {
             $id = (int)$group['id'];

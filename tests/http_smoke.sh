@@ -203,7 +203,23 @@ printf "%s" "$admin_users_page" | grep -F -q 'class="row-actions row-actions-ico
 printf "%s" "$admin_users_page" | grep -F -q 'aria-label="Изменить"'
 printf "%s" "$admin_users_page" | grep -F -q 'aria-label="Выпустить статический токен"'
 printf "%s" "$admin_users_page" | grep -F -q 'aria-label="Удалить"'
+printf "%s" "$admin_users_page" | grep -q "group-tree-checkbox-list"
+printf "%s" "$admin_users_page" | grep -F -q 'name="group_ids[]"'
+printf "%s" "$admin_users_page" | grep -F -q 'data-group-tree-check-all'
+printf "%s" "$admin_users_page" | grep -F -q 'data-group-tree-clear-all'
 ! printf "%s" "$admin_users_page" | grep -F -q '>Удалить</button>'
+user_csrf="$(printf "%s" "$admin_users_page" | sed -n 's/.*name="csrf" value="\([^"]*\)".*/\1/p' | head -n 1)"
+test -n "$user_csrf"
+user_group_save="$(
+  curl -fsS -b "$COOKIE_JAR" -c "$COOKIE_JAR" \
+    -d "csrf=$user_csrf" -d "action=save" -d "id=1" \
+    -d "login=admin" -d "password=" -d "role=admin" \
+    -d "group_ids[]=1" -d "group_ids[]=2" \
+    "http://127.0.0.1:$PORT/admin/users?q=admin"
+)"
+printf "%s" "$user_group_save" | grep -q "admin"
+api_admin_user="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/api/portal/v1/users/1")"
+printf "%s" "$api_admin_user" | php -r '$d=json_decode(stream_get_contents(STDIN), true); $ids=$d["user"]["groupIds"] ?? []; sort($ids); exit($ids === [1, 2] ? 0 : 1);'
 admin_groups="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/admin/groups?edit=1")"
 printf "%s" "$admin_groups" | grep -q "<th>ID</th>"
 printf "%s" "$admin_groups" | grep -q "<th>Родитель</th>"
@@ -341,6 +357,7 @@ printf "%s" "$mosaic_page" | grep -q "Smoke Subgroup"
 printf "%s" "$mosaic_page" | grep -q 'name="filter"'
 printf "%s" "$mosaic_page" | grep -q 'name="q"'
 printf "%s" "$mosaic_page" | grep -q "camera-search-input"
+printf "%s" "$mosaic_page" | grep -q "camera-search-clear"
 printf "%s" "$mosaic_page" | grep -q "density-switch"
 printf "%s" "$mosaic_page" | grep -q "camera-grid cols-3"
 printf "%s" "$mosaic_page" | grep -q "Показано 1-6"
@@ -353,6 +370,8 @@ printf "%s" "$search_page" | grep -q "camera-grid cols-5"
 printf "%s" "$search_page" | grep -q "Smoke Extra 30"
 ! printf "%s" "$search_page" | grep -q "Smoke Extra 29"
 printf "%s" "$search_page" | grep -q 'value="smoke extra 30"'
+printf "%s" "$search_page" | grep -F -q 'class="active" href="/?cols=5">Все</a>'
+printf "%s" "$search_page" | grep -F -q 'class="camera-search-clear" href="/?cols=5"'
 printf "%s" "$search_page" | grep -F -q "q=smoke+extra+30"
 unicode_search_page="$(
   curl -G -fsS -b "$COOKIE_JAR" \

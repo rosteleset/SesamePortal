@@ -613,6 +613,18 @@
       });
     });
 
+    root.querySelectorAll("[data-group-tree-check-all], [data-group-tree-clear-all]").forEach((button) => {
+      button.addEventListener("click", (event) => {
+        event.preventDefault();
+        const field = button.closest(".group-tree-field");
+        const checked = button.hasAttribute("data-group-tree-check-all");
+        field?.querySelectorAll('.group-tree-checkbox-list input[type="checkbox"]').forEach((checkbox) => {
+          checkbox.checked = checked;
+          checkbox.dispatchEvent(new Event("change", { bubbles: true }));
+        });
+      });
+    });
+
     pickers.forEach((picker) => {
       const trigger = picker.querySelector(".group-tree-trigger");
       const menu = picker.querySelector("[data-group-tree-menu]");

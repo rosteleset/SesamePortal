@@ -827,6 +827,18 @@ tr:last-child td {
   border-radius: 12px;
   background: #FCFAF6;
 }
+.group-tree-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.group-tree-actions button {
+  min-height: 32px;
+  padding: 0 12px;
+  border-radius: 10px;
+  font-size: 13px;
+}
 .group-tree-row {
   display: flex;
   align-items: center;
@@ -925,6 +937,26 @@ tr:last-child td {
 }
 .camera-search-input::placeholder {
   color: #AAA49A;
+}
+.camera-search-clear {
+  flex: 0 0 42px;
+  width: 42px;
+  min-width: 42px;
+  min-height: 42px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 12px;
+  color: var(--muted);
+  font-size: 26px;
+  line-height: 1;
+}
+.camera-search-clear:hover,
+.camera-search-clear:focus-visible {
+  color: var(--ink);
+  border-color: var(--line-strong);
+  background: #F7F3ED;
 }
 .group-filter-submit {
   flex: 0 0 auto;
