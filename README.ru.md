@@ -177,6 +177,7 @@ curl -fsSL https://license.sesameware.com/sesame-dvr-artifacts/bootstrap-trial-i
 
 - [Описание возможностей и продукта SesameDVR](docs/SESAME-DVR-PRODUCT-DESCRIPTION.ru.md)
 - [Руководство пользователя SesameDVR](docs/sesame-dvr-user-guide.ru.md)
+- [Prometheus / OpenMetrics endpoint SesameDVR](docs/prometheus-metrics-endpoint.ru.md)
 
 ## CLI
 

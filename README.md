@@ -172,6 +172,7 @@ Additional SesameDVR documentation:
 
 - [SesameDVR feature and product description (RU)](docs/SESAME-DVR-PRODUCT-DESCRIPTION.ru.md)
 - [SesameDVR user guide (RU)](docs/sesame-dvr-user-guide.ru.md)
+- [SesameDVR Prometheus / OpenMetrics endpoint (RU)](docs/prometheus-metrics-endpoint.ru.md)
 
 ## CLI
 

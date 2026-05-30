@@ -186,4 +186,6 @@ MultiVolume архива `/dvr/v/...`.
 
 - руководство пользователя SesameDVR: `docs/sesame-dvr-user-guide.ru.md`;
 - описание возможностей SesameDVR: `docs/SESAME-DVR-PRODUCT-DESCRIPTION.ru.md`;
+- Prometheus / OpenMetrics endpoint SesameDVR:
+  `docs/prometheus-metrics-endpoint.ru.md`;
 - описание возможностей SesamePortal: `docs/SESAME-PORTAL-FEATURES.ru.md`.
