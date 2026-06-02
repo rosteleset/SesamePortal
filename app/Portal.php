@@ -6300,9 +6300,9 @@ final class App
             'sync' => '<path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M4 7h11a5 5 0 0 1 5 5M4 7l4-4M4 7l4 4M20 17H9a5 5 0 0 1-5-5m16 5-4-4m4 4-4 4"/>',
             'trash' => '<path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M4 7h16M10 11v6M14 11v6M8 7l1-3h6l1 3M7 7l1 14h8l1-14"/>',
             'key' => '<path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M15 7a4 4 0 1 0 2.8 1.2L21 5l-2-2-3.2 3.2A4 4 0 0 0 15 7zM9 13l-6 6m3-3 2 2"/>',
-            'token-issue' => '<path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M14 7a4 4 0 1 0 2.8 1.2L21 4l-2-2-4.2 4.2M9 13l-6 6m3-3 2 2M18 14v6M15 17h6"/>',
-            'token-refresh' => '<path fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" d="M20 7v5h-5M4 17v-5h5M6.2 8.6a7 7 0 0 1 11.4-1.9L20 12M4 12l2.4 5.3a7 7 0 0 0 11.4-1.9"/>',
-            'token-revoke' => '<path fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" d="M14 7a4 4 0 1 0 2.8 1.2L21 4l-2-2-4.2 4.2M9 13l-6 6m3-3 2 2M15 15l6 6M21 15l-6 6"/>',
+            'token-issue' => '<path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M3.5 8.5h11V11a2 2 0 0 0 0 4v2.5h-11V15a2 2 0 0 0 0-4V8.5zM8 10.5v5M19 5v6M16 8h6"/>',
+            'token-refresh' => '<path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M4 8.5h10.5V11a2 2 0 0 0 0 4v2.5H4V15a2 2 0 0 0 0-4V8.5zM8.5 10.5v5M20 6v4h-4M4 18v-4h4M18.8 10a6.5 6.5 0 0 0-10.2-3.4M5.2 14a6.5 6.5 0 0 0 10.2 3.4"/>',
+            'token-revoke' => '<path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M12 3.5 5.5 6.2V12c0 4.8 2.6 8.3 6.5 9.8 3.9-1.5 6.5-5 6.5-9.8V6.2L12 3.5zM9 10l6 6M15 10l-6 6"/>',
             'ban' => '<path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M5 5a10 10 0 0 1 14 14M19 5A10 10 0 0 0 5 19M5 5l14 14"/>',
             'scan' => '<path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M4 7V5a1 1 0 0 1 1-1h2M17 4h2a1 1 0 0 1 1 1v2M20 17v2a1 1 0 0 1-1 1h-2M7 20H5a1 1 0 0 1-1-1v-2M8 12h8M12 8v8"/>',
             'diagnostics' => '<path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M3 12h4l2-6 4 12 2-6h6"/>',
@@ -6896,7 +6896,7 @@ final class App
                     $hasStaticToken ? 'token-refresh' : 'token-issue'
                 );
                 if ($hasStaticToken) {
-                    self::smallPost($actionUrl, ['action' => 'revoke_static', 'id' => $row['id']], self::t('action.revoke', 'Отозвать'), '', '', 'token-revoke');
+                    self::smallPost($actionUrl, ['action' => 'revoke_static', 'id' => $row['id']], self::t('action.revoke', 'Отозвать'), 'danger', '', 'token-revoke');
                 }
             }
             echo '</div></td></tr>';
