@@ -250,7 +250,7 @@ Actions:
 | `run_update` | - | Запустить configured update command, по умолчанию `sudo -n /usr/local/sbin/sesame-portal-update`. |
 
 `run_update` скачивает выбранную ветку GitHub, устанавливает новый release,
-переключает `/opt/sesame-portal/current`, запускает миграции и reload php-fpm.
+переключает `/opt/sesame-portal/current`, запускает миграции и планирует reload php-fpm.
 Web-процесс не пишет напрямую в `/opt`: installer выдаёт пользователю
 `www-data` sudoers-право только на точный запуск
 `/usr/local/sbin/sesame-portal-update` без произвольных аргументов. Параметры

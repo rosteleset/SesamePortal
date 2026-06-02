@@ -274,7 +274,7 @@ MySQL или PostgreSQL через конфигурацию.
 Администратор может открыть `Настройки -> Обновления Portal`, проверить
 текущую версию и последний commit в GitHub, а затем запустить обновление из
 интерфейса. Обновление скачивает код из GitHub, устанавливает новый release,
-переключает `/opt/sesame-portal/current`, запускает миграции и reload php-fpm.
+переключает `/opt/sesame-portal/current`, запускает миграции и планирует reload php-fpm.
 Операция логируется в журнал как `portal.update.start`,
 `portal.update.complete` или `portal.update.failed`.
 

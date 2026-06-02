@@ -14,7 +14,7 @@ Usage:
   sesame-portal-update [--repo owner/repo] [--ref main] [--install-link /opt/sesame-portal/current] [--state-dir /var/lib/sesame-portal] [--php-bin php]
 
 Downloads the selected GitHub ref, installs it as a new SesamePortal release,
-switches the current symlink atomically, runs migrations, and reloads php-fpm.
+switches the current symlink atomically, runs migrations, and schedules php-fpm reload.
 USAGE
 }
 
@@ -92,6 +92,38 @@ cleanup() {
   exit "$rc"
 }
 trap cleanup EXIT
+
+schedule_php_fpm_reload() {
+  local units=()
+  local unit
+  if ! command -v systemctl >/dev/null 2>&1; then
+    return
+  fi
+  while read -r unit; do
+    [[ -z "$unit" ]] && continue
+    units+=("$unit")
+  done < <(systemctl list-units --type=service --all 'php*-fpm.service' --no-legend 2>/dev/null | awk '{print $1}')
+
+  if [[ "${#units[@]}" -eq 0 ]]; then
+    return
+  fi
+
+  if command -v systemd-run >/dev/null 2>&1; then
+    if systemd-run \
+      --quiet \
+      --unit "sesame-portal-php-fpm-reload-${BUILD_TIME:-$(date -u +"%Y%m%dT%H%M%SZ")}-$$" \
+      --on-active=3s \
+      /bin/sh -c 'for unit do systemctl reload "$unit" >/dev/null 2>&1 || systemctl restart "$unit" >/dev/null 2>&1 || true; done' \
+      sesame-portal-php-fpm-reload "${units[@]}" >/dev/null 2>&1; then
+      echo "php_fpm_reload=scheduled"
+      return
+    fi
+  fi
+
+  nohup /bin/sh -c 'sleep 3; for unit do systemctl reload "$unit" >/dev/null 2>&1 || systemctl restart "$unit" >/dev/null 2>&1 || true; done' \
+    sesame-portal-php-fpm-reload "${units[@]}" >/dev/null 2>&1 &
+  echo "php_fpm_reload=scheduled"
+}
 
 curl_headers=(-H "Accept: application/vnd.github+json" -H "User-Agent: SesamePortal-Updater")
 if [[ -n "${SESAME_PORTAL_GITHUB_TOKEN:-${GITHUB_TOKEN:-}}" ]]; then
@@ -185,12 +217,7 @@ else
     "$PHP_BIN" "$INSTALL_LINK/bin/portal" migrate
 fi
 
-if command -v systemctl >/dev/null 2>&1; then
-  while read -r unit; do
-    [[ -z "$unit" ]] && continue
-    systemctl reload "$unit" >/dev/null 2>&1 || systemctl restart "$unit" >/dev/null 2>&1 || true
-  done < <(systemctl list-units --type=service --all 'php*-fpm.service' --no-legend 2>/dev/null | awk '{print $1}')
-fi
+schedule_php_fpm_reload
 
 SUCCESS=1
 echo "SesamePortal updated"
