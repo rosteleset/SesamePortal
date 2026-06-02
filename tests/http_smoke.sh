@@ -207,6 +207,8 @@ printf "%s" "$admin_users_page" | grep -q "group-tree-checkbox-list"
 printf "%s" "$admin_users_page" | grep -F -q 'name="group_ids[]"'
 printf "%s" "$admin_users_page" | grep -F -q 'data-group-tree-check-all'
 printf "%s" "$admin_users_page" | grep -F -q 'data-group-tree-clear-all'
+printf "%s" "$admin_users_page" | grep -F -q 'data-submit-progress="Сохраняем пользователя...'
+printf "%s" "$admin_users_page" | grep -F -q 'data-submit-status'
 ! printf "%s" "$admin_users_page" | grep -F -q '>Удалить</button>'
 user_csrf="$(printf "%s" "$admin_users_page" | sed -n 's/.*name="csrf" value="\([^"]*\)".*/\1/p' | head -n 1)"
 test -n "$user_csrf"
@@ -218,6 +220,7 @@ user_group_save="$(
     "http://127.0.0.1:$PORT/admin/users?q=admin"
 )"
 printf "%s" "$user_group_save" | grep -q "admin"
+printf "%s" "$user_group_save" | grep -q "Пользователь сохранён"
 api_admin_user="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/api/portal/v1/users/1")"
 printf "%s" "$api_admin_user" | php -r '$d=json_decode(stream_get_contents(STDIN), true); $ids=$d["user"]["groupIds"] ?? []; sort($ids); exit($ids === [1, 2] ? 0 : 1);'
 admin_groups="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/admin/groups?edit=1")"
@@ -670,6 +673,21 @@ api_static="$(
 STATIC_TOKEN="$(printf "%s" "$api_static" | php -r '$d=json_decode(stream_get_contents(STDIN), true); echo $d["token"] ?? "";')"
 test -n "$STATIC_TOKEN"
 curl -fsS -H "Authorization: Bearer $STATIC_TOKEN" "http://127.0.0.1:$PORT/api/portal/v1/me" | grep -q '"login": "admin"'
+api_static_replace="$(
+  curl -fsS -b "$COOKIE_JAR" -X POST \
+    "http://127.0.0.1:$PORT/api/portal/v1/users/1/static-token"
+)"
+STATIC_TOKEN_REPLACED="$(printf "%s" "$api_static_replace" | php -r '$d=json_decode(stream_get_contents(STDIN), true); echo $d["token"] ?? "";')"
+test -n "$STATIC_TOKEN_REPLACED"
+test "$STATIC_TOKEN_REPLACED" != "$STATIC_TOKEN"
+old_static_denied="$(
+  curl -sS -o /dev/null -w '%{http_code}' \
+    -H "Authorization: Bearer $STATIC_TOKEN" \
+    "http://127.0.0.1:$PORT/api/portal/v1/me"
+)"
+test "$old_static_denied" = "401"
+curl -fsS -H "Authorization: Bearer $STATIC_TOKEN_REPLACED" "http://127.0.0.1:$PORT/api/portal/v1/me" | grep -q '"login": "admin"'
+STATIC_TOKEN="$STATIC_TOKEN_REPLACED"
 api_daily_denied="$(
   curl -sS -o /dev/null -w '%{http_code}' \
     -H "Authorization: Bearer $TOKEN" \
@@ -685,6 +703,24 @@ curl -fsS -b "$COOKIE_JAR" -X PUT "http://127.0.0.1:$PORT/api/portal/v1/favorite
 curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/api/portal/v1/favorites" | grep -q '"cameraIds"'
 curl -fsS -b "$COOKIE_JAR" -X DELETE "http://127.0.0.1:$PORT/api/portal/v1/favorites/1" | grep -q '"favorite": false'
 curl -fsS -b "$COOKIE_JAR" -X DELETE "http://127.0.0.1:$PORT/api/portal/v1/users/1/static-token" | grep -q '"ok": true'
+revoked_static_denied="$(
+  curl -sS -o /dev/null -w '%{http_code}' \
+    -H "Authorization: Bearer $STATIC_TOKEN" \
+    "http://127.0.0.1:$PORT/api/portal/v1/me"
+)"
+test "$revoked_static_denied" = "401"
+static_token_audit="$(
+  php <<'PHP'
+<?php
+require getenv('ROOT') . '/app/Portal.php';
+$rows = \SesamePortal\DB::pdo()->query("SELECT action || ' ' || details FROM audit_logs WHERE action LIKE 'user.static_token.%' ORDER BY id")->fetchAll(PDO::FETCH_COLUMN);
+echo implode("\n", $rows);
+PHP
+)"
+grep -q "user.static_token.issue user_id=1 login=admin" <<<"$static_token_audit"
+grep -q "user.static_token.replace user_id=1 login=admin" <<<"$static_token_audit"
+grep -q "user.static_token.revoke user_id=1 login=admin" <<<"$static_token_audit"
+grep -q "previous=yes" <<<"$static_token_audit"
 admin_users_revoked="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/admin/users?q=admin&lang=ru")"
 printf "%s" "$admin_users_revoked" | grep -q "Выпустить статический токен"
 printf "%s" "$admin_users_revoked" | grep -q ">нет<"

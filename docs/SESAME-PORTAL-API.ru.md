@@ -137,8 +137,13 @@ Admin only.
 | `GET` | `/users/{id}` | Получить пользователя с `groupIds`. |
 | `PATCH`/`PUT` | `/users/{id}` | Обновить пользователя. |
 | `DELETE` | `/users/{id}` | Удалить пользователя. |
-| `POST` | `/users/{id}/static-token` | Выпустить static token. Token показывается один раз. |
+| `POST` | `/users/{id}/static-token` | Выпустить static token. Token показывается один раз. Если token уже был, он заменяется. |
 | `DELETE` | `/users/{id}/static-token` | Отозвать static token. |
+
+Операции со static token пишутся в audit: первый выпуск -
+`user.static_token.issue`, замена существующего token -
+`user.static_token.replace`, отзыв - `user.static_token.revoke`. Сам token в
+журнал не записывается.
 
 Payload создания/обновления:
 

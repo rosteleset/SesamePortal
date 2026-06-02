@@ -1099,6 +1099,8 @@ final class I18n
                 'users.passwordPlaceholderNew' => 'minimum 6 characters',
                 'users.passwordPlaceholderEdit' => 'leave blank to keep unchanged',
                 'users.blocked' => 'Blocked',
+                'users.saveDone' => 'User saved',
+                'users.saving' => 'Saving user...',
                 'groups.title' => 'Groups',
                 'groups.new' => 'New group',
                 'groups.edit' => 'Edit group',
@@ -1961,6 +1963,24 @@ final class I18n
             $messages[$locale]['groups.clearAll'] = $clearAll;
         }
 
+        foreach ([
+            'de' => ['Benutzer gespeichert', 'Benutzer wird gespeichert...'],
+            'fr' => ['Utilisateur enregistré', 'Enregistrement de l’utilisateur...'],
+            'es' => ['Usuario guardado', 'Guardando usuario...'],
+            'it' => ['Utente salvato', 'Salvataggio utente...'],
+            'pt' => ['Utilizador guardado', 'A guardar utilizador...'],
+            'bg' => ['Потребителят е запазен', 'Запазване на потребителя...'],
+            'pl' => ['Użytkownik zapisany', 'Zapisywanie użytkownika...'],
+            'zh' => ['用户已保存', '正在保存用户...'],
+            'ja' => ['ユーザーを保存しました', 'ユーザーを保存中...'],
+            'ko' => ['사용자가 저장되었습니다', '사용자 저장 중...'],
+            'ar' => ['تم حفظ المستخدم', 'جارٍ حفظ المستخدم...'],
+            'hy' => ['Օգտատերը պահպանվել է', 'Օգտատերը պահպանվում է...'],
+        ] as $locale => [$saveDone, $saving]) {
+            $messages[$locale]['users.saveDone'] = $saveDone;
+            $messages[$locale]['users.saving'] = $saving;
+        }
+
         $messages['ru'] += [
             'nav.section.view' => 'Просмотр',
             'nav.section.admin' => 'Администрирование',
@@ -1974,6 +1994,8 @@ final class I18n
             'token.staticIssued' => 'Новый статический токен. Сохраните его сейчас: позже Portal покажет только наличие токена',
             'token.staticPresent' => 'есть',
             'token.staticMissing' => 'нет',
+            'users.saveDone' => 'Пользователь сохранён',
+            'users.saving' => 'Сохраняем пользователя...',
             'geo.latitude' => 'Широта',
             'geo.longitude' => 'Долгота',
         ];
@@ -1990,6 +2012,8 @@ final class I18n
             'token.staticIssued' => 'New static token. Save it now: later Portal will only show that a token exists',
             'token.staticPresent' => 'present',
             'token.staticMissing' => 'missing',
+            'users.saveDone' => 'User saved',
+            'users.saving' => 'Saving user...',
             'geo.latitude' => 'Latitude',
             'geo.longitude' => 'Longitude',
         ];
@@ -2348,19 +2372,57 @@ final class TokenService
         )->execute([Util::randomToken(), self::today(), $userId]);
     }
 
-    public static function issueStaticToken(int $userId): string
+    public static function issueStaticToken(int $userId, ?array $actor = null): string
     {
+        $user = self::staticTokenUser($userId);
+        $hadToken = !empty($user['static_token_hash']);
         $token = 'sp_' . Util::randomToken();
         DB::pdo()->prepare('UPDATE users SET static_token_hash = ? WHERE id = ?')
             ->execute([password_hash($token, PASSWORD_DEFAULT), $userId]);
-        Audit::log('user.static_token.issue', 'user_id=' . $userId);
+        self::logStaticTokenEvent(
+            $actor,
+            $hadToken ? 'user.static_token.replace' : 'user.static_token.issue',
+            $userId,
+            $user,
+            ['previous=' . ($hadToken ? 'yes' : 'no')]
+        );
         return $token;
     }
 
-    public static function revokeStaticToken(int $userId): void
+    public static function revokeStaticToken(int $userId, ?array $actor = null): void
     {
+        $user = self::staticTokenUser($userId);
+        $hadToken = !empty($user['static_token_hash']);
         DB::pdo()->prepare('UPDATE users SET static_token_hash = NULL WHERE id = ?')->execute([$userId]);
-        Audit::log('user.static_token.revoke', 'user_id=' . $userId);
+        self::logStaticTokenEvent(
+            $actor,
+            'user.static_token.revoke',
+            $userId,
+            $user,
+            ['previous=' . ($hadToken ? 'yes' : 'no')]
+        );
+    }
+
+    private static function staticTokenUser(int $userId): ?array
+    {
+        $stmt = DB::pdo()->prepare('SELECT id, login, static_token_hash FROM users WHERE id = ?');
+        $stmt->execute([$userId]);
+        return $stmt->fetch() ?: null;
+    }
+
+    private static function logStaticTokenEvent(?array $actor, string $action, int $userId, ?array $target, array $parts = []): void
+    {
+        $details = array_merge([
+            'user_id=' . $userId,
+            'login=' . Audit::cleanValue((string)($target['login'] ?? '')),
+            'ip=' . Audit::clientIp(),
+        ], $parts);
+        $actorId = $actor['id'] ?? null;
+        if ($actorId !== null) {
+            Audit::logForUser($actorId, $action, implode(' ', $details));
+            return;
+        }
+        Audit::log($action, implode(' ', $details));
     }
 
     public static function userByToken(string $token): ?array
@@ -3444,7 +3506,7 @@ final class App
 
     private static function apiUsers(array $parts): void
     {
-        self::apiRequireAdmin();
+        $actor = self::apiRequireAdmin();
         $method = self::apiMethod();
         $id = isset($parts[1]) ? (int)$parts[1] : 0;
 
@@ -3484,12 +3546,16 @@ final class App
         }
 
         if (($parts[2] ?? '') === 'static-token') {
+            if (!self::rowById('users', $id)) {
+                self::apiError(404, 'not_found', 'User not found');
+                return;
+            }
             if ($method === 'POST') {
-                self::apiJson(['token' => TokenService::issueStaticToken($id)]);
+                self::apiJson(['token' => TokenService::issueStaticToken($id, $actor)]);
                 return;
             }
             if ($method === 'DELETE') {
-                TokenService::revokeStaticToken($id);
+                TokenService::revokeStaticToken($id, $actor);
                 self::apiJson(['ok' => true]);
                 return;
             }
@@ -4437,6 +4503,7 @@ final class App
         Auth::requireAdmin();
         $pdo = DB::pdo();
         $message = '';
+        $messageClass = '';
         $staticToken = '';
 
         if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
@@ -4474,6 +4541,8 @@ final class App
                         $groupIds = (array)($_POST['group_ids'] ?? []);
                         self::replaceLinks('user_groups', 'user_id', $id, 'group_id', $groupIds);
                         Audit::log('user.save', $login . ' groups=' . count($groupIds));
+                        $message = self::t('users.saveDone', 'Пользователь сохранён');
+                        $messageClass = 'success';
                     }
                 }
             } elseif ($action === 'delete' && $id > 0) {
@@ -4491,21 +4560,22 @@ final class App
         $groups = self::groupRowsWithDisplayLabels(Repo::all('portal_groups', 'name ASC'));
         $list = self::filteredRows('users', ['login', 'role'], 'login ASC');
         $users = $list['rows'];
-        self::layout(self::t('users.title', 'Пользователи'), function () use ($users, $edit, $groups, $linkedGroups, $message, $staticToken, $list) {
-            self::notice($message);
+        self::layout(self::t('users.title', 'Пользователи'), function () use ($users, $edit, $groups, $linkedGroups, $message, $messageClass, $staticToken, $list) {
+            self::notice($message, $messageClass);
             if ($staticToken) {
                 echo '<div class="alert"><strong>' . self::t('token.staticIssued', 'Новый static token. Сохраните его сейчас: позже Portal покажет только наличие token') . '</strong><br><code>' . Util::h($staticToken) . '</code></div>';
             }
             echo '<div class="admin-grid">';
             echo '<section class="panel"><h2>' . ($edit ? self::t('users.edit', 'Изменить пользователя') : self::t('users.new', 'Новый пользователь')) . '</h2>';
-            echo '<form method="post" class="form">' . Csrf::field();
+            $savingLabel = self::t('users.saving', 'Сохраняем пользователя...');
+            echo '<form method="post" class="form" data-submit-progress="' . Util::h($savingLabel) . '">' . Csrf::field();
             echo '<input type="hidden" name="action" value="save"><input type="hidden" name="id" value="' . Util::h($edit['id'] ?? 0) . '">';
             echo '<label>' . self::t('field.login', 'Логин') . '<input name="login" value="' . Util::h($edit['login'] ?? '') . '" required></label>';
             echo '<label>' . self::t('field.password', 'Пароль') . '<input name="password" type="password" minlength="6" placeholder="' . ($edit ? self::t('users.passwordPlaceholderEdit', 'оставьте пустым, чтобы не менять') : self::t('users.passwordPlaceholderNew', 'минимум 6 символов')) . '"></label>';
             echo '<label>' . self::t('column.role', 'Роль') . '<select name="role"><option value="user">user</option><option value="admin" ' . (($edit['role'] ?? '') === 'admin' ? 'selected' : '') . '>admin</option></select></label>';
             echo '<label class="check"><input type="checkbox" name="blocked" ' . (!empty($edit['blocked']) ? 'checked' : '') . '> ' . self::t('users.blocked', 'Заблокирован') . '</label>';
             self::groupCheckboxTree(self::t('groups.title', 'Группы'), 'group_ids[]', $groups, $linkedGroups);
-            echo '<button class="primary">' . self::t('action.save', 'Сохранить') . '</button></form></section>';
+            echo '<div class="form-submit-row"><button type="submit" class="primary" data-submit-button>' . self::t('action.save', 'Сохранить') . '</button><div class="submit-progress" data-submit-status hidden role="status" aria-live="polite">' . Util::h($savingLabel) . '</div></div></form></section>';
             self::table(self::t('users.title', 'Пользователи'), ['login', 'role', 'blocked', 'static_token_hash', 'last_login_at'], $users, '/admin/users', false, $list);
             echo '</div>';
         });
@@ -5733,6 +5803,9 @@ final class App
             'sync' => '<path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M4 7h11a5 5 0 0 1 5 5M4 7l4-4M4 7l4 4M20 17H9a5 5 0 0 1-5-5m16 5-4-4m4 4-4 4"/>',
             'trash' => '<path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M4 7h16M10 11v6M14 11v6M8 7l1-3h6l1 3M7 7l1 14h8l1-14"/>',
             'key' => '<path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M15 7a4 4 0 1 0 2.8 1.2L21 5l-2-2-3.2 3.2A4 4 0 0 0 15 7zM9 13l-6 6m3-3 2 2"/>',
+            'token-issue' => '<path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M14 7a4 4 0 1 0 2.8 1.2L21 4l-2-2-4.2 4.2M9 13l-6 6m3-3 2 2M18 14v6M15 17h6"/>',
+            'token-refresh' => '<path fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" d="M20 7v5h-5M4 17v-5h5M6.2 8.6a7 7 0 0 1 11.4-1.9L20 12M4 12l2.4 5.3a7 7 0 0 0 11.4-1.9"/>',
+            'token-revoke' => '<path fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" d="M14 7a4 4 0 1 0 2.8 1.2L21 4l-2-2-4.2 4.2M9 13l-6 6m3-3 2 2M15 15l6 6M21 15l-6 6"/>',
             'ban' => '<path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M5 5a10 10 0 0 1 14 14M19 5A10 10 0 0 0 5 19M5 5l14 14"/>',
             'scan' => '<path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M4 7V5a1 1 0 0 1 1-1h2M17 4h2a1 1 0 0 1 1 1v2M20 17v2a1 1 0 0 1-1 1h-2M7 20H5a1 1 0 0 1-1-1v-2M8 12h8M12 8v8"/>',
             'diagnostics' => '<path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M3 12h4l2-6 4 12 2-6h6"/>',
@@ -6322,10 +6395,10 @@ final class App
                     $hasStaticToken ? self::t('token.staticReplace', 'Заменить статический токен') : self::t('token.staticIssue', 'Выпустить статический токен'),
                     '',
                     $hasStaticToken ? self::t('token.staticReplaceConfirm', 'Старый статический токен сразу перестанет работать. Выпустить новый токен?') : '',
-                    'key'
+                    $hasStaticToken ? 'token-refresh' : 'token-issue'
                 );
                 if ($hasStaticToken) {
-                    self::smallPost($actionUrl, ['action' => 'revoke_static', 'id' => $row['id']], self::t('action.revoke', 'Отозвать'), '', '', 'ban');
+                    self::smallPost($actionUrl, ['action' => 'revoke_static', 'id' => $row['id']], self::t('action.revoke', 'Отозвать'), '', '', 'token-revoke');
                 }
             }
             echo '</div></td></tr>';
@@ -6659,10 +6732,11 @@ final class App
         echo '<button title="' . Util::h($label) . '" aria-label="' . Util::h($label) . '" class="' . ($isFavorite ? 'favorite active' : 'favorite') . '">' . ($isFavorite ? '★' : '☆') . '</button></form>';
     }
 
-    private static function notice(string $message): void
+    private static function notice(string $message, string $class = ''): void
     {
         if ($message !== '') {
-            echo '<div class="alert">' . Util::h($message) . '</div>';
+            $classes = trim('alert ' . $class);
+            echo '<div class="' . Util::h($classes) . '">' . Util::h($message) . '</div>';
         }
     }
 

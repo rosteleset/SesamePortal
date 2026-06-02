@@ -357,6 +357,44 @@ code {
   align-items: center;
   justify-content: center;
 }
+.form-submit-row {
+  display: grid;
+  gap: 10px;
+}
+.submit-progress {
+  min-height: 38px;
+  border: 1px solid #CAEAD3;
+  border-radius: 11px;
+  background: var(--success-bg);
+  color: var(--success);
+  font-weight: 800;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 0 12px;
+}
+.submit-progress::before {
+  content: "";
+  width: 14px;
+  height: 14px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: submit-spin .75s linear infinite;
+}
+.submit-progress[hidden] {
+  display: none;
+}
+.form.is-submitting [data-submit-button] {
+  opacity: .78;
+  cursor: progress;
+}
+@keyframes submit-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
 .delete-confirm {
   margin-bottom: 20px;
 }

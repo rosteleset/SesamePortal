@@ -262,6 +262,10 @@ UI показывает кнопку `Выпустить статический 
 `Заменить статический токен`, если token уже есть. Замена требует browser confirm.
 Кнопка `Отозвать` показывается только при наличии token.
 
+Audit actions: `user.static_token.issue` для первого выпуска,
+`user.static_token.replace` для замены существующего token и
+`user.static_token.revoke` для отзыва. Значение token в audit не пишется.
+
 Ответ: HTML.
 
 ## Admin groups

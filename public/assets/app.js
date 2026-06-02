@@ -6,6 +6,7 @@
   initPreviewRefresh();
   initDensitySwitch();
   initGroupTreePickers();
+  initSubmitProgress();
   initAssignmentPickers();
   initLocalTimes();
   initPlayerBackBridge();
@@ -671,6 +672,26 @@
     document.addEventListener("keydown", (event) => {
       if (event.key !== "Escape") return;
       pickers.forEach(closePicker);
+    });
+  }
+
+  function initSubmitProgress(root = document) {
+    root.querySelectorAll("form[data-submit-progress]").forEach((form) => {
+      if (form.dataset.submitProgressBound === "1") return;
+      form.dataset.submitProgressBound = "1";
+      form.addEventListener("submit", () => {
+        const label = form.dataset.submitProgress || tr("js.saving", "Saving...");
+        form.classList.add("is-submitting");
+        form.setAttribute("aria-busy", "true");
+        form.querySelectorAll("[data-submit-status]").forEach((status) => {
+          status.textContent = label;
+          status.hidden = false;
+        });
+        form.querySelectorAll("[data-submit-button]").forEach((button) => {
+          if ("disabled" in button) button.disabled = true;
+          button.setAttribute("aria-disabled", "true");
+        });
+      });
     });
   }
 
