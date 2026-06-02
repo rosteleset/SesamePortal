@@ -60,7 +60,7 @@ rsync -a --delete \
   --exclude '._*' \
   "$ROOT/" "$PACKAGE_DIR/"
 
-chmod +x "$PACKAGE_DIR/bin/portal" "$PACKAGE_DIR/scripts/install.sh" "$PACKAGE_DIR/scripts/package-release.sh"
+chmod +x "$PACKAGE_DIR/bin/portal" "$PACKAGE_DIR/scripts/install.sh" "$PACKAGE_DIR/scripts/package-release.sh" "$PACKAGE_DIR/scripts/sesame-portal-update.sh"
 
 COMMIT="unknown"
 DIRTY="false"

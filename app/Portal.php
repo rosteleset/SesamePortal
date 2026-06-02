@@ -45,6 +45,14 @@ final class Config
             'locale' => getenv('SESAME_PORTAL_LOCALE') ?: 'ru',
             'base_url' => getenv('SESAME_PORTAL_BASE_URL') ?: '',
             'auth_backend_path' => '/api/sesamedvr/auth',
+            'portal_update_enabled' => getenv('SESAME_PORTAL_UPDATE_ENABLED') !== '0',
+            'portal_update_github_repo' => getenv('SESAME_PORTAL_UPDATE_GITHUB_REPO') ?: 'rosteleset/SesamePortal',
+            'portal_update_github_ref' => getenv('SESAME_PORTAL_UPDATE_GITHUB_REF') ?: 'main',
+            'portal_update_github_token' => getenv('SESAME_PORTAL_GITHUB_TOKEN') ?: '',
+            'portal_update_check_ttl_seconds' => (int)(getenv('SESAME_PORTAL_UPDATE_CHECK_TTL_SECONDS') ?: 600),
+            'portal_update_auto_check' => getenv('SESAME_PORTAL_UPDATE_AUTO_CHECK') !== '0',
+            'portal_update_command' => getenv('SESAME_PORTAL_UPDATE_COMMAND') ?: 'sudo -n /usr/local/sbin/sesame-portal-update',
+            'portal_update_pass_args' => getenv('SESAME_PORTAL_UPDATE_PASS_ARGS') === '1',
         ], is_array($loaded) ? $loaded : []);
 
         if (empty($config['crypto_keys']) || !is_array($config['crypto_keys'])) {
@@ -901,6 +909,34 @@ final class I18n
                 'groups.selectAll' => 'Выбрать все',
                 'groups.clearAll' => 'Снять все',
                 'nav.agents' => 'Edge Agents',
+                'nav.settings' => 'Настройки',
+                'settings.title' => 'Настройки',
+                'settings.portalUpdates' => 'Обновления Portal',
+                'settings.updateHint' => 'Portal сравнивает текущую сборку с последним commit выбранной ветки GitHub.',
+                'settings.currentVersion' => 'Текущая версия',
+                'settings.githubVersion' => 'Доступная версия на GitHub',
+                'settings.githubRepo' => 'GitHub repository',
+                'settings.githubRef' => 'GitHub branch/ref',
+                'settings.checkedAt' => 'Проверено',
+                'settings.updateTool' => 'Update tool',
+                'settings.toolInstalled' => 'установлен',
+                'settings.toolMissing' => 'не установлен',
+                'settings.checkError' => 'Ошибка проверки',
+                'settings.checkUpdates' => 'Проверить обновления',
+                'settings.installUpdate' => 'Обновить Portal',
+                'settings.updateConfirm' => 'Обновить код Portal из GitHub и выполнить миграции?',
+                'settings.updateDisabled' => 'обновления отключены',
+                'settings.noUpdateAvailable' => 'нет доступного обновления',
+                'settings.updateAvailable' => 'Доступно обновление',
+                'settings.upToDate' => 'актуально',
+                'settings.notChecked' => 'не проверено',
+                'settings.versionUnknown' => 'неизвестно',
+                'settings.checkDone' => 'Проверка обновлений выполнена',
+                'settings.checkFailed' => 'Проверка обновлений не выполнена',
+                'settings.updateDone' => 'Обновление Portal выполнено',
+                'settings.updateFailed' => 'Обновление Portal не выполнено',
+                'settings.updateOutputOk' => 'Вывод updater',
+                'settings.updateOutputFailed' => 'Вывод updater с ошибкой',
                 'column.id' => 'ID',
                 'column.name' => 'Название',
                 'column.parent_group_name' => 'Родитель',
@@ -1023,6 +1059,7 @@ final class I18n
                 'nav.dvr' => 'DVR',
                 'nav.agents' => 'Edge Agents',
                 'nav.audit' => 'Audit',
+                'nav.settings' => 'Settings',
                 'nav.logout' => 'Logout',
                 'login.title' => 'Sign In',
                 'login.subtitle' => 'SesameWare video surveillance portal',
@@ -1091,6 +1128,33 @@ final class I18n
                 'server.managementTokenMissingNotice' => 'Management token is not configured. Portal cannot read /api/system/status and /api/streams from this SesameDVR server.',
                 'server.managementTokenUnreadableNotice' => 'Management token cannot be decrypted. Save a new token in DVR server settings.',
                 'server.managementUnauthorizedNotice' => 'SesameDVR returned HTTP 401. Check the Management token in DVR server settings.',
+                'settings.title' => 'Settings',
+                'settings.portalUpdates' => 'Portal updates',
+                'settings.updateHint' => 'Portal compares the current build with the latest commit of the selected GitHub branch.',
+                'settings.currentVersion' => 'Current version',
+                'settings.githubVersion' => 'Available GitHub version',
+                'settings.githubRepo' => 'GitHub repository',
+                'settings.githubRef' => 'GitHub branch/ref',
+                'settings.checkedAt' => 'Checked at',
+                'settings.updateTool' => 'Update tool',
+                'settings.toolInstalled' => 'installed',
+                'settings.toolMissing' => 'not installed',
+                'settings.checkError' => 'Check error',
+                'settings.checkUpdates' => 'Check updates',
+                'settings.installUpdate' => 'Update Portal',
+                'settings.updateConfirm' => 'Update Portal code from GitHub and run migrations?',
+                'settings.updateDisabled' => 'updates disabled',
+                'settings.noUpdateAvailable' => 'no update available',
+                'settings.updateAvailable' => 'Update available',
+                'settings.upToDate' => 'up to date',
+                'settings.notChecked' => 'not checked',
+                'settings.versionUnknown' => 'unknown',
+                'settings.checkDone' => 'Update check completed',
+                'settings.checkFailed' => 'Update check failed',
+                'settings.updateDone' => 'Portal update completed',
+                'settings.updateFailed' => 'Portal update failed',
+                'settings.updateOutputOk' => 'Updater output',
+                'settings.updateOutputFailed' => 'Updater error output',
                 'users.title' => 'Users',
                 'users.new' => 'New user',
                 'users.edit' => 'Edit user',
@@ -3002,6 +3066,286 @@ final class DvrClient
     }
 }
 
+final class PortalUpdateService
+{
+    public static function status(bool $force = false, bool $allowRefresh = true): array
+    {
+        $enabled = (bool)Config::get('portal_update_enabled', true);
+        $current = self::currentRelease();
+        $cache = self::readCache();
+        $latest = is_array($cache['latest'] ?? null) ? $cache['latest'] : null;
+        $checkedAt = is_string($cache['checkedAt'] ?? null) ? $cache['checkedAt'] : null;
+        $checkError = is_string($cache['error'] ?? null) ? $cache['error'] : null;
+
+        if ($enabled && $allowRefresh && self::shouldRefresh($cache, $force)) {
+            try {
+                $latest = self::fetchLatest();
+                $checkedAt = Util::now();
+                $checkError = null;
+                self::writeCache([
+                    'checkedAt' => $checkedAt,
+                    'latest' => $latest,
+                    'error' => null,
+                ]);
+            } catch (\Throwable $error) {
+                $checkedAt = Util::now();
+                $checkError = $error->getMessage();
+                self::writeCache([
+                    'checkedAt' => $checkedAt,
+                    'latest' => $latest,
+                    'error' => $checkError,
+                ]);
+            }
+        }
+
+        $currentCommit = self::normalizeSha((string)($current['sourceCommit'] ?? ''));
+        $latestCommit = self::normalizeSha((string)($latest['sourceCommit'] ?? ''));
+        $updateAvailable = $enabled && $currentCommit !== '' && $latestCommit !== '' && !hash_equals($currentCommit, $latestCommit);
+
+        return [
+            'enabled' => $enabled,
+            'repo' => self::githubRepo(),
+            'ref' => self::githubRef(),
+            'current' => $current,
+            'latest' => $latest,
+            'checkedAt' => $checkedAt,
+            'checkError' => $checkError,
+            'stale' => self::cacheIsStale($cache),
+            'updateAvailable' => $updateAvailable,
+            'upToDate' => $enabled && $currentCommit !== '' && $latestCommit !== '' && hash_equals($currentCommit, $latestCommit),
+            'toolInstalled' => self::toolInstalled(),
+            'command' => (string)Config::get('portal_update_command', ''),
+        ];
+    }
+
+    public static function cachedStatus(): array
+    {
+        return self::status(false, false);
+    }
+
+    public static function run(): array
+    {
+        if (!(bool)Config::get('portal_update_enabled', true)) {
+            return ['ok' => false, 'status' => 1, 'output' => 'Portal updates are disabled'];
+        }
+
+        $command = trim((string)Config::get('portal_update_command', 'sudo -n /usr/local/sbin/sesame-portal-update'));
+        if ($command === '') {
+            return ['ok' => false, 'status' => 1, 'output' => 'Portal update command is not configured'];
+        }
+        if (!function_exists('exec')) {
+            return ['ok' => false, 'status' => 1, 'output' => 'PHP exec() is disabled'];
+        }
+
+        $repo = self::githubRepo();
+        $ref = self::githubRef();
+        $fullCommand = $command;
+        if ((bool)Config::get('portal_update_pass_args', false)) {
+            $args = [
+                '--repo', $repo,
+                '--ref', $ref,
+                '--install-link', self::installLink(),
+                '--state-dir', Config::stateDir(),
+                '--php-bin', PHP_BINARY ?: 'php',
+            ];
+            foreach ($args as $arg) {
+                $fullCommand .= ' ' . escapeshellarg((string)$arg);
+            }
+        }
+        $fullCommand .= ' 2>&1';
+
+        Audit::log('portal.update.start', 'repo=' . Audit::cleanValue($repo) . ' ref=' . Audit::cleanValue($ref) . ' ip=' . Audit::clientIp());
+        $lines = [];
+        $status = 1;
+        exec($fullCommand, $lines, $status);
+        $output = mb_strcut(implode("\n", $lines), 0, 5000, 'UTF-8');
+        $details = 'repo=' . Audit::cleanValue($repo) . ' ref=' . Audit::cleanValue($ref) . ' rc=' . $status . ' ip=' . Audit::clientIp();
+        Audit::log($status === 0 ? 'portal.update.complete' : 'portal.update.failed', $details);
+        if ($status === 0) {
+            @unlink(self::cachePath());
+            if (function_exists('opcache_reset')) {
+                @opcache_reset();
+            }
+        }
+
+        return [
+            'ok' => $status === 0,
+            'status' => $status,
+            'output' => $output,
+        ];
+    }
+
+    public static function currentRelease(): array
+    {
+        $root = Config::root();
+        $releaseFile = $root . '/RELEASE.json';
+        $data = is_file($releaseFile) ? json_decode((string)file_get_contents($releaseFile), true) : [];
+        $data = is_array($data) ? $data : [];
+
+        $deployedRevision = $root . '/.deployed-revision';
+        if (empty($data['sourceCommit']) && is_file($deployedRevision)) {
+            $data['sourceCommit'] = trim((string)file_get_contents($deployedRevision));
+        }
+        if (empty($data['sourceCommit']) && is_dir($root . '/.git')) {
+            $lines = [];
+            $status = 1;
+            if (function_exists('exec')) {
+                exec('git -C ' . escapeshellarg($root) . ' rev-parse HEAD 2>/dev/null', $lines, $status);
+                if ($status === 0 && !empty($lines[0])) {
+                    $data['sourceCommit'] = trim((string)$lines[0]);
+                }
+                $lines = [];
+                exec('git -C ' . escapeshellarg($root) . ' describe --tags --always --dirty 2>/dev/null', $lines, $status);
+                if ($status === 0 && !empty($lines[0]) && empty($data['version'])) {
+                    $data['version'] = trim((string)$lines[0]);
+                }
+            }
+        }
+
+        $data += [
+            'name' => 'SesamePortal',
+            'version' => 'dev',
+            'sourceCommit' => '',
+            'dirty' => null,
+            'builtAt' => null,
+        ];
+        $data['root'] = $root;
+        return $data;
+    }
+
+    private static function fetchLatest(): array
+    {
+        if (!function_exists('curl_init')) {
+            throw new RuntimeException('PHP curl extension is not available');
+        }
+
+        $repo = self::githubRepo();
+        if (!preg_match('/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/', $repo)) {
+            throw new RuntimeException('Invalid GitHub repo format');
+        }
+
+        $url = 'https://api.github.com/repos/' . $repo . '/commits/' . rawurlencode(self::githubRef());
+        $ch = curl_init($url);
+        $headers = [
+            'Accept: application/vnd.github+json',
+            'User-Agent: SesamePortal',
+        ];
+        $token = trim((string)Config::get('portal_update_github_token', ''));
+        if ($token !== '') {
+            $headers[] = 'Authorization: Bearer ' . $token;
+        }
+        curl_setopt_array($ch, [
+            CURLOPT_HTTPHEADER => $headers,
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_CONNECTTIMEOUT => 2,
+            CURLOPT_TIMEOUT => 5,
+        ]);
+        $body = curl_exec($ch);
+        $status = (int)(curl_getinfo($ch, CURLINFO_RESPONSE_CODE) ?: 0);
+        $error = curl_error($ch);
+        curl_close($ch);
+
+        if ($body === false || $status < 200 || $status >= 300) {
+            throw new RuntimeException('GitHub check failed: HTTP ' . $status . ($error !== '' ? ' ' . $error : ''));
+        }
+
+        $data = json_decode((string)$body, true);
+        if (!is_array($data) || empty($data['sha'])) {
+            throw new RuntimeException('GitHub response does not contain commit sha');
+        }
+
+        $message = (string)($data['commit']['message'] ?? '');
+        $message = strtok($message, "\n") ?: $message;
+        $sha = (string)$data['sha'];
+        return [
+            'version' => substr($sha, 0, 12),
+            'sourceCommit' => $sha,
+            'commitDate' => (string)($data['commit']['committer']['date'] ?? $data['commit']['author']['date'] ?? ''),
+            'message' => $message,
+            'url' => (string)($data['html_url'] ?? ''),
+        ];
+    }
+
+    private static function shouldRefresh(array $cache, bool $force): bool
+    {
+        if ($force) {
+            return true;
+        }
+        if (!(bool)Config::get('portal_update_auto_check', true)) {
+            return false;
+        }
+        if (!is_array($cache['latest'] ?? null)) {
+            return true;
+        }
+        return self::cacheIsStale($cache);
+    }
+
+    private static function cacheIsStale(array $cache): bool
+    {
+        $checkedAt = strtotime((string)($cache['checkedAt'] ?? ''));
+        if (!$checkedAt) {
+            return true;
+        }
+        $ttl = max(60, (int)Config::get('portal_update_check_ttl_seconds', 600));
+        return time() - $checkedAt > $ttl;
+    }
+
+    private static function readCache(): array
+    {
+        $path = self::cachePath();
+        if (!is_file($path)) {
+            return [];
+        }
+        $data = json_decode((string)file_get_contents($path), true);
+        return is_array($data) ? $data : [];
+    }
+
+    private static function writeCache(array $data): void
+    {
+        $path = self::cachePath();
+        $dir = dirname($path);
+        if (!is_dir($dir)) {
+            mkdir($dir, 0750, true);
+        }
+        file_put_contents($path, json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
+    }
+
+    private static function cachePath(): string
+    {
+        return rtrim(Config::stateDir(), '/') . '/portal-update-status.json';
+    }
+
+    private static function githubRepo(): string
+    {
+        return trim((string)Config::get('portal_update_github_repo', 'rosteleset/SesamePortal'));
+    }
+
+    private static function githubRef(): string
+    {
+        return trim((string)Config::get('portal_update_github_ref', 'main')) ?: 'main';
+    }
+
+    private static function installLink(): string
+    {
+        return trim((string)Config::get('portal_update_install_link', '')) ?: Config::root();
+    }
+
+    private static function toolInstalled(): bool
+    {
+        $command = (string)Config::get('portal_update_command', '');
+        if (preg_match('/(?:^|\s)(\/[^\s]+sesame-portal-update)(?:\s|$)/', $command, $match)) {
+            return is_executable($match[1]);
+        }
+        return trim($command) !== '';
+    }
+
+    private static function normalizeSha(string $sha): string
+    {
+        $sha = strtolower(trim($sha));
+        return preg_match('/^[a-f0-9]{7,40}$/', $sha) ? $sha : '';
+    }
+}
+
 final class Repo
 {
     public static function server(int $id): ?array
@@ -3268,6 +3612,7 @@ final class App
             '/admin/agents' => self::agents(),
             '/admin/cameras' => self::cameras(),
             '/admin/audit' => self::audit(),
+            '/admin/settings' => self::settings(),
             '/viewer/map' => self::viewer('map'),
             '/viewer/preview' => self::previewProxy(),
             '/viewer/player' => self::player(),
@@ -4438,6 +4783,153 @@ final class App
         return self::t('dashboard.refreshFinished', 'Обновление завершено') . ': '
             . $okCount . ' ' . self::t('dashboard.refreshOk', 'успешно') . ', '
             . $errorCount . ' ' . self::t('dashboard.refreshErrors', 'с ошибкой');
+    }
+
+    private static function settings(): void
+    {
+        Auth::requireAdmin();
+        $message = '';
+        $messageClass = '';
+        $updateResult = null;
+        $forceCheck = false;
+
+        if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
+            $action = (string)Util::post('action');
+            if ($action === 'check_update') {
+                $forceCheck = true;
+            } elseif ($action === 'run_update') {
+                $updateResult = PortalUpdateService::run();
+                $forceCheck = !empty($updateResult['ok']);
+                $message = !empty($updateResult['ok'])
+                    ? self::t('settings.updateDone', 'Обновление Portal выполнено')
+                    : self::t('settings.updateFailed', 'Обновление Portal не выполнено');
+                $messageClass = !empty($updateResult['ok']) ? 'success' : 'danger';
+            }
+        }
+
+        $status = PortalUpdateService::status($forceCheck, true);
+        if ($forceCheck && $updateResult === null) {
+            $message = empty($status['checkError'])
+                ? self::t('settings.checkDone', 'Проверка обновлений выполнена')
+                : self::t('settings.checkFailed', 'Проверка обновлений не выполнена');
+            $messageClass = empty($status['checkError']) ? 'success' : 'danger';
+        }
+
+        self::layout(self::t('settings.title', 'Настройки'), function () use ($message, $messageClass, $status, $updateResult) {
+            self::notice($message, $messageClass);
+            self::portalUpdatePanel($status, $updateResult);
+        });
+    }
+
+    private static function portalUpdatePanel(array $status, ?array $updateResult = null): void
+    {
+        $current = is_array($status['current'] ?? null) ? $status['current'] : [];
+        $latest = is_array($status['latest'] ?? null) ? $status['latest'] : [];
+        $badge = self::portalUpdateBadge($status);
+
+        echo '<section class="panel portal-update-panel"><div class="section-head"><div><h2>' . self::t('settings.portalUpdates', 'Обновления Portal') . '</h2><p class="muted">' . Util::h(self::t('settings.updateHint', 'Portal сравнивает текущую сборку с последним commit выбранной ветки GitHub.')) . '</p></div>';
+        echo '<span class="pill ' . Util::h($badge['class']) . '">' . Util::h($badge['text']) . '</span></div>';
+
+        echo '<div class="portal-version-grid">';
+        self::portalVersionCard(self::t('settings.currentVersion', 'Текущая версия'), $current);
+        self::portalVersionCard(self::t('settings.githubVersion', 'Доступная версия на GitHub'), $latest);
+        echo '</div>';
+
+        echo '<dl class="portal-update-meta">';
+        echo '<dt>' . self::t('settings.githubRepo', 'GitHub repository') . '</dt><dd><code>' . Util::h((string)($status['repo'] ?? '')) . '</code></dd>';
+        echo '<dt>' . self::t('settings.githubRef', 'GitHub branch/ref') . '</dt><dd><code>' . Util::h((string)($status['ref'] ?? '')) . '</code></dd>';
+        echo '<dt>' . self::t('settings.checkedAt', 'Проверено') . '</dt><dd>' . self::portalUpdateValue($status['checkedAt'] ?? null) . '</dd>';
+        echo '<dt>' . self::t('settings.updateTool', 'Update tool') . '</dt><dd>' . ((bool)($status['toolInstalled'] ?? false) ? self::t('settings.toolInstalled', 'установлен') : self::t('settings.toolMissing', 'не установлен')) . '</dd>';
+        if (!empty($status['checkError'])) {
+            echo '<dt>' . self::t('settings.checkError', 'Ошибка проверки') . '</dt><dd class="danger-text">' . Util::h((string)$status['checkError']) . '</dd>';
+        }
+        echo '</dl>';
+
+        echo '<div class="form-actions portal-update-actions">';
+        self::smallPost('/admin/settings', ['action' => 'check_update'], self::t('settings.checkUpdates', 'Проверить обновления'));
+        if ((bool)($status['enabled'] ?? false) && (bool)($status['toolInstalled'] ?? false) && (bool)($status['updateAvailable'] ?? false)) {
+            self::smallPost(
+                '/admin/settings',
+                ['action' => 'run_update'],
+                self::t('settings.installUpdate', 'Обновить Portal'),
+                'primary',
+                self::t('settings.updateConfirm', 'Обновить код Portal из GitHub и выполнить миграции?')
+            );
+        } else {
+            $disabledReason = !(bool)($status['enabled'] ?? false)
+                ? self::t('settings.updateDisabled', 'обновления отключены')
+                : (!(bool)($status['toolInstalled'] ?? false)
+                    ? self::t('settings.toolMissing', 'не установлен')
+                    : self::t('settings.noUpdateAvailable', 'нет доступного обновления'));
+            echo '<button type="button" disabled title="' . Util::h($disabledReason) . '">' . self::icon('download') . self::t('settings.installUpdate', 'Обновить Portal') . '</button>';
+        }
+        echo '</div>';
+
+        if ($updateResult !== null) {
+            $summary = !empty($updateResult['ok'])
+                ? self::t('settings.updateOutputOk', 'Вывод updater')
+                : self::t('settings.updateOutputFailed', 'Вывод updater с ошибкой');
+            echo '<details class="technical-result" open><summary>' . Util::h($summary) . '</summary><pre>' . Util::h((string)($updateResult['output'] ?? '')) . '</pre></details>';
+        }
+
+        echo '</section>';
+    }
+
+    private static function portalUpdateBadge(array $status): array
+    {
+        if (!(bool)($status['enabled'] ?? false)) {
+            return ['class' => 'warn', 'text' => self::t('settings.updateDisabled', 'обновления отключены')];
+        }
+        if (!empty($status['checkError']) && empty($status['latest'])) {
+            return ['class' => 'danger', 'text' => self::t('settings.checkFailed', 'проверка не выполнена')];
+        }
+        if ((bool)($status['updateAvailable'] ?? false)) {
+            return ['class' => 'warn', 'text' => self::t('settings.updateAvailable', 'доступно обновление')];
+        }
+        if ((bool)($status['upToDate'] ?? false)) {
+            return ['class' => 'success', 'text' => self::t('settings.upToDate', 'актуально')];
+        }
+        return ['class' => 'info', 'text' => self::t('settings.notChecked', 'не проверено')];
+    }
+
+    private static function portalVersionCard(string $title, array $release): void
+    {
+        $version = self::portalUpdateVersionLabel($release);
+        $commit = self::shortCommit((string)($release['sourceCommit'] ?? ''));
+        $date = (string)($release['commitDate'] ?? $release['builtAt'] ?? '');
+        echo '<div class="summary-card portal-version-card"><span>' . Util::h($title) . '</span><strong>' . Util::h($version) . '</strong>';
+        if ($commit !== '') {
+            echo '<code>' . Util::h($commit) . '</code>';
+        }
+        if ($date !== '') {
+            echo '<small>' . Util::h($date) . '</small>';
+        }
+        if (!empty($release['message'])) {
+            echo '<p>' . Util::h((string)$release['message']) . '</p>';
+        }
+        echo '</div>';
+    }
+
+    private static function portalUpdateVersionLabel(array $release): string
+    {
+        $version = trim((string)($release['version'] ?? ''));
+        if ($version !== '') {
+            return $version;
+        }
+        $commit = self::shortCommit((string)($release['sourceCommit'] ?? ''));
+        return $commit !== '' ? $commit : self::t('settings.versionUnknown', 'неизвестно');
+    }
+
+    private static function portalUpdateValue(mixed $value): string
+    {
+        $text = trim((string)($value ?? ''));
+        return $text !== '' ? Util::h($text) : '<span class="muted">' . self::t('settings.notChecked', 'не проверено') . '</span>';
+    }
+
+    private static function shortCommit(string $sha): string
+    {
+        $sha = trim($sha);
+        return preg_match('/^[A-Fa-f0-9]{7,40}$/', $sha) ? substr($sha, 0, 12) : '';
     }
 
     private static function serverCheckNotice(array $result, string $serverName = ''): string
@@ -5749,11 +6241,15 @@ final class App
                 self::navLink('/admin/servers', self::t('nav.dvr', 'DVR'), 'server');
                 self::navLink('/admin/agents', self::t('nav.agents', 'Edge Agents'), 'agent');
                 self::navLink('/admin/audit', self::t('nav.audit', 'Журнал'), 'audit');
+                self::navLink('/admin/settings', self::t('nav.settings', 'Настройки'), 'settings');
                 echo '</nav>';
             }
             echo '<div class="sidebar-foot">' . I18n::languageLinks() . '<a class="logout-link" href="/logout">' . self::icon('logout') . self::t('nav.logout', 'Выход') . '</a></div></aside>';
             $initial = strtoupper(substr((string)$user['login'], 0, 1) ?: 'U');
             echo '<main class="main workspace"><div class="topbar"><div><h1>' . Util::h($title) . '</h1></div><div class="user">' . Util::h($initial) . '</div></div>';
+            if ($user['role'] === 'admin') {
+                self::portalUpdateBanner();
+            }
             $body();
             echo '</main></div>';
         } else {
@@ -5797,6 +6293,7 @@ final class App
             'server' => '<path d="M4 6h16v5H4zM4 13h16v5H4z"/><path d="M8 8h.01M8 15h.01"/>',
             'agent' => '<path d="M12 3 4 7v10l8 4 8-4V7l-8-4z"/><path d="M8 9h8M8 13h8M10 17h4"/>',
             'audit' => '<path d="M6 3h12v18H6z"/><path d="M9 7h6M9 11h6M9 15h4"/>',
+            'settings' => '<path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7z"/><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="m19.4 15 .6 2.2-2 3.4-2.2-.6a8 8 0 0 1-1.9 1.1L13.3 23h-4l-.6-1.9A8 8 0 0 1 6.8 20l-2.2.6-2-3.4.6-2.2A8 8 0 0 1 2 13.2L0 12l2-1.2A8 8 0 0 1 3.2 9l-.6-2.2 2-3.4 2.2.6A8 8 0 0 1 8.7 2.9L9.3 1h4l.6 1.9A8 8 0 0 1 15.8 4l2.2-.6 2 3.4-.6 2.2a8 8 0 0 1 1.1 1.8L22 12l-1.5 1.2a8 8 0 0 1-1.1 1.8z"/>',
             'logout' => '<path d="M10 4H5v16h5"/><path d="M14 8l4 4-4 4M18 12H9"/>',
             'edit' => '<path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M4 20h4L18.5 9.5a2.1 2.1 0 0 0-3-3L5 17v3z"/><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="m14.5 7.5 2 2"/>',
             'check' => '<path fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" d="M20 6 9 17l-5-5"/>',
@@ -5809,6 +6306,7 @@ final class App
             'ban' => '<path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M5 5a10 10 0 0 1 14 14M19 5A10 10 0 0 0 5 19M5 5l14 14"/>',
             'scan' => '<path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M4 7V5a1 1 0 0 1 1-1h2M17 4h2a1 1 0 0 1 1 1v2M20 17v2a1 1 0 0 1-1 1h-2M7 20H5a1 1 0 0 1-1-1v-2M8 12h8M12 8v8"/>',
             'diagnostics' => '<path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M3 12h4l2-6 4 12 2-6h6"/>',
+            'download' => '<path fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" d="M12 3v12M7 10l5 5 5-5M5 21h14"/>',
         ];
         return '<svg viewBox="0 0 24 24" aria-hidden="true">' . ($paths[$name] ?? $paths['grid']) . '</svg>';
     }
@@ -6980,6 +7478,33 @@ final class App
         );
         $method = strtoupper(preg_replace('/[^A-Z]/i', '', $method) ?: 'GET');
         return substr($method, 0, 12);
+    }
+
+    private static function portalUpdateBanner(): void
+    {
+        $status = PortalUpdateService::cachedStatus();
+        if (empty($status['updateAvailable'])) {
+            return;
+        }
+
+        $current = is_array($status['current'] ?? null) ? $status['current'] : [];
+        $latest = is_array($status['latest'] ?? null) ? $status['latest'] : [];
+        echo '<section class="portal-update-banner">';
+        echo '<div><strong>' . Util::h(self::t('settings.updateAvailable', 'Доступно обновление')) . '</strong>';
+        echo '<span>' . Util::h(self::t('settings.currentVersion', 'Текущая версия')) . ': ' . Util::h(self::portalUpdateVersionLabel($current)) . ' · ';
+        echo Util::h(self::t('settings.githubVersion', 'Доступная версия на GitHub')) . ': ' . Util::h(self::portalUpdateVersionLabel($latest)) . '</span></div>';
+        echo '<div class="portal-update-banner-actions">';
+        if ((bool)($status['toolInstalled'] ?? false)) {
+            self::smallPost(
+                '/admin/settings',
+                ['action' => 'run_update'],
+                self::t('settings.installUpdate', 'Обновить Portal'),
+                'primary',
+                self::t('settings.updateConfirm', 'Обновить код Portal из GitHub и выполнить миграции?')
+            );
+        }
+        echo '<a class="btn" href="/admin/settings">' . self::t('nav.settings', 'Настройки') . '</a></div>';
+        echo '</section>';
     }
 
     private static function rowById(string $table, int $id): ?array

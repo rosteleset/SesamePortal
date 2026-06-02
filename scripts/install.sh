@@ -17,6 +17,9 @@ STAGING_DIR=""
 NGINX_AVAILABLE="/etc/nginx/sites-available/sesame-portal.conf"
 NGINX_ENABLED="/etc/nginx/sites-enabled/sesame-portal.conf"
 CRON_FILE="/etc/cron.d/sesame-portal"
+SUPPORT_TOOL="/usr/local/sbin/sesame-portal-update"
+SUDOERS_FILE="/etc/sudoers.d/sesame-portal-update"
+UPDATE_CONFIG="/etc/sesame-portal-update.conf"
 
 usage() {
   cat <<'USAGE'
@@ -106,6 +109,9 @@ prepare_rollback() {
   backup_path "$NGINX_AVAILABLE" nginx_available
   backup_path "$NGINX_ENABLED" nginx_enabled
   backup_path "$CRON_FILE" cron_file
+  backup_path "$SUPPORT_TOOL" support_tool
+  backup_path "$SUDOERS_FILE" sudoers_file
+  backup_path "$UPDATE_CONFIG" update_config
   ROLLBACK_READY=1
 }
 
@@ -127,6 +133,9 @@ rollback_on_error() {
   restore_path "$NGINX_AVAILABLE" nginx_available
   restore_path "$NGINX_ENABLED" nginx_enabled
   restore_path "$CRON_FILE" cron_file
+  restore_path "$SUPPORT_TOOL" support_tool
+  restore_path "$SUDOERS_FILE" sudoers_file
+  restore_path "$UPDATE_CONFIG" update_config
   if command -v nginx >/dev/null 2>&1; then
     if nginx -t; then
       systemctl reload nginx || systemctl restart nginx || true
@@ -134,6 +143,7 @@ rollback_on_error() {
       echo "nginx config failed after rollback; inspect $NGINX_AVAILABLE" >&2
     fi
   fi
+  reload_php_fpm
   rm -rf "$BACKUP_DIR"
   exit "$rc"
 }
@@ -150,7 +160,7 @@ install_packages() {
   if command -v apt-get >/dev/null 2>&1; then
     apt-get update
     DEBIAN_FRONTEND=noninteractive apt-get install -y \
-      nginx certbot php-fpm php-cli php-sqlite3 php-curl php-mbstring sqlite3 rsync
+      nginx certbot php-fpm php-cli php-sqlite3 php-curl php-mbstring sqlite3 rsync sudo
   fi
 }
 
@@ -162,6 +172,17 @@ detect_php_fpm_socket() {
     return
   fi
   echo "127.0.0.1:9000"
+}
+
+reload_php_fpm() {
+  local unit
+  if ! command -v systemctl >/dev/null 2>&1; then
+    return
+  fi
+  while read -r unit; do
+    [[ -z "$unit" ]] && continue
+    systemctl reload "$unit" || systemctl restart "$unit" || true
+  done < <(systemctl list-units --type=service --all 'php*-fpm.service' --no-legend 2>/dev/null | awk '{print $1}')
 }
 
 write_config() {
@@ -300,6 +321,25 @@ PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin
 CRON
 }
 
+install_support_tools() {
+  install -m 0755 "$SOURCE_DIR/scripts/sesame-portal-update.sh" "$SUPPORT_TOOL"
+  cat > "$UPDATE_CONFIG" <<CONF
+REPO='rosteleset/SesamePortal'
+REF='main'
+INSTALL_LINK='$INSTALL_DIR'
+STATE_DIR='$STATE_DIR'
+PHP_BIN='$PHP_BIN'
+CONF
+  chmod 0644 "$UPDATE_CONFIG"
+  cat > "$SUDOERS_FILE" <<SUDOERS
+www-data ALL=(root) NOPASSWD: $SUPPORT_TOOL
+SUDOERS
+  chmod 0440 "$SUDOERS_FILE"
+  if command -v visudo >/dev/null 2>&1; then
+    visudo -cf "$SUDOERS_FILE" >/dev/null
+  fi
+}
+
 main() {
   prepare_rollback
   install_packages
@@ -318,6 +358,7 @@ main() {
     run_portal_cli create-admin "$ADMIN_LOGIN" "$ADMIN_PASSWORD"
   fi
   write_cron
+  install_support_tools
 
   local fpm
   fpm="$(detect_php_fpm_socket)"
@@ -331,6 +372,7 @@ main() {
     nginx -t
     systemctl reload nginx || systemctl restart nginx
   fi
+  reload_php_fpm
 
   cleanup_rollback
   local scheme="https"

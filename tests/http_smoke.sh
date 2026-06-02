@@ -18,6 +18,7 @@ trap cleanup EXIT
 
 export SESAME_PORTAL_STATE_DIR="$STATE_DIR"
 export SESAME_PORTAL_SECRET="test-secret"
+export SESAME_PORTAL_UPDATE_AUTO_CHECK=0
 export ROOT
 
 OLD_UNIQUE_STATE="$STATE_DIR/old-unique"
@@ -150,6 +151,21 @@ status="$(
 )"
 test "$status" = "303"
 
+CURRENT_SHA="$(git -C "$ROOT" rev-parse HEAD 2>/dev/null || printf 'abcdef1234567890abcdef1234567890abcdef12')"
+cat > "$STATE_DIR/portal-update-status.json" <<JSON
+{
+  "checkedAt": "2026-06-02T00:00:00+00:00",
+  "latest": {
+    "version": "ffffffffffff",
+    "sourceCommit": "ffffffffffffffffffffffffffffffffffffffff",
+    "commitDate": "2026-06-02T00:00:00Z",
+    "message": "Smoke available update"
+  },
+  "error": null,
+  "currentForSmoke": "$CURRENT_SHA"
+}
+JSON
+
 while IFS='|' read -r locale title; do
   [[ -z "$locale" ]] && continue
   localized_viewer="$(curl -fsS -b "$COOKIE_JAR" -c "$COOKIE_JAR" "http://127.0.0.1:$PORT/?lang=$locale")"
@@ -179,6 +195,8 @@ printf "%s" "$dashboard_page" | grep -q "0.1.0"
 printf "%s" "$dashboard_page" | grep -q "12.35%"
 printf "%s" "$dashboard_page" | grep -q "25%"
 printf "%s" "$dashboard_page" | grep -q "Management token не указан"
+printf "%s" "$dashboard_page" | grep -q "portal-update-banner"
+printf "%s" "$dashboard_page" | grep -q "Доступно обновление"
 printf "%s" "$dashboard_page" | grep -q 'class="local-time"'
 printf "%s" "$dashboard_page" | grep -q 'datetime="'
 ! printf "%s" "$dashboard_page" | grep -q ">Array<"
@@ -194,6 +212,13 @@ printf "%s" "$no_token_refresh" | grep -q "No Token DVR: Management token не �
 curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/admin/dashboard?lang=en" | grep -q "SesameDVR servers"
 curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/admin/dashboard?lang=de" | grep -q "Benutzer"
 curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/admin/dashboard?lang=ar" | grep -q 'dir="rtl"'
+settings_page="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/admin/settings?lang=ru")"
+printf "%s" "$settings_page" | grep -q "Обновления Portal"
+printf "%s" "$settings_page" | grep -q "Текущая версия"
+printf "%s" "$settings_page" | grep -q "Доступная версия на GitHub"
+printf "%s" "$settings_page" | grep -q "Smoke available update"
+printf "%s" "$settings_page" | grep -q "Проверить обновления"
+printf "%s" "$settings_page" | grep -q "Обновить Portal"
 admin_users_page="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/admin/users?q=admin&lang=ru")"
 printf "%s" "$admin_users_page" | grep -q "admin"
 printf "%s" "$admin_users_page" | grep -q "Статический токен"

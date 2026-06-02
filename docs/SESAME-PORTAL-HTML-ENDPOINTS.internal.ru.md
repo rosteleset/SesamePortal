@@ -219,6 +219,53 @@ Actions:
 
 Ответ: HTML dashboard с notice о результате.
 
+## Admin settings
+
+### GET /admin/settings
+
+Страница настроек Portal. Сейчас содержит блок `Обновления Portal`:
+
+- текущая версия из `RELEASE.json` или fallback из локального Git checkout;
+- доступная версия на GitHub по `portal_update_github_repo` /
+  `portal_update_github_ref`;
+- время последней проверки;
+- состояние support tool `/usr/local/sbin/sesame-portal-update`;
+- кнопки `Проверить обновления` и `Обновить Portal`.
+
+Требует admin.
+
+Ответ: HTML.
+
+### POST /admin/settings
+
+Управляет проверкой и установкой обновления Portal.
+
+Требует admin и CSRF.
+
+Actions:
+
+| `action` | Поля | Описание |
+| --- | --- | --- |
+| `check_update` | - | Принудительно проверить последний commit на GitHub и обновить cache `/var/lib/sesame-portal/portal-update-status.json`. |
+| `run_update` | - | Запустить configured update command, по умолчанию `sudo -n /usr/local/sbin/sesame-portal-update`. |
+
+`run_update` скачивает выбранную ветку GitHub, устанавливает новый release,
+переключает `/opt/sesame-portal/current`, запускает миграции и reload php-fpm.
+Web-процесс не пишет напрямую в `/opt`: installer выдаёт пользователю
+`www-data` sudoers-право только на точный запуск
+`/usr/local/sbin/sesame-portal-update` без произвольных аргументов. Параметры
+updater-а для production установки хранятся в root-owned
+`/etc/sesame-portal-update.conf`.
+
+Audit actions:
+
+- `portal.update.start`;
+- `portal.update.complete`;
+- `portal.update.failed`.
+
+В audit пишутся repo, ref, return code и IP. Полный stdout/stderr updater-а
+показывается только в HTML notice/details текущему admin.
+
 ## Admin users
 
 ### GET /admin/users

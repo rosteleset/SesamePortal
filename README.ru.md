@@ -110,7 +110,9 @@ sudo bash scripts/install.sh \
 инициализирует SQLite, создаёт первого администратора и может выпустить
 сертификат Let's Encrypt через `certbot certonly --webroot`. Он записывает
 только site-файл SesamePortal и не позволяет certbot переписывать существующие
-nginx site-конфиги.
+nginx site-конфиги. Также installer устанавливает
+`/usr/local/sbin/sesame-portal-update` и sudoers-правило, чтобы администратор
+мог обновлять Portal из web UI в разделе `Настройки`.
 
 Для repair/update запуска поверх существующей базы:
 
@@ -123,7 +125,7 @@ sudo bash scripts/install.sh \
 
 Инсталлятор делает backup текущего release, nginx site, cron entry, config и
 SQLite-файлов перед применением изменений. Если шаг установки завершается
-ошибкой, он восстанавливает эти файлы и по возможности reload'ит nginx.
+ошибкой, он восстанавливает эти файлы и по возможности reload'ит nginx/php-fpm.
 
 ## Первый вход
 

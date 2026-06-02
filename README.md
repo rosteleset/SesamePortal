@@ -106,7 +106,8 @@ The installer creates an nginx site, connects the detected php-fpm socket,
 initializes SQLite, creates the first admin user, and can issue a Let's Encrypt
 certificate through `certbot certonly --webroot`. It writes only the
 SesamePortal site file and does not let certbot rewrite existing nginx site
-configs.
+configs. It also installs `/usr/local/sbin/sesame-portal-update` and a sudoers
+rule so an admin can update Portal from the web UI under `Settings`.
 
 For repair/update runs against an existing database:
 
@@ -119,7 +120,7 @@ sudo bash scripts/install.sh \
 
 The installer backs up the current release, nginx site, cron entry, config, and
 SQLite files before applying changes. If a step fails, it restores those files
-and reloads nginx when possible.
+and reloads nginx/php-fpm when possible.
 
 ## First Login
 
