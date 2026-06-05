@@ -358,10 +358,10 @@ Payload:
 | --- | --- | --- |
 | `GET` | `/cameras` | Список камер. Для user только доступные камеры. |
 | `POST` | `/cameras` | Создать камеру и, по умолчанию, синхронизировать stream на DVR. |
-| `GET` | `/cameras/{id}` | Детали камеры с `groupIds`. |
-| `PATCH`/`PUT` | `/cameras/{id}` | Обновить камеру. |
-| `DELETE` | `/cameras/{id}` | Удалить камеру из Portal. |
-| `POST` | `/cameras/{id}/sync` | Повторно синхронизировать камеру с DVR. |
+| `GET` | `/cameras/{id-or-name}` | Детали камеры с `groupIds`. |
+| `PATCH`/`PUT` | `/cameras/{id-or-name}` | Обновить камеру. |
+| `DELETE` | `/cameras/{id-or-name}` | Удалить камеру из Portal. |
+| `POST` | `/cameras/{id-or-name}/sync` | Повторно синхронизировать камеру с DVR. |
 
 Query для списка:
 
@@ -371,6 +371,17 @@ Query для списка:
 | `filter` | `all`, `favorites`, `group:<id>`. Фильтр по группе включает её подгруппы. |
 | `q` | Регистронезависимый поиск по названию камеры (`displayName`/`name`) или техническому имени потока `dvrStreamName`. |
 | `page`, `pageSize` | Пагинация. |
+
+`id-or-name` ищется так:
+
+1. Если segment выглядит как положительный integer и камера с таким `id`
+   существует, используется она.
+2. Если `id` не найден или segment не numeric, Portal ищет точное совпадение
+   по `dvrStreamName`, затем по `displayName`/`name`.
+
+При конфликте `id` имеет приоритет. Для стабильных внешних интеграций лучше
+использовать `id` или технический `dvrStreamName`, потому что человекочитаемые
+названия могут меняться.
 
 Payload камеры:
 
@@ -424,7 +435,7 @@ Payload камеры:
 ```
 
 `sync=false` или `skipSync=true` сохраняет камеру без немедленного DVR sync.
-`DELETE /cameras/{id}?purge=true` дополнительно вызывает SesameDVR
+`DELETE /cameras/{id-or-name}?purge=true` дополнительно вызывает SesameDVR
 `DELETE /api/streams/<name>?purge=true`.
 
 ### /api/portal/v1/favorites
@@ -514,6 +525,11 @@ curl -X PATCH \
   -H "Content-Type: application/json" \
   -d '{"blocked":true}' \
   https://portal.example.com/api/portal/v1/cameras/10
+```
+
+```bash
+curl -H "Authorization: Bearer $TOKEN" \
+  https://portal.example.com/api/portal/v1/cameras/entrance
 ```
 
 ## SesameDVR auth-backend API

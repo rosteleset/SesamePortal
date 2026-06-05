@@ -510,6 +510,26 @@ printf "%s" "$api_display_camera" | grep -q '"displayName": "Display Smoke Cam"'
 printf "%s" "$api_display_camera" | grep -q '"dvrStreamName": "display-smoke-cam"'
 display_camera_groups="$(printf "%s" "$api_display_camera" | php -r '$d=json_decode(stream_get_contents(STDIN), true); echo implode(",", $d["camera"]["groupIds"] ?? []);')"
 test "$display_camera_groups" = "1,2"
+api_display_camera_by_stream="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/api/portal/v1/cameras/display-smoke-cam")"
+printf "%s" "$api_display_camera_by_stream" | grep -q '"displayName": "Display Smoke Cam"'
+api_display_camera_patch_by_stream="$(
+  curl -fsS -b "$COOKIE_JAR" -X PATCH -H 'Content-Type: application/json' \
+    -d '{"retentionDays":"9d","skipSync":true}' \
+    "http://127.0.0.1:$PORT/api/portal/v1/cameras/display-smoke-cam"
+)"
+printf "%s" "$api_display_camera_patch_by_stream" | grep -q '"retentionDays": "9d"'
+api_numeric_stream_camera="$(
+  curl -fsS -b "$COOKIE_JAR" -H 'Content-Type: application/json' \
+    -d '{"displayName":"Numeric Stream Cam","sourceUrl":"rtsp://example.invalid/numeric","serverId":1,"dvrStreamName":"1","skipSync":true}' \
+    "http://127.0.0.1:$PORT/api/portal/v1/cameras"
+)"
+printf "%s" "$api_numeric_stream_camera" | grep -q '"dvrStreamName": "1"'
+api_numeric_id_priority="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/api/portal/v1/cameras/1")"
+printf "%s" "$api_numeric_id_priority" | grep -q '"id": 1'
+if printf "%s" "$api_numeric_id_priority" | grep -q '"Numeric Stream Cam"'; then
+  echo "camera id/name conflict did not prefer id" >&2
+  exit 1
+fi
 api_generated_camera="$(
   curl -fsS -b "$COOKIE_JAR" -H 'Content-Type: application/json' \
     -d '{"displayName":"Домофон. г. Сухум, ул. Киараз 9, п1","sourceUrl":"rtsp://example.invalid/generated","serverId":1,"skipSync":true}' \

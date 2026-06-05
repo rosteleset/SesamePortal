@@ -4267,7 +4267,9 @@ final class App
     {
         $user = self::apiRequireUser();
         $method = self::apiMethod();
-        $id = isset($parts[1]) ? (int)$parts[1] : 0;
+        $identifier = isset($parts[1]) ? trim((string)$parts[1]) : '';
+        $camera = $identifier !== '' ? self::apiCameraByIdentifier($identifier) : null;
+        $id = $camera ? (int)$camera['id'] : 0;
         $admin = ($user['role'] ?? '') === 'admin';
 
         if (count($parts) === 1) {
@@ -4292,7 +4294,6 @@ final class App
         }
         if (count($parts) === 2) {
             if ($method === 'GET') {
-                $camera = self::apiCameraById($id);
                 if (!$camera || (!$admin && !Repo::cameraAllowedForUser($user, $id))) {
                     self::apiError(404, 'not_found', 'Camera not found');
                     return;
@@ -4664,6 +4665,32 @@ final class App
     {
         $stmt = DB::pdo()->prepare('SELECT c.*, s.name AS server_name, s.base_url AS server_url, s.last_metrics_json AS server_metrics_json FROM cameras c LEFT JOIN dvr_servers s ON s.id = c.server_id WHERE c.id = ?');
         $stmt->execute([$id]);
+        return $stmt->fetch() ?: null;
+    }
+
+    private static function apiCameraByIdentifier(string $identifier): ?array
+    {
+        $identifier = trim($identifier);
+        if ($identifier === '') {
+            return null;
+        }
+
+        if (preg_match('/^[1-9][0-9]*$/', $identifier) === 1) {
+            $camera = self::apiCameraById((int)$identifier);
+            if ($camera) {
+                return $camera;
+            }
+        }
+
+        $stmt = DB::pdo()->prepare(
+            'SELECT c.*, s.name AS server_name, s.base_url AS server_url, s.last_metrics_json AS server_metrics_json
+             FROM cameras c
+             LEFT JOIN dvr_servers s ON s.id = c.server_id
+             WHERE c.dvr_stream_name = ? OR c.name = ?
+             ORDER BY CASE WHEN c.dvr_stream_name = ? THEN 0 ELSE 1 END, c.id
+             LIMIT 1'
+        );
+        $stmt->execute([$identifier, $identifier, $identifier]);
         return $stmt->fetch() ?: null;
     }
 
