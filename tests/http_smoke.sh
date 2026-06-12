@@ -146,7 +146,7 @@ curl -fsS "http://127.0.0.1:$PORT/assets/brand-mark.svg" | grep -q "SesameDVR ma
 
 status="$(
   curl -sS -o /dev/null -w '%{http_code}' -b "$COOKIE_JAR" -c "$COOKIE_JAR" \
-    -d "csrf=$csrf" -d "login=admin" -d "password=admin123" \
+    -d "login=admin" -d "password=admin123" \
     "http://127.0.0.1:$PORT/login"
 )"
 test "$status" = "303"
@@ -202,6 +202,12 @@ printf "%s" "$dashboard_page" | grep -q 'datetime="'
 ! printf "%s" "$dashboard_page" | grep -q ">Array<"
 dashboard_csrf="$(printf "%s" "$dashboard_page" | sed -n 's/.*name="csrf" value="\([^"]*\)".*/\1/p' | head -n 1)"
 test -n "$dashboard_csrf"
+missing_csrf_refresh_status="$(
+  curl -sS -o /dev/null -w '%{http_code}' -b "$COOKIE_JAR" -c "$COOKIE_JAR" \
+    -d "action=refresh_server" -d "id=2" \
+    "http://127.0.0.1:$PORT/admin/dashboard"
+)"
+test "$missing_csrf_refresh_status" = "419"
 no_token_refresh="$(
   curl -fsS -b "$COOKIE_JAR" -c "$COOKIE_JAR" \
     -d "csrf=$dashboard_csrf" -d "action=refresh_server" -d "id=2" \

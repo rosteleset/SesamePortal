@@ -14,14 +14,14 @@ https://portal.example.com
 
 HTML UI использует session cookie `sesame_portal`.
 
-Все `POST` endpoints HTML UI требуют CSRF поле:
+Все `POST` endpoints HTML UI, кроме `POST /login`, требуют CSRF поле:
 
 ```text
 csrf=<token из текущей HTML-формы>
 ```
 
-Если CSRF token отсутствует или не совпадает, Portal возвращает HTTP `419` и
-текст `CSRF token mismatch`.
+Если CSRF token отсутствует или не совпадает на защищённом endpoint, Portal
+возвращает HTTP `419` и текст `CSRF token mismatch`.
 
 Глобальный query-параметр `lang=<code>` может применяться к HTML endpoints для
 смены языка интерфейса.
@@ -61,7 +61,6 @@ Form fields:
 
 | Поле | Обязательно | Описание |
 | --- | --- | --- |
-| `csrf` | да | CSRF token формы входа |
 | `login` | да | Логин пользователя |
 | `password` | да | Пароль пользователя |
 
@@ -69,6 +68,8 @@ Form fields:
 
 - при успехе: `302` redirect на `/`;
 - при ошибке: HTML страницы входа с сообщением об ошибке.
+- CSRF для `POST /login` не проверяется, чтобы устаревшая форма входа или
+  сменившаяся session cookie не блокировали авторизацию.
 
 ### GET /logout
 

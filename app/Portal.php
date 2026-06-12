@@ -2641,6 +2641,9 @@ final class Csrf
             return;
         }
         $path = Util::path();
+        if ($path === '/login') {
+            return;
+        }
         if ($path === '/api/portal/v1' || str_starts_with($path, '/api/portal/v1/')) {
             return;
         }
