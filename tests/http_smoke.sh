@@ -254,6 +254,13 @@ printf "%s" "$user_group_save" | grep -q "admin"
 printf "%s" "$user_group_save" | grep -q "Пользователь сохранён"
 api_admin_user="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/api/portal/v1/users/1")"
 printf "%s" "$api_admin_user" | php -r '$d=json_decode(stream_get_contents(STDIN), true); $ids=$d["user"]["groupIds"] ?? []; sort($ids); exit($ids === [1, 2] ? 0 : 1);'
+api_duplicate_user_status="$(
+  curl -sS -o "$STATE_DIR/api_duplicate_user_login.json" -w '%{http_code}' -b "$COOKIE_JAR" -H 'Content-Type: application/json' \
+    -d '{"login":"admin","password":"secret123","role":"admin"}' \
+    "http://127.0.0.1:$PORT/api/portal/v1/users"
+)"
+test "$api_duplicate_user_status" = "409"
+grep -q '"code": "login_exists"' "$STATE_DIR/api_duplicate_user_login.json"
 admin_groups="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/admin/groups?edit=1")"
 printf "%s" "$admin_groups" | grep -q "<th>ID</th>"
 printf "%s" "$admin_groups" | grep -q "<th>Родитель</th>"
@@ -516,6 +523,13 @@ printf "%s" "$api_display_camera" | grep -q '"displayName": "Display Smoke Cam"'
 printf "%s" "$api_display_camera" | grep -q '"dvrStreamName": "display-smoke-cam"'
 display_camera_groups="$(printf "%s" "$api_display_camera" | php -r '$d=json_decode(stream_get_contents(STDIN), true); echo implode(",", $d["camera"]["groupIds"] ?? []);')"
 test "$display_camera_groups" = "1,2"
+api_duplicate_camera_status="$(
+  curl -sS -o "$STATE_DIR/api_duplicate_camera_name.json" -w '%{http_code}' -b "$COOKIE_JAR" -H 'Content-Type: application/json' \
+    -d '{"displayName":"Display Smoke Cam","sourceUrl":"rtsp://example.invalid/display-duplicate","serverId":1,"dvrStreamName":"display-smoke-cam-duplicate","skipSync":true}' \
+    "http://127.0.0.1:$PORT/api/portal/v1/cameras"
+)"
+test "$api_duplicate_camera_status" = "409"
+grep -q '"code": "camera_name_exists"' "$STATE_DIR/api_duplicate_camera_name.json"
 api_display_camera_by_stream="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/api/portal/v1/cameras/display-smoke-cam")"
 printf "%s" "$api_display_camera_by_stream" | grep -q '"displayName": "Display Smoke Cam"'
 api_display_camera_patch_by_stream="$(

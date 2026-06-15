@@ -3658,6 +3658,7 @@ final class App
                 default => self::apiError(404, 'not_found', 'Unknown API endpoint'),
             };
         } catch (\Throwable $error) {
+            error_log('SesamePortal API internal_error method=' . self::apiMethod() . ' path=' . Util::path() . ' ip=' . Util::clientIp() . ' message=' . $error->getMessage());
             self::apiError(500, 'internal_error', $error->getMessage());
         }
     }
@@ -3932,30 +3933,61 @@ final class App
             self::apiError(422, 'validation_failed', 'password must be at least 6 characters');
             return;
         }
+        $existing = self::userByLogin($login);
+        if ($existing && (int)$existing['id'] !== $id) {
+            self::apiUserLoginExists($existing);
+            return;
+        }
 
         $beforeGroupIds = $id > 0 ? self::linkedIds('user_groups', 'user_id', $id, 'group_id') : [];
         $pdo = DB::pdo();
-        if ($id > 0) {
-            if ($password !== '') {
-                if (strlen($password) < 6) {
-                    self::apiError(422, 'validation_failed', 'password must be at least 6 characters');
-                    return;
+        try {
+            if ($id > 0) {
+                if ($password !== '') {
+                    if (strlen($password) < 6) {
+                        self::apiError(422, 'validation_failed', 'password must be at least 6 characters');
+                        return;
+                    }
+                    $pdo->prepare('UPDATE users SET login=?, password_hash=?, role=?, blocked=? WHERE id=?')
+                        ->execute([$login, password_hash($password, PASSWORD_DEFAULT), $role, $blocked, $id]);
+                } else {
+                    $pdo->prepare('UPDATE users SET login=?, role=?, blocked=? WHERE id=?')
+                        ->execute([$login, $role, $blocked, $id]);
                 }
-                $pdo->prepare('UPDATE users SET login=?, password_hash=?, role=?, blocked=? WHERE id=?')
-                    ->execute([$login, password_hash($password, PASSWORD_DEFAULT), $role, $blocked, $id]);
             } else {
-                $pdo->prepare('UPDATE users SET login=?, role=?, blocked=? WHERE id=?')
-                    ->execute([$login, $role, $blocked, $id]);
+                $pdo->prepare('INSERT INTO users(login, password_hash, role, blocked, daily_token, daily_token_date, created_at) VALUES(?, ?, ?, ?, ?, ?, ?)')
+                    ->execute([$login, password_hash($password, PASSWORD_DEFAULT), $role, $blocked, Util::randomToken(), TokenService::today(), Util::now()]);
+                $id = DB::lastInsertId('users');
             }
-        } else {
-            $pdo->prepare('INSERT INTO users(login, password_hash, role, blocked, daily_token, daily_token_date, created_at) VALUES(?, ?, ?, ?, ?, ?, ?)')
-                ->execute([$login, password_hash($password, PASSWORD_DEFAULT), $role, $blocked, Util::randomToken(), TokenService::today(), Util::now()]);
-            $id = DB::lastInsertId('users');
+        } catch (\PDOException $error) {
+            if (self::isUserLoginUniqueConstraint($error)) {
+                self::apiUserLoginExists(self::userByLogin($login));
+                return;
+            }
+            throw $error;
         }
         $after = self::rowById('users', $id) ?: ['login' => $login, 'role' => $role, 'blocked' => $blocked];
         $afterGroupIds = self::linkedIds('user_groups', 'user_id', $id, 'group_id');
         self::logUserSaveAudit($actor, $id, $current, $after, $beforeGroupIds, $afterGroupIds);
         self::apiJson(['user' => self::apiUserRow($after, true)], $current ? 200 : 201);
+    }
+
+    private static function apiUserLoginExists(?array $existing): void
+    {
+        self::apiError(409, 'login_exists', 'login already exists', [
+            'existingId' => (int)($existing['id'] ?? 0),
+        ]);
+    }
+
+    private static function isUserLoginUniqueConstraint(\PDOException $error): bool
+    {
+        $code = (string)$error->getCode();
+        $message = strtolower($error->getMessage());
+        return in_array($code, ['23000', '23505'], true)
+            && (str_contains($message, 'users.login')
+                || str_contains($message, 'users_login')
+                || str_contains($message, 'for key \'login\'')
+                || str_contains($message, 'for key "login"'));
     }
 
     private static function logUserSaveAudit(?array $actor, int $userId, ?array $before, array $after, array $beforeGroupIds, array $afterGroupIds): void
@@ -4411,6 +4443,11 @@ final class App
             ]);
             return;
         }
+        $existingCamera = self::cameraByName($name);
+        if ($existingCamera && (int)$existingCamera['id'] !== $id) {
+            self::apiCameraNameExists($existingCamera);
+            return;
+        }
         $agentId = trim((string)($input['agentId'] ?? $input['agent_id'] ?? ($current['agent_id'] ?? '')));
         $agentCameraId = trim((string)($input['agentCameraId'] ?? $input['agent_camera_id'] ?? ($current['agent_camera_id'] ?? '')));
         if ($controlMode === 'managed' && $sourceUrl === '') {
@@ -4473,6 +4510,10 @@ final class App
             if ($pdo->inTransaction()) {
                 $pdo->rollBack();
             }
+            if ($error instanceof \PDOException && self::isCameraNameUniqueConstraint($error)) {
+                self::apiCameraNameExists(self::cameraByName($name));
+                return;
+            }
             throw $error;
         }
         $syncRequested = array_key_exists('sync', $input)
@@ -4481,6 +4522,24 @@ final class App
         $sync = $syncRequested ? DvrClient::syncCamera($id) : ['ok' => true, 'message' => 'sync skipped'];
         Audit::log('camera.save', $name . ' mode=' . $controlMode . ' sync=' . ($sync['message'] ?? ''));
         self::apiJson(['camera' => self::apiCameraRow(self::apiCameraById($id), true), 'sync' => $sync], $current ? 200 : 201);
+    }
+
+    private static function apiCameraNameExists(?array $existing): void
+    {
+        self::apiError(409, 'camera_name_exists', 'camera name already exists', [
+            'existingId' => (int)($existing['id'] ?? 0),
+        ]);
+    }
+
+    private static function isCameraNameUniqueConstraint(\PDOException $error): bool
+    {
+        $code = (string)$error->getCode();
+        $message = strtolower($error->getMessage());
+        return in_array($code, ['23000', '23505'], true)
+            && (str_contains($message, 'cameras.name')
+                || str_contains($message, 'cameras_name')
+                || str_contains($message, 'for key \'name\'')
+                || str_contains($message, 'for key "name"'));
     }
 
     private static function apiFavorites(array $parts): void
@@ -4714,6 +4773,13 @@ final class App
     {
         $stmt = DB::pdo()->prepare('SELECT c.*, s.name AS server_name, s.base_url AS server_url, s.last_metrics_json AS server_metrics_json FROM cameras c LEFT JOIN dvr_servers s ON s.id = c.server_id WHERE c.id = ?');
         $stmt->execute([$id]);
+        return $stmt->fetch() ?: null;
+    }
+
+    private static function cameraByName(string $name): ?array
+    {
+        $stmt = DB::pdo()->prepare('SELECT * FROM cameras WHERE name = ?');
+        $stmt->execute([$name]);
         return $stmt->fetch() ?: null;
     }
 
@@ -7594,6 +7660,13 @@ final class App
         }
         $stmt = DB::pdo()->prepare("SELECT * FROM {$table} WHERE id = ?");
         $stmt->execute([$id]);
+        return $stmt->fetch() ?: null;
+    }
+
+    private static function userByLogin(string $login): ?array
+    {
+        $stmt = DB::pdo()->prepare('SELECT * FROM users WHERE login = ?');
+        $stmt->execute([$login]);
         return $stmt->fetch() ?: null;
     }
 
