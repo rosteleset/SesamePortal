@@ -3865,7 +3865,7 @@ final class App
                 return;
             }
             if ($method === 'POST') {
-                self::apiSaveUser(0, self::apiInput());
+                self::apiSaveUser(0, self::apiInput(), $actor);
                 return;
             }
         }
@@ -3882,7 +3882,7 @@ final class App
                 return;
             }
             if ($method === 'PATCH' || $method === 'PUT') {
-                self::apiSaveUser($id, self::apiInput());
+                self::apiSaveUser($id, self::apiInput(), $actor);
                 return;
             }
             if ($method === 'DELETE') {
@@ -3912,7 +3912,7 @@ final class App
         self::apiError(404, 'not_found', 'Unknown users endpoint');
     }
 
-    private static function apiSaveUser(int $id, array $input): void
+    private static function apiSaveUser(int $id, array $input, ?array $actor = null): void
     {
         $current = $id > 0 ? self::rowById('users', $id) : null;
         if ($id > 0 && !$current) {
@@ -3933,6 +3933,7 @@ final class App
             return;
         }
 
+        $beforeGroupIds = $id > 0 ? self::linkedIds('user_groups', 'user_id', $id, 'group_id') : [];
         $pdo = DB::pdo();
         if ($id > 0) {
             if ($password !== '') {
@@ -3951,8 +3952,53 @@ final class App
                 ->execute([$login, password_hash($password, PASSWORD_DEFAULT), $role, $blocked, Util::randomToken(), TokenService::today(), Util::now()]);
             $id = DB::lastInsertId('users');
         }
-        Audit::log('user.save', $login);
-        self::apiJson(['user' => self::apiUserRow(self::rowById('users', $id), true)], $current ? 200 : 201);
+        $after = self::rowById('users', $id) ?: ['login' => $login, 'role' => $role, 'blocked' => $blocked];
+        $afterGroupIds = self::linkedIds('user_groups', 'user_id', $id, 'group_id');
+        self::logUserSaveAudit($actor, $id, $current, $after, $beforeGroupIds, $afterGroupIds);
+        self::apiJson(['user' => self::apiUserRow($after, true)], $current ? 200 : 201);
+    }
+
+    private static function logUserSaveAudit(?array $actor, int $userId, ?array $before, array $after, array $beforeGroupIds, array $afterGroupIds): void
+    {
+        $details = self::userSaveAuditDetails($userId, $before, $after, $beforeGroupIds, $afterGroupIds);
+        $actorId = $actor['id'] ?? null;
+        if ($actorId !== null) {
+            Audit::logForUser($actorId, 'user.save', $details);
+            return;
+        }
+        Audit::log('user.save', $details);
+    }
+
+    private static function userSaveAuditDetails(int $userId, ?array $before, array $after, array $beforeGroupIds, array $afterGroupIds): string
+    {
+        return implode(' ', [
+            'user_id=' . $userId,
+            'login=' . self::auditFieldTransition($before, $after, 'login'),
+            'role=' . self::auditFieldTransition($before, $after, 'role'),
+            'blocked=' . self::auditFieldTransition($before, $after, 'blocked', true),
+            'groups=' . self::auditIdList($beforeGroupIds) . '->' . self::auditIdList($afterGroupIds),
+            'ip=' . Audit::clientIp(),
+        ]);
+    }
+
+    private static function auditFieldTransition(?array $before, array $after, string $key, bool $intValue = false): string
+    {
+        $old = $before ? ($before[$key] ?? '') : 'new';
+        $new = $after[$key] ?? '';
+        if ($intValue && $before) {
+            $old = (int)$old;
+        }
+        if ($intValue) {
+            $new = (int)$new;
+        }
+        return Audit::cleanValue((string)$old, 80) . '->' . Audit::cleanValue((string)$new, 80);
+    }
+
+    private static function auditIdList(array $ids): string
+    {
+        $ids = array_values(array_unique(array_map('intval', $ids)));
+        sort($ids, SORT_NUMERIC);
+        return '[' . implode(',', $ids) . ']';
     }
 
     private static function apiGroups(array $parts): void
@@ -5037,6 +5083,8 @@ final class App
                 $password = (string)Util::post('password');
                 $role = Util::post('role') === 'admin' ? 'admin' : 'user';
                 $blocked = Util::checkbox('blocked');
+                $beforeUser = $id > 0 ? self::rowById('users', $id) : null;
+                $beforeGroupIds = $id > 0 ? self::linkedIds('user_groups', 'user_id', $id, 'group_id') : [];
                 if ($login === '') {
                     $message = self::t('users.loginRequired', 'Логин обязателен');
                 } elseif ($id === 0 && strlen($password) < 6) {
@@ -5062,7 +5110,9 @@ final class App
                     if ($message === '') {
                         $groupIds = (array)($_POST['group_ids'] ?? []);
                         self::replaceLinks('user_groups', 'user_id', $id, 'group_id', $groupIds);
-                        Audit::log('user.save', $login . ' groups=' . count($groupIds));
+                        $afterUser = self::rowById('users', $id) ?: ['login' => $login, 'role' => $role, 'blocked' => $blocked];
+                        $afterGroupIds = self::linkedIds('user_groups', 'user_id', $id, 'group_id');
+                        self::logUserSaveAudit(null, $id, $beforeUser, $afterUser, $beforeGroupIds, $afterGroupIds);
                         $message = self::t('users.saveDone', 'Пользователь сохранён');
                         $messageClass = 'success';
                     }
