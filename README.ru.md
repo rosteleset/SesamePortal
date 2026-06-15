@@ -179,7 +179,11 @@ curl -fsSL https://license.sesameware.com/sesame-dvr-artifacts/bootstrap-trial-i
 
 - [Описание возможностей и продукта SesameDVR](docs/SESAME-DVR-PRODUCT-DESCRIPTION.ru.md)
 - [Руководство пользователя SesameDVR](docs/sesame-dvr-user-guide.ru.md)
+- [HTTP API SesameDVR](docs/sesame-dvr-api.ru.md)
+- [Настройка DVR-хранилища SesameDVR](docs/dvr-storage-configuration.ru.md)
 - [Prometheus / OpenMetrics endpoint SesameDVR](docs/prometheus-metrics-endpoint.ru.md)
+- [BEAM hot patch manifest SesameDVR](docs/beam-hot-patch-manifest.ru.md)
+- [Runbook DVR-side failover SesameDVR](docs/dvr-cluster-failover-runbook.ru.md)
 
 ## CLI
 

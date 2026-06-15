@@ -225,6 +225,55 @@ https://<domain>/admin?token=...
 segments напрямую в выбранный storage volume. Внешний `ffmpeg` producer
 доступен только в unprotected/dev-сборках и будет отклонён protected runtime.
 
+### Резервирование потоков DVR-side
+
+В секции `Failover` у потока можно включить прикладное резервирование между
+двумя SesameDVR-нодами без участия Portal:
+
+- `none` - обычный поток без резервирования;
+- `master` - основной поток, который пишет архив и после восстановления может
+  забрать недостающие интервалы с Backup;
+- `backup` - резервный поток, который следит за health Master и стартует запись
+  только после устойчивого отказа.
+
+`Peer URL` должен указывать на связанный поток другой DVR-ноды в формате:
+
+```text
+https://peer.example/api/failover/streams/<peer-stream>?token=<playback-token>
+```
+
+`token` здесь - обычный playback token peer-потока. Он используется для
+health/read-side failover запросов и чтения архива через обычные playback
+endpoints. Control-действия `backup/start`, `backup/stop`, `repair/run`,
+`cleanup/run` и `repair-ack` требуют management/failover auth.
+
+В защищённой сборке failover включается отдельной license feature
+`dvr_failover`. Если feature отключена в лицензии или lease, сервер запрещает
+сохранение `failover.mode=master|backup`, возвращает `403
+license_feature_disabled` на `/api/failover/...` и останавливает активные
+Backup/hot-buffer runtime.
+
+Для Backup можно включить `Hot-buffer`: тогда резервный runtime постоянно пишет
+короткий standby-буфер, даже пока Master здоров. Буфер ограничивается
+`Hot-buffer duration` и опционально `Hot-buffer quota`. При реальном failover
+последние секунды hot-buffer перед стартом Backup сохраняются как repair window,
+чтобы закрыть gap между фактическим отказом Master и моментом обнаружения.
+Hot-buffer создаёт второе постоянное подключение к камере; на single-client
+RTSP камерах этот режим нужно оставлять выключенным.
+
+Для ручной или внешней автоматизации распределения Backup-потоков есть
+DVR-side placement planner API. `GET /api/failover/nodes/local/resources`
+возвращает resource snapshot текущей ноды, а
+`POST /api/failover/placement/plan` принимает список нод и потоков, считает
+estimated bitrate, требуемый backup storage на заданный downtime, выбирает
+Backup-ноду по capacity/weights и возвращает dry-run warnings. Это не Portal
+cluster planner: SesameDVR только считает и, через
+`POST /api/failover/placement/apply`, может применить patches для своей
+локальной ноды.
+
+Эксплуатационные проверки, ручной старт Backup, repair и cleanup описаны в
+[runbook DVR-side failover](dvr-cluster-failover-runbook.ru.md).
+
 ### JPEG-источник
 
 `sourceType=image` нужен для статической картинки, которую SesameDVR показывает
@@ -361,11 +410,11 @@ motion=true участкам. Плеер строит специальный HLS
 индикатор тоже перескакивает на следующий архивный участок.
 
 Если в настройках потока включена `Писать timelapse`, рядом с обычным архивом
-появляется режим `Timelapse`. Он использует отдельный endpoint
-`/<camera>/timelapse.m3u8`: без параметров сервер отдаёт весь сохранённый
-timelapse, а с `start=...&end=...` ограничивает playlist окном архива. В
-playlist попадают только заранее сохранённые выбранные кадры, а плеер показывает
-простую сжатую media-шкалу без полос доступности архива и событий движения.
+появляется режим `Timelapse`. Сервер сохраняет raw timelapse frames как staging,
+фоново собирает из них HLS/fMP4 chunks и отдаёт готовый materialized manifest
+через `/<camera>/timelapse.m3u8`. С `start=...&end=...` playlist
+ограничивается реальным окном архива. Плеер показывает длительность ускоренного
+media отдельно, а timeline и seek остаются привязаны к реальному archive time.
 Частота сохранения задаётся настройкой `Кадров в час`, глубина хранения задаётся
 в формате `d`/`h`/`m`, а скорость итогового HLS - через `FPS воспроизведения`.
 
@@ -626,10 +675,16 @@ scrape_configs:
 Кнопки:
 
 - `Проверить` - запросить актуальную доступную версию;
-- `Обновить` - запустить штатное обновление через `sesame-dvr-update.service`.
+- `Обновить` - запустить штатное full release обновление через
+  `sesame-dvr-update.service`;
+- `Обновить без перезапуска` - применить совместимый BEAM hot patch, если
+  license server опубликовал `beam_hot_patch` для текущего `buildId`.
 
 Во время обновления UI показывает журнал. На этапе рестарта сервиса страница
 должна дождаться возврата API и затем показать новую версию или ошибку.
+Hot patch не перезапускает service и применим только к ограниченному набору
+BEAM-модулей; формат manifest описан в
+[beam-hot-patch-manifest.ru.md](./beam-hot-patch-manifest.ru.md).
 
 ## Хранилище архива
 
@@ -646,16 +701,48 @@ volume `default`, root равным `dvrRoot`.
 Для каждого volume внутри root могут находиться:
 
 - `segments` - архивные self-initializing fMP4 сегменты;
-- `segments/<camera>/<YYYY>/<MM>/<DD>/<HH>/.hour_index*.term` - per-hour
-  индексы. Несколько таких файлов в одной часовой папке читаются вместе и
-  мержатся, что позволяет копировать `segments` между дисками без перезаписи
-  index-файла;
+- `segments/<camera>/<YYYY>/<MM>/<DD>/<HH>/.hour_index*.hidx` - primary
+  per-hour индекс сегментов для конкретного часа;
+- `segments/<camera>/<YYYY>/<MM>/<DD>/<HH>/.hour_index*.term` - legacy fallback
+  для чтения старых индексов во время runtime-миграции;
 - `previews` - cache preview, а также per-hour preview рядом с segment shard;
-- `.sesame-dvr/global_segment_catalog.term` - catalog volume;
+- `timelapse` - готовые timelapse HLS/fMP4 chunks и manifest;
+- `.sesame-dvr/camera_indexes/.../*.cidx` - производные индексы камеры;
+- `.sesame-dvr/volume_index*` - производный индекс volume;
 - `.sesame-dvr/volume_write_state.term` - состояние cursor записи.
 
-Источником истины остаются segment files. Catalog и indexes ускоряют работу и
-могут быть восстановлены пересканированием.
+Источником истины остаются segment files и primary `HourIndex` в формате
+`*.hidx`. `CameraIndex` (`*.cidx`) и `VolumeIndex` являются производными
+индексами: они ускоряют поиск архива, status endpoints и retention planner, но
+могут быть пересобраны из `HourIndex`.
+
+### Индексы и материализация
+
+Обновление индексов идёт каскадом:
+
+1. Commit нового сегмента обновляет `HourIndex` для `{volume, camera, hour}`.
+2. `CameraIndexMaterializer` асинхронно применяет изменения часов к
+   `CameraIndex`.
+3. `VolumeIndexMaterializer` асинхронно применяет изменения камер к
+   `VolumeIndex`.
+
+Такой каскад отделяет запись сегмента от более тяжёлых производных индексов.
+На Dashboard в debug diagnostics можно смотреть pending/lag materializer-ов и
+максимальное отставание materialization pipeline от физической записи сегмента.
+
+Retention planner ставит устаревшие файлы и часовые директории в `DeleteQueue`.
+Физическое удаление выполняется через общий IO pipeline; после удаления
+индексы получают feedback/tombstones, чтобы уже удалённые часы не попадали в
+планировщик повторно.
+
+### Timelapse на диске
+
+Raw fMP4 timelapse frames используются как staging, а не как playback-источник.
+Когда накопилось достаточно кадров для одного ускоренного HLS chunk, фоновая
+задача собирает chunk, атомарно кладёт его в timelapse storage, обновляет
+metadata/HourIndex и manifest, а raw staging удаляет. Поэтому запрос
+`/<camera>/timelapse.m3u8` читает готовый manifest и не должен каждый раз
+обходить архив или строить playlist заново.
 
 Новые segments пишутся на volume, выбранный текущей write policy. Если запись
 на volume выключается, уже открытый segment завершается штатно, а следующие
@@ -740,6 +827,8 @@ segments переходят на другой writable volume. Сводка arch
   unprotected/dev-сборок и будет отклонён protected runtime.
 - `Segment duration` - длительность сегмента архива, по умолчанию 4 секунды;
 - `Live window` - число live-сегментов в окне HLS;
+- `External WHEP base URL` - внешний base URL для WHEP `Location`, если DVR
+  стоит за NAT/reverse proxy и внешний hostname/port отличается от внутреннего;
 - `FFmpeg restart delay ms` - задержка перед перезапуском ingest;
 - `Camera stop timeout ms` - таймаут остановки камеры;
 - `Preview duration`, `Preview check interval ms`, `Preview max concurrency`,
@@ -1078,6 +1167,9 @@ sudo sesame-dvr-repair
 
 ## HTTP endpoints для интеграций
 
+Полный справочник всех HTTP API методов, параметров и payloads:
+[sesame-dvr-api.ru.md](./sesame-dvr-api.ru.md).
+
 Основные playback endpoints:
 
 ```text
@@ -1124,12 +1216,13 @@ embed-плееру для режима просмотра по событиям:
 сегментам с движением, а UI timeline остаётся привязан к настоящему времени
 архива.
 
-`/<camera>/timelapse.m3u8` отдаёт HLS VOD из всех сохранённых отдельных
-timelapse-файлов, если для потока включена запись timelapse. Если передать
-`start=...&end=...`, playlist ограничивается этим реальным окном архива. Файлы
-хранятся под `timelapse/<camera>/YYYY/MM/DD/HH/` на том же storage volume, что и
-архивные сегменты, и чистятся по отдельной настройке глубины хранения
-timelapse.
+`/<camera>/timelapse.m3u8` отдаёт HLS VOD из готовых timelapse chunks, если для
+потока включена запись timelapse. Если передать `start=...&end=...`, playlist
+ограничивается этим реальным окном архива. Playback path читает
+материализованный manifest; сборка chunks и обновление manifest выполняются
+фоновыми задачами при записи timelapse. Файлы хранятся под
+`timelapse/<camera>/YYYY/MM/DD/HH/` на storage volume и чистятся по отдельной
+настройке глубины хранения timelapse.
 
 Для административного API `GET /api/onvif/devices/:id/events` параметры `page`/`pageSize` и `before`/`after` загружают список кусками. `timelineFrom`/`timelineTo` задают отдельный кусок `timelineEvents`, `timelineCarry=true` добавляет последнее событие перед началом окна для восстановления состояния, а `events=false` отключает выдачу страницы списка и используется для лёгких timeline-only запросов.
 
@@ -1150,6 +1243,7 @@ POST /api/system/license/renew
 GET /api/system/update/status
 POST /api/system/update/check
 POST /api/system/update/start
+POST /api/system/update/hot-patch/start
 GET /api/streams
 POST /api/streams
 PUT /api/streams/<name>

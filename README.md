@@ -173,7 +173,11 @@ Additional SesameDVR documentation:
 
 - [SesameDVR feature and product description (RU)](docs/SESAME-DVR-PRODUCT-DESCRIPTION.ru.md)
 - [SesameDVR user guide (RU)](docs/sesame-dvr-user-guide.ru.md)
+- [SesameDVR HTTP API reference (RU)](docs/sesame-dvr-api.ru.md)
+- [SesameDVR storage configuration (RU)](docs/dvr-storage-configuration.ru.md)
 - [SesameDVR Prometheus / OpenMetrics endpoint (RU)](docs/prometheus-metrics-endpoint.ru.md)
+- [SesameDVR BEAM hot patch manifest (RU)](docs/beam-hot-patch-manifest.ru.md)
+- [SesameDVR DVR-side failover runbook (RU)](docs/dvr-cluster-failover-runbook.ru.md)
 
 ## CLI
 

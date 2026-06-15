@@ -185,7 +185,13 @@ MultiVolume архива `/dvr/v/...`.
 ## Что читать дальше
 
 - руководство пользователя SesameDVR: `docs/sesame-dvr-user-guide.ru.md`;
+- HTTP API SesameDVR: `docs/sesame-dvr-api.ru.md`;
+- настройка DVR-хранилища: `docs/dvr-storage-configuration.ru.md`;
 - описание возможностей SesameDVR: `docs/SESAME-DVR-PRODUCT-DESCRIPTION.ru.md`;
 - Prometheus / OpenMetrics endpoint SesameDVR:
   `docs/prometheus-metrics-endpoint.ru.md`;
+- BEAM hot patch manifest SesameDVR:
+  `docs/beam-hot-patch-manifest.ru.md`;
+- runbook DVR-side failover SesameDVR:
+  `docs/dvr-cluster-failover-runbook.ru.md`;
 - описание возможностей SesamePortal: `docs/SESAME-PORTAL-FEATURES.ru.md`.
