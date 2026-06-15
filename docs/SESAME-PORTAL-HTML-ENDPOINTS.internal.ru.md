@@ -420,6 +420,7 @@ Query parameters:
 | `source_url` | URL источника. |
 | `server_id` | ID DVR-сервера. |
 | `retention_days` | Глубина архива, например `7d`. |
+| `archive_enabled` | Непустое значение включает запись архива на SesameDVR при синхронизации. По умолчанию включено. |
 | `mode` / `dvr_control_mode` | `managed`, `edge_agent` или `read_only`. |
 | `agent_id` | Edge Agent ID. |
 | `agent_camera_id` | ID камеры внутри агента. |
@@ -479,6 +480,7 @@ Actions:
 | `direction_deg` | Направление камеры, градусы. |
 | `view_angle_deg` | Угол обзора, градусы. |
 | `retention_days` | Глубина архива. |
+| `archive_enabled` | Checkbox “Пишет архив”; пробрасывается в SesameDVR как `archiveEnabled`. |
 | `blocked` | Checkbox блокировки камеры. |
 | `group_ids[]` | Полный набор групп камеры. |
 

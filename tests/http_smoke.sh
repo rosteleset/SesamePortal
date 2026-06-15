@@ -288,6 +288,7 @@ printf "%s" "$admin_cameras_form" | grep -q "Название потока"
 printf "%s" "$admin_cameras_form" | grep -q "Техническое имя потока"
 printf "%s" "$admin_cameras_form" | grep -q "Показывать водяной знак"
 printf "%s" "$admin_cameras_form" | grep -q "Интенсивность водяного знака"
+printf "%s" "$admin_cameras_form" | grep -q "Пишет архив"
 printf "%s" "$admin_cameras_form" | grep -F -q 'pattern="[A-Za-z0-9_-]+"'
 printf "%s" "$admin_cameras_form" | grep -q "group-tree-checkbox-list"
 printf "%s" "$admin_cameras_form" | grep -F -q 'name="group_ids[]"'
@@ -304,6 +305,7 @@ invalid_camera_form="$(
     -d "server_id=1" -d "server_selection=manual" \
     --data-urlencode "dvr_stream_name=Invalid Stream, 1" \
     -d "retention_days=1d" -d "direction_deg=90" -d "view_angle_deg=60" \
+    -d "archive_enabled=1" \
     "http://127.0.0.1:$PORT/admin/cameras?edit=1"
 )"
 printf "%s" "$invalid_camera_form" | grep -q "Техническое имя потока может содержать"
@@ -315,6 +317,7 @@ readonly_camera_save="$(
     -d "server_id=1" -d "server_selection=manual" \
     --data-urlencode "dvr_stream_name=readonly-cam" \
     -d "retention_days=1d" -d "direction_deg=0" -d "view_angle_deg=60" \
+    -d "archive_enabled=1" \
     -d "group_ids[]=2" \
     "http://127.0.0.1:$PORT/admin/cameras?edit=2"
 )"
@@ -329,6 +332,7 @@ failed_camera_save="$(
     -d "server_selection=manual" \
     --data-urlencode "dvr_stream_name=no-sync-notice-cam" \
     -d "retention_days=1d" -d "direction_deg=0" -d "view_angle_deg=60" \
+    -d "archive_enabled=1" \
     -d "blocked=1" \
     "http://127.0.0.1:$PORT/admin/cameras"
 )"
@@ -501,6 +505,7 @@ printf "%s" "$api_dashboard" | grep -q '"lastMetrics"'
 api_cameras="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/api/portal/v1/cameras?pageSize=3")"
 printf "%s" "$api_cameras" | grep -q '"pageSize": 3'
 printf "%s" "$api_cameras" | grep -q '"Smoke Cam"'
+printf "%s" "$api_cameras" | grep -q '"archiveEnabled": true'
 printf "%s" "$api_cameras" | grep -q '"watermarkEnabled": true'
 printf "%s" "$api_cameras" | grep -q '"watermarkIntensity": 16'
 api_cameras_search="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/api/portal/v1/cameras?q=read")"
@@ -515,12 +520,13 @@ api_cameras_stream_search="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/
 printf "%s" "$api_cameras_stream_search" | grep -q '"dvrStreamName": "unicode-yard-cam"'
 api_display_camera="$(
   curl -fsS -b "$COOKIE_JAR" -H 'Content-Type: application/json' \
-    -d '{"displayName":"Display Smoke Cam","sourceUrl":"rtsp://example.invalid/display","serverId":1,"dvrStreamName":"display-smoke-cam","groupIds":[1,2],"skipSync":true}' \
+    -d '{"displayName":"Display Smoke Cam","sourceUrl":"rtsp://example.invalid/display","serverId":1,"dvrStreamName":"display-smoke-cam","archiveEnabled":false,"groupIds":[1,2],"skipSync":true}' \
     "http://127.0.0.1:$PORT/api/portal/v1/cameras"
 )"
 printf "%s" "$api_display_camera" | grep -q '"name": "Display Smoke Cam"'
 printf "%s" "$api_display_camera" | grep -q '"displayName": "Display Smoke Cam"'
 printf "%s" "$api_display_camera" | grep -q '"dvrStreamName": "display-smoke-cam"'
+printf "%s" "$api_display_camera" | grep -q '"archiveEnabled": false'
 display_camera_groups="$(printf "%s" "$api_display_camera" | php -r '$d=json_decode(stream_get_contents(STDIN), true); echo implode(",", $d["camera"]["groupIds"] ?? []);')"
 test "$display_camera_groups" = "1,2"
 api_duplicate_camera_status="$(

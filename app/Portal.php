@@ -150,6 +150,7 @@ final class DB
         self::ensureColumn('cameras', 'last_sync_at', 'TEXT');
         self::ensureColumn('cameras', 'last_sync_ok', 'INTEGER');
         self::ensureColumn('cameras', 'last_sync_message', 'TEXT');
+        self::ensureColumn('cameras', 'archive_enabled', 'INTEGER NOT NULL DEFAULT 1');
         self::ensureColumn('cameras', 'dvr_control_mode', self::driver() === 'mysql' ? "VARCHAR(32) NOT NULL DEFAULT 'managed'" : "TEXT NOT NULL DEFAULT 'managed'");
         self::ensureColumn('cameras', 'agent_id', self::driver() === 'mysql' ? 'VARCHAR(255)' : 'TEXT');
         self::ensureColumn('cameras', 'agent_camera_id', self::driver() === 'mysql' ? 'VARCHAR(255)' : 'TEXT');
@@ -265,6 +266,7 @@ final class DB
                 direction_deg INTEGER NOT NULL DEFAULT 0,
                 view_angle_deg INTEGER NOT NULL DEFAULT 60,
                 retention_days TEXT NOT NULL DEFAULT "7d",
+                archive_enabled INTEGER NOT NULL DEFAULT 1,
                 dvr_control_mode TEXT NOT NULL DEFAULT "managed",
                 agent_id TEXT,
                 agent_camera_id TEXT,
@@ -352,6 +354,7 @@ final class DB
                 direction_deg INTEGER NOT NULL DEFAULT 0,
                 view_angle_deg INTEGER NOT NULL DEFAULT 60,
                 retention_days TEXT NOT NULL DEFAULT '7d',
+                archive_enabled INTEGER NOT NULL DEFAULT 1,
                 dvr_control_mode TEXT NOT NULL DEFAULT 'managed',
                 agent_id TEXT,
                 agent_camera_id TEXT,
@@ -443,6 +446,7 @@ final class DB
                 direction_deg INTEGER NOT NULL DEFAULT 0,
                 view_angle_deg INTEGER NOT NULL DEFAULT 60,
                 retention_days VARCHAR(64) NOT NULL DEFAULT '7d',
+                archive_enabled INTEGER NOT NULL DEFAULT 1,
                 dvr_control_mode VARCHAR(32) NOT NULL DEFAULT 'managed',
                 agent_id VARCHAR(255),
                 agent_camera_id VARCHAR(255),
@@ -955,6 +959,7 @@ final class I18n
                 'column.last_check_result' => 'Проверка',
                 'column.dvr_control_mode' => 'Режим',
                 'column.retention_days' => 'Архив',
+                'column.archive_enabled' => 'Пишет архив',
                 'viewer.columnsPerRow' => 'Камер в ряду',
                 'viewer.previewRefresh' => 'Обновление превью',
                 'viewer.refreshOff' => 'Отключено',
@@ -992,6 +997,7 @@ final class I18n
                 'cameras.onvifEvents' => 'Запускать ONVIF events через агента',
                 'cameras.watermarkEnabled' => 'Показывать водяной знак с логином в плеере',
                 'cameras.watermarkIntensity' => 'Интенсивность водяного знака, %',
+                'cameras.archiveEnabled' => 'Пишет архив',
                 'cameras.agentRequired' => 'Для edge-agent режима нужны сервер, Agent ID и Agent camera ID',
                 'cameras.agentOverwriteBlocked' => 'Поток на DVR уже управляется Edge Agent. Переключите камеру Portal в режим Edge Agent или read-only, чтобы не перезаписать push-конфиг.',
                 'agents.title' => 'Edge-агенты',
@@ -1201,6 +1207,7 @@ final class I18n
                 'cameras.direction' => 'Direction',
                 'cameras.viewAngle' => 'View angle',
                 'cameras.retention' => 'Archive depth',
+                'cameras.archiveEnabled' => 'Write archive',
                 'cameras.blocked' => 'Blocked',
                 'cameras.groups' => 'Groups',
                 'cameras.mode' => 'Camera mode',
@@ -1316,6 +1323,7 @@ final class I18n
                 'column.last_check_result' => 'Check result',
                 'column.dvr_control_mode' => 'Mode',
                 'column.retention_days' => 'Archive',
+                'column.archive_enabled' => 'Writes archive',
             ],
             'de' => [
                 'language.label' => 'Sprache',
@@ -2702,6 +2710,7 @@ final class DvrClient
                 'source' => 'push://' . $name,
                 'enabled' => ((int)$camera['blocked'] === 0),
                 'retentionDays' => $camera['retention_days'],
+                'archiveEnabled' => (int)($camera['archive_enabled'] ?? 1) === 1,
                 'authMode' => 'authBackend',
                 'push' => [
                     'transport' => 'rtmp',
@@ -2727,6 +2736,7 @@ final class DvrClient
                 'push' => null,
                 'enabled' => ((int)$camera['blocked'] === 0),
                 'retentionDays' => $camera['retention_days'],
+                'archiveEnabled' => (int)($camera['archive_enabled'] ?? 1) === 1,
                 'authMode' => 'authBackend',
             ];
         }
@@ -4469,6 +4479,9 @@ final class App
             (int)($input['directionDeg'] ?? $input['direction_deg'] ?? ($current['direction_deg'] ?? 0)),
             (int)($input['viewAngleDeg'] ?? $input['view_angle_deg'] ?? ($current['view_angle_deg'] ?? 60)),
             (string)($input['retentionDays'] ?? $input['retention_days'] ?? ($current['retention_days'] ?? '7d')),
+            array_key_exists('archiveEnabled', $input) || array_key_exists('archive_enabled', $input)
+                ? (self::apiBool($input['archiveEnabled'] ?? $input['archive_enabled']) ? 1 : 0)
+                : (int)($current['archive_enabled'] ?? 1),
             $controlMode,
             $agentId !== '' ? $agentId : null,
             $agentCameraId !== '' ? $agentCameraId : null,
@@ -4495,10 +4508,10 @@ final class App
         $pdo->beginTransaction();
         try {
             if ($id > 0) {
-                $pdo->prepare('UPDATE cameras SET name=?, source_url=?, server_id=?, server_selection=?, latitude=?, longitude=?, direction_deg=?, view_angle_deg=?, retention_days=?, dvr_control_mode=?, agent_id=?, agent_camera_id=?, onvif_events_requested=?, watermark_enabled=?, watermark_intensity=?, blocked=?, dvr_stream_name=?, updated_at=? WHERE id=?')
+                $pdo->prepare('UPDATE cameras SET name=?, source_url=?, server_id=?, server_selection=?, latitude=?, longitude=?, direction_deg=?, view_angle_deg=?, retention_days=?, archive_enabled=?, dvr_control_mode=?, agent_id=?, agent_camera_id=?, onvif_events_requested=?, watermark_enabled=?, watermark_intensity=?, blocked=?, dvr_stream_name=?, updated_at=? WHERE id=?')
                     ->execute([...$values, Util::now(), $id]);
             } else {
-                $pdo->prepare('INSERT INTO cameras(name, source_url, server_id, server_selection, latitude, longitude, direction_deg, view_angle_deg, retention_days, dvr_control_mode, agent_id, agent_camera_id, onvif_events_requested, watermark_enabled, watermark_intensity, blocked, dvr_stream_name, created_at, updated_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+                $pdo->prepare('INSERT INTO cameras(name, source_url, server_id, server_selection, latitude, longitude, direction_deg, view_angle_deg, retention_days, archive_enabled, dvr_control_mode, agent_id, agent_camera_id, onvif_events_requested, watermark_enabled, watermark_intensity, blocked, dvr_stream_name, created_at, updated_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
                     ->execute([...$values, Util::now(), Util::now()]);
                 $id = DB::lastInsertId('cameras');
             }
@@ -4827,6 +4840,7 @@ final class App
             'directionDeg' => (int)($camera['direction_deg'] ?? 0),
             'viewAngleDeg' => (int)($camera['view_angle_deg'] ?? 60),
             'retentionDays' => (string)($camera['retention_days'] ?? '7d'),
+            'archiveEnabled' => (int)($camera['archive_enabled'] ?? 1) === 1,
             'dvrControlMode' => (string)($camera['dvr_control_mode'] ?? 'managed'),
             'agentId' => $camera['agent_id'] ?? null,
             'agentCameraId' => $camera['agent_camera_id'] ?? null,
@@ -5807,6 +5821,7 @@ final class App
                         (int)Util::post('direction_deg', 0),
                         (int)Util::post('view_angle_deg', 60),
                         Util::post('retention_days', '7d'),
+                        Util::checkbox('archive_enabled'),
                         $controlMode,
                         $agentId !== '' ? $agentId : null,
                         $agentCameraId !== '' ? $agentCameraId : null,
@@ -5817,10 +5832,10 @@ final class App
                         $stream,
                     ];
                     if ($id > 0) {
-                        $pdo->prepare('UPDATE cameras SET name=?, source_url=?, server_id=?, server_selection=?, latitude=?, longitude=?, direction_deg=?, view_angle_deg=?, retention_days=?, dvr_control_mode=?, agent_id=?, agent_camera_id=?, onvif_events_requested=?, watermark_enabled=?, watermark_intensity=?, blocked=?, dvr_stream_name=?, updated_at=? WHERE id=?')
+                        $pdo->prepare('UPDATE cameras SET name=?, source_url=?, server_id=?, server_selection=?, latitude=?, longitude=?, direction_deg=?, view_angle_deg=?, retention_days=?, archive_enabled=?, dvr_control_mode=?, agent_id=?, agent_camera_id=?, onvif_events_requested=?, watermark_enabled=?, watermark_intensity=?, blocked=?, dvr_stream_name=?, updated_at=? WHERE id=?')
                             ->execute([...$values, Util::now(), $id]);
                     } else {
-                        $pdo->prepare('INSERT INTO cameras(name, source_url, server_id, server_selection, latitude, longitude, direction_deg, view_angle_deg, retention_days, dvr_control_mode, agent_id, agent_camera_id, onvif_events_requested, watermark_enabled, watermark_intensity, blocked, dvr_stream_name, created_at, updated_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+                        $pdo->prepare('INSERT INTO cameras(name, source_url, server_id, server_selection, latitude, longitude, direction_deg, view_angle_deg, retention_days, archive_enabled, dvr_control_mode, agent_id, agent_camera_id, onvif_events_requested, watermark_enabled, watermark_intensity, blocked, dvr_stream_name, created_at, updated_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
                             ->execute([...$values, Util::now(), Util::now()]);
                         $id = DB::lastInsertId('cameras');
                     }
@@ -5907,11 +5922,12 @@ final class App
             echo '<div class="camera-position-field"><div class="camera-position-head"><strong>' . self::t('cameras.position', 'Положение на карте') . '</strong><button type="button" class="camera-map-clear">' . self::t('cameras.clearPosition', 'Очистить точку') . '</button></div>';
             echo '<div id="camera-position-map" class="camera-position-map" data-lat="' . Util::h($lat) . '" data-lng="' . Util::h($lng) . '"></div></div>';
             echo '<div class="form-row"><label>' . self::t('cameras.direction', 'Направление') . '<input id="camera-direction" name="direction_deg" type="number" min="0" max="359" value="' . Util::h($form['direction_deg'] ?? 0) . '"></label><label>' . self::t('cameras.viewAngle', 'Угол обзора') . '<input name="view_angle_deg" type="number" min="1" max="180" value="' . Util::h($form['view_angle_deg'] ?? 60) . '"></label></div>';
-            echo '<label>' . self::t('cameras.retention', 'Глубина архива') . '<input name="retention_days" value="' . Util::h($form['retention_days'] ?? '7d') . '"></label>';
+            echo '<div class="form-row"><label>' . self::t('cameras.retention', 'Глубина архива') . '<input name="retention_days" value="' . Util::h($form['retention_days'] ?? '7d') . '"></label>';
+            echo '<label class="check"><input type="checkbox" name="archive_enabled" ' . (!empty($form['archive_enabled']) ? 'checked' : '') . '> ' . self::t('cameras.archiveEnabled', 'Пишет архив') . '</label></div>';
             echo '<label class="check"><input type="checkbox" name="blocked" ' . (!empty($form['blocked']) ? 'checked' : '') . '> ' . self::t('cameras.blocked', 'Заблокирована') . '</label>';
             self::groupCheckboxTree(self::t('cameras.groups', 'Группы'), 'group_ids[]', $groups, $linkedGroups);
             echo '<button class="primary">' . self::t('action.saveSync', 'Сохранить и синхронизировать') . '</button></form></section>';
-            self::table(self::t('cameras.title', 'Камеры'), ['name', 'server_name', 'dvr_control_mode', 'agent_id', 'agent_camera_id', 'retention_days', 'last_sync_message'], $cameras, '/admin/cameras', true, $list);
+            self::table(self::t('cameras.title', 'Камеры'), ['name', 'server_name', 'dvr_control_mode', 'agent_id', 'agent_camera_id', 'retention_days', 'archive_enabled', 'last_sync_message'], $cameras, '/admin/cameras', true, $list);
             echo '</div>';
         });
     }
@@ -5998,6 +6014,7 @@ final class App
             'direction_deg' => 0,
             'view_angle_deg' => 60,
             'retention_days' => (string)($_GET['retention_days'] ?? '7d'),
+            'archive_enabled' => array_key_exists('archive_enabled', $_GET) ? (int)!empty($_GET['archive_enabled']) : 1,
             'dvr_control_mode' => self::cameraControlMode($_GET['mode'] ?? $_GET['dvr_control_mode'] ?? 'managed'),
             'agent_id' => (string)($_GET['agent_id'] ?? ''),
             'agent_camera_id' => (string)($_GET['agent_camera_id'] ?? ''),
@@ -7061,6 +7078,13 @@ final class App
 
     private static function tableCell(string $column, mixed $value): void
     {
+        if ($column === 'archive_enabled') {
+            $enabled = (int)$value === 1;
+            $label = $enabled ? self::t('agents.yes', 'да') : self::t('agents.no', 'нет');
+            echo '<td><span class="pill ' . ($enabled ? 'success' : 'danger') . '">' . Util::h($label) . '</span></td>';
+            return;
+        }
+
         if ($column === 'static_token_hash') {
             $hasToken = trim((string)$value) !== '';
             $label = $hasToken

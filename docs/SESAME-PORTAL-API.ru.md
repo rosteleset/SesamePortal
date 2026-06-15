@@ -394,6 +394,7 @@ Payload камеры:
   "dvrControlMode": "managed",
   "dvrStreamName": "entrance",
   "retentionDays": "7d",
+  "archiveEnabled": true,
   "latitude": 55.751244,
   "longitude": 37.618423,
   "directionDeg": 90,
@@ -419,6 +420,11 @@ Payload камеры:
 пользователя поверх video-зоны Portal player. `watermarkIntensity` задаёт
 интенсивность в процентах, по умолчанию `16`. Видеопоток при этом не
 транскодируется.
+
+`archiveEnabled=false` сохраняет камеру в Portal и при синхронизации передаёт в
+SesameDVR флаг `archiveEnabled=false`. Это позволяет создать stream в DVR без
+долговременной записи архива. Для совместимости принимается alias
+`archive_enabled`.
 
 Для Edge Agent камеры:
 
@@ -523,7 +529,7 @@ curl -H "Authorization: Bearer $TOKEN" \
 curl -X PATCH \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"blocked":true}' \
+  -d '{"archiveEnabled":false}' \
   https://portal.example.com/api/portal/v1/cameras/10
 ```
 
