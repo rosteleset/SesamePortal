@@ -7169,8 +7169,8 @@ final class App
             return 'readonly';
         }
 
-        if (preg_match('/\\bHTTP\\s+(\\d{3})\\b/i', $text, $match) && (int)$match[1] >= 400) {
-            return 'bad';
+        if (preg_match('/\\bHTTP\\s+(\\d{3})\\b/i', $text, $match)) {
+            return (int)$match[1] >= 400 ? 'bad' : 'ok';
         }
 
         $badMarkers = [
@@ -7178,6 +7178,7 @@ final class App
             'failed',
             'failure',
             'timeout',
+            'timed out',
             'unavailable',
             'blocked',
             'missing',
