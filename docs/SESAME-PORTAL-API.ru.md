@@ -395,6 +395,17 @@ Payload камеры:
   "dvrStreamName": "entrance",
   "retentionDays": "7d",
   "archiveEnabled": true,
+  "webrtcFastStart": true,
+  "eventArchiveRetentionEnabled": true,
+  "eventArchiveMaxBytes": 1073741824,
+  "eventArchiveMaxDuration": "6h",
+  "eventArchiveMaxAge": "30d",
+  "timelapseEnabled": true,
+  "timelapseFramesPerHour": 60,
+  "timelapseRetentionDays": "30d",
+  "timelapsePlaybackFps": 25,
+  "directArchiveVideoTimelineRepairMode": "auto",
+  "audioCodec": "copy",
   "latitude": 55.751244,
   "longitude": 37.618423,
   "directionDeg": 90,
@@ -413,7 +424,7 @@ Payload камеры:
 берётся из технического `dvrStreamName`.
 
 `dvrStreamName` - техническое имя потока в SesameDVR и playback URL. Допустимы
-только `A-Z`, `a-z`, `0-9`, `-` и `_`, максимум 128 символов. Если оно не
+только `A-Z`, `a-z`, `0-9`, `.`, `-` и `_`, максимум 128 символов. Если оно не
 передано, Portal сгенерирует валидное имя из `displayName`/`name`.
 
 `watermarkEnabled=true` включает HTML/CSS watermark с login текущего
@@ -425,6 +436,23 @@ Payload камеры:
 SesameDVR флаг `archiveEnabled=false`. Это позволяет создать stream в DVR без
 долговременной записи архива. Для совместимости принимается alias
 `archive_enabled`.
+
+Дополнительные DVR-настройки потока сохраняются в Portal и передаются в
+SesameDVR при `sync=true`:
+
+| Поле | Alias | Описание |
+| --- | --- | --- |
+| `webrtcFastStart` | `webrtc_fast_start` | Включает WebRTC FastStart для потока. |
+| `eventArchiveRetentionEnabled` | `event_archive_retention_enabled` | Включает сохранение архива по событиям. |
+| `eventArchiveMaxBytes` | `event_archive_max_bytes` | Лимит размера event-архива в bytes, `null`/пусто - без override. |
+| `eventArchiveMaxDuration` | `event_archive_max_duration` | Максимальная длительность event-архива, например `6h`. |
+| `eventArchiveMaxAge` | `event_archive_max_age` | Срок хранения event-архива, например `30d`. |
+| `timelapseEnabled` | `timelapse_enabled` | Включает запись timelapse. |
+| `timelapseFramesPerHour` | `timelapse_frames_per_hour` | Положительное число кадров в час, по умолчанию `60`. |
+| `timelapseRetentionDays` | `timelapse_retention_days` | Срок хранения timelapse, например `30d`; пусто - стандарт SesameDVR. |
+| `timelapsePlaybackFps` | `timelapse_playback_fps` | Положительный FPS воспроизведения timelapse, по умолчанию `25`. |
+| `directArchiveVideoTimelineRepairMode` | `direct_archive_video_timeline_repair_mode` | `auto`, `always`, `off` или `null` для стандартного поведения DVR. |
+| `audioCodec` | `audio_codec` | `copy` для копирования исходного audio или `aac` для транскодирования AAC. |
 
 Для Edge Agent камеры:
 

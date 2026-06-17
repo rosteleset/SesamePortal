@@ -501,6 +501,32 @@ button:disabled {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
 }
+.camera-stream-options {
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 12px;
+}
+.camera-stream-options[open] {
+  display: grid;
+  gap: 12px;
+}
+.camera-stream-options > summary {
+  cursor: pointer;
+  font-weight: 800;
+  color: var(--ink);
+  list-style: none;
+}
+.camera-stream-options > summary::-webkit-details-marker {
+  display: none;
+}
+.camera-stream-options > summary::after {
+  content: "▸";
+  float: right;
+  color: var(--muted);
+}
+.camera-stream-options[open] > summary::after {
+  content: "▾";
+}
 .check {
   display: flex;
   grid-template-columns: none;

@@ -289,6 +289,11 @@ printf "%s" "$admin_cameras_form" | grep -q "Техническое имя по�
 printf "%s" "$admin_cameras_form" | grep -q "Показывать водяной знак"
 printf "%s" "$admin_cameras_form" | grep -q "Интенсивность водяного знака"
 printf "%s" "$admin_cameras_form" | grep -q "Пишет архив"
+printf "%s" "$admin_cameras_form" | grep -q "Настройки потока DVR"
+printf "%s" "$admin_cameras_form" | grep -q "WebRTC FastStart"
+printf "%s" "$admin_cameras_form" | grep -q "Сохранять архив по событиям"
+printf "%s" "$admin_cameras_form" | grep -q "Писать timelapse"
+printf "%s" "$admin_cameras_form" | grep -q "Аудиокодек"
 printf "%s" "$admin_cameras_form" | grep -F -q 'pattern="[A-Za-z0-9][A-Za-z0-9._-]*"'
 printf "%s" "$admin_cameras_form" | grep -q "group-tree-checkbox-list"
 printf "%s" "$admin_cameras_form" | grep -F -q 'name="group_ids[]"'
@@ -520,13 +525,24 @@ api_cameras_stream_search="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/
 printf "%s" "$api_cameras_stream_search" | grep -q '"dvrStreamName": "unicode-yard-cam"'
 api_display_camera="$(
   curl -fsS -b "$COOKIE_JAR" -H 'Content-Type: application/json' \
-    -d '{"displayName":"Display Smoke Cam","sourceUrl":"rtsp://example.invalid/display","serverId":1,"dvrStreamName":"display-smoke-cam","archiveEnabled":false,"groupIds":[1,2],"skipSync":true}' \
+    -d '{"displayName":"Display Smoke Cam","sourceUrl":"rtsp://example.invalid/display","serverId":1,"dvrStreamName":"display-smoke-cam","archiveEnabled":false,"webrtcFastStart":true,"eventArchiveRetentionEnabled":true,"eventArchiveMaxBytes":123456,"eventArchiveMaxDuration":"6h","eventArchiveMaxAge":"30d","timelapseEnabled":true,"timelapseFramesPerHour":12,"timelapseRetentionDays":"14d","timelapsePlaybackFps":15,"directArchiveVideoTimelineRepairMode":"auto","audioCodec":"aac","groupIds":[1,2],"skipSync":true}' \
     "http://127.0.0.1:$PORT/api/portal/v1/cameras"
 )"
 printf "%s" "$api_display_camera" | grep -q '"name": "Display Smoke Cam"'
 printf "%s" "$api_display_camera" | grep -q '"displayName": "Display Smoke Cam"'
 printf "%s" "$api_display_camera" | grep -q '"dvrStreamName": "display-smoke-cam"'
 printf "%s" "$api_display_camera" | grep -q '"archiveEnabled": false'
+printf "%s" "$api_display_camera" | grep -q '"webrtcFastStart": true'
+printf "%s" "$api_display_camera" | grep -q '"eventArchiveRetentionEnabled": true'
+printf "%s" "$api_display_camera" | grep -q '"eventArchiveMaxBytes": 123456'
+printf "%s" "$api_display_camera" | grep -q '"eventArchiveMaxDuration": "6h"'
+printf "%s" "$api_display_camera" | grep -q '"eventArchiveMaxAge": "30d"'
+printf "%s" "$api_display_camera" | grep -q '"timelapseEnabled": true'
+printf "%s" "$api_display_camera" | grep -q '"timelapseFramesPerHour": 12'
+printf "%s" "$api_display_camera" | grep -q '"timelapseRetentionDays": "14d"'
+printf "%s" "$api_display_camera" | grep -q '"timelapsePlaybackFps": 15'
+printf "%s" "$api_display_camera" | grep -q '"directArchiveVideoTimelineRepairMode": "auto"'
+printf "%s" "$api_display_camera" | grep -q '"audioCodec": "aac"'
 display_camera_groups="$(printf "%s" "$api_display_camera" | php -r '$d=json_decode(stream_get_contents(STDIN), true); echo implode(",", $d["camera"]["groupIds"] ?? []);')"
 test "$display_camera_groups" = "1,2"
 api_duplicate_camera_status="$(

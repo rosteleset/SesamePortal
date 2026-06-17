@@ -151,6 +151,17 @@ final class DB
         self::ensureColumn('cameras', 'last_sync_ok', 'INTEGER');
         self::ensureColumn('cameras', 'last_sync_message', 'TEXT');
         self::ensureColumn('cameras', 'archive_enabled', 'INTEGER NOT NULL DEFAULT 1');
+        self::ensureColumn('cameras', 'webrtc_fast_start', 'INTEGER NOT NULL DEFAULT 0');
+        self::ensureColumn('cameras', 'event_archive_retention_enabled', 'INTEGER NOT NULL DEFAULT 0');
+        self::ensureColumn('cameras', 'event_archive_max_bytes', self::driver() === 'sqlite' ? 'INTEGER' : 'BIGINT');
+        self::ensureColumn('cameras', 'event_archive_max_duration', self::driver() === 'mysql' ? 'VARCHAR(64)' : 'TEXT');
+        self::ensureColumn('cameras', 'event_archive_max_age', self::driver() === 'mysql' ? 'VARCHAR(64)' : 'TEXT');
+        self::ensureColumn('cameras', 'timelapse_enabled', 'INTEGER NOT NULL DEFAULT 0');
+        self::ensureColumn('cameras', 'timelapse_frames_per_hour', 'INTEGER NOT NULL DEFAULT 60');
+        self::ensureColumn('cameras', 'timelapse_retention_days', self::driver() === 'mysql' ? 'VARCHAR(64)' : 'TEXT');
+        self::ensureColumn('cameras', 'timelapse_playback_fps', 'INTEGER NOT NULL DEFAULT 25');
+        self::ensureColumn('cameras', 'direct_archive_video_timeline_repair_mode', self::driver() === 'mysql' ? 'VARCHAR(16)' : 'TEXT');
+        self::ensureColumn('cameras', 'audio_codec', self::driver() === 'mysql' ? "VARCHAR(16) NOT NULL DEFAULT 'copy'" : "TEXT NOT NULL DEFAULT 'copy'");
         self::ensureColumn('cameras', 'dvr_control_mode', self::driver() === 'mysql' ? "VARCHAR(32) NOT NULL DEFAULT 'managed'" : "TEXT NOT NULL DEFAULT 'managed'");
         self::ensureColumn('cameras', 'agent_id', self::driver() === 'mysql' ? 'VARCHAR(255)' : 'TEXT');
         self::ensureColumn('cameras', 'agent_camera_id', self::driver() === 'mysql' ? 'VARCHAR(255)' : 'TEXT');
@@ -267,6 +278,17 @@ final class DB
                 view_angle_deg INTEGER NOT NULL DEFAULT 60,
                 retention_days TEXT NOT NULL DEFAULT "7d",
                 archive_enabled INTEGER NOT NULL DEFAULT 1,
+                webrtc_fast_start INTEGER NOT NULL DEFAULT 0,
+                event_archive_retention_enabled INTEGER NOT NULL DEFAULT 0,
+                event_archive_max_bytes INTEGER,
+                event_archive_max_duration TEXT,
+                event_archive_max_age TEXT,
+                timelapse_enabled INTEGER NOT NULL DEFAULT 0,
+                timelapse_frames_per_hour INTEGER NOT NULL DEFAULT 60,
+                timelapse_retention_days TEXT,
+                timelapse_playback_fps INTEGER NOT NULL DEFAULT 25,
+                direct_archive_video_timeline_repair_mode TEXT,
+                audio_codec TEXT NOT NULL DEFAULT "copy",
                 dvr_control_mode TEXT NOT NULL DEFAULT "managed",
                 agent_id TEXT,
                 agent_camera_id TEXT,
@@ -355,6 +377,17 @@ final class DB
                 view_angle_deg INTEGER NOT NULL DEFAULT 60,
                 retention_days TEXT NOT NULL DEFAULT '7d',
                 archive_enabled INTEGER NOT NULL DEFAULT 1,
+                webrtc_fast_start INTEGER NOT NULL DEFAULT 0,
+                event_archive_retention_enabled INTEGER NOT NULL DEFAULT 0,
+                event_archive_max_bytes BIGINT,
+                event_archive_max_duration TEXT,
+                event_archive_max_age TEXT,
+                timelapse_enabled INTEGER NOT NULL DEFAULT 0,
+                timelapse_frames_per_hour INTEGER NOT NULL DEFAULT 60,
+                timelapse_retention_days TEXT,
+                timelapse_playback_fps INTEGER NOT NULL DEFAULT 25,
+                direct_archive_video_timeline_repair_mode TEXT,
+                audio_codec TEXT NOT NULL DEFAULT 'copy',
                 dvr_control_mode TEXT NOT NULL DEFAULT 'managed',
                 agent_id TEXT,
                 agent_camera_id TEXT,
@@ -447,6 +480,17 @@ final class DB
                 view_angle_deg INTEGER NOT NULL DEFAULT 60,
                 retention_days VARCHAR(64) NOT NULL DEFAULT '7d',
                 archive_enabled INTEGER NOT NULL DEFAULT 1,
+                webrtc_fast_start INTEGER NOT NULL DEFAULT 0,
+                event_archive_retention_enabled INTEGER NOT NULL DEFAULT 0,
+                event_archive_max_bytes BIGINT,
+                event_archive_max_duration VARCHAR(64),
+                event_archive_max_age VARCHAR(64),
+                timelapse_enabled INTEGER NOT NULL DEFAULT 0,
+                timelapse_frames_per_hour INTEGER NOT NULL DEFAULT 60,
+                timelapse_retention_days VARCHAR(64),
+                timelapse_playback_fps INTEGER NOT NULL DEFAULT 25,
+                direct_archive_video_timeline_repair_mode VARCHAR(16),
+                audio_codec VARCHAR(16) NOT NULL DEFAULT 'copy',
                 dvr_control_mode VARCHAR(32) NOT NULL DEFAULT 'managed',
                 agent_id VARCHAR(255),
                 agent_camera_id VARCHAR(255),
@@ -999,6 +1043,21 @@ final class I18n
                 'cameras.watermarkEnabled' => 'Показывать водяной знак с логином в плеере',
                 'cameras.watermarkIntensity' => 'Интенсивность водяного знака, %',
                 'cameras.archiveEnabled' => 'Пишет архив',
+                'cameras.dvrStreamOptions' => 'Настройки потока DVR',
+                'cameras.webrtcFastStart' => 'WebRTC FastStart',
+                'cameras.eventArchiveRetentionEnabled' => 'Сохранять архив по событиям',
+                'cameras.eventArchiveMaxBytes' => 'Лимит размера архива событий, bytes',
+                'cameras.eventArchiveMaxDuration' => 'Максимальная длительность архива событий',
+                'cameras.eventArchiveMaxAge' => 'Срок хранения архива событий',
+                'cameras.timelapseEnabled' => 'Писать timelapse',
+                'cameras.timelapseFramesPerHour' => 'Кадров в час',
+                'cameras.timelapseRetentionDays' => 'Хранение timelapse',
+                'cameras.timelapsePlaybackFps' => 'FPS воспроизведения',
+                'cameras.timelineRepairMode' => 'MP4 timeline repair',
+                'cameras.timelineRepairDefault' => 'По умолчанию',
+                'cameras.audioCodec' => 'Аудиокодек',
+                'cameras.audioCodecCopy' => 'Копировать',
+                'cameras.audioCodecAac' => 'Транскодировать AAC',
                 'cameras.agentRequired' => 'Для edge-agent режима нужны сервер, Agent ID и Agent camera ID',
                 'cameras.agentOverwriteBlocked' => 'Поток на DVR уже управляется Edge Agent. Переключите камеру Portal в режим Edge Agent или read-only, чтобы не перезаписать push-конфиг.',
                 'agents.title' => 'Edge-агенты',
@@ -1222,6 +1281,21 @@ final class I18n
                 'cameras.onvifEvents' => 'Start ONVIF events through the agent',
                 'cameras.watermarkEnabled' => 'Show player watermark with user login',
                 'cameras.watermarkIntensity' => 'Watermark intensity, %',
+                'cameras.dvrStreamOptions' => 'DVR stream options',
+                'cameras.webrtcFastStart' => 'WebRTC FastStart',
+                'cameras.eventArchiveRetentionEnabled' => 'Record archive by events',
+                'cameras.eventArchiveMaxBytes' => 'Event archive size limit, bytes',
+                'cameras.eventArchiveMaxDuration' => 'Event archive max duration',
+                'cameras.eventArchiveMaxAge' => 'Event archive retention',
+                'cameras.timelapseEnabled' => 'Record timelapse',
+                'cameras.timelapseFramesPerHour' => 'Frames per hour',
+                'cameras.timelapseRetentionDays' => 'Timelapse retention',
+                'cameras.timelapsePlaybackFps' => 'Playback FPS',
+                'cameras.timelineRepairMode' => 'MP4 timeline repair',
+                'cameras.timelineRepairDefault' => 'Default',
+                'cameras.audioCodec' => 'Audio codec',
+                'cameras.audioCodecCopy' => 'Copy',
+                'cameras.audioCodecAac' => 'Transcode AAC',
                 'cameras.agentRequired' => 'Edge-agent mode requires server, Agent ID, and Agent camera ID',
                 'cameras.agentOverwriteBlocked' => 'This DVR stream is already managed by Edge Agent. Switch the Portal camera to Edge Agent or read-only mode to avoid overwriting push configuration.',
                 'cameras.deleteTitle' => 'Delete camera',
@@ -2741,6 +2815,7 @@ final class DvrClient
                 'authMode' => 'authBackend',
             ];
         }
+        $payload = array_merge($payload, self::cameraDvrOptionsPayload($camera));
 
         $base = rtrim($server['base_url'], '/');
         $endpoint = $base . '/api/streams/' . rawurlencode($name);
@@ -2753,6 +2828,54 @@ final class DvrClient
         $ok = $result['status'] >= 200 && $result['status'] < 300;
         $message = self::responseSummary($result, $endpoint);
         return self::storeCameraSync($cameraId, $ok, $message);
+    }
+
+    private static function cameraDvrOptionsPayload(array $camera): array
+    {
+        return [
+            'webrtcFastStart' => (int)($camera['webrtc_fast_start'] ?? 0) === 1,
+            'eventArchiveRetentionEnabled' => (int)($camera['event_archive_retention_enabled'] ?? 0) === 1,
+            'eventArchiveMaxBytes' => self::optionalNonNegativeInt($camera['event_archive_max_bytes'] ?? null),
+            'eventArchiveMaxDuration' => self::optionalString($camera['event_archive_max_duration'] ?? null),
+            'eventArchiveMaxAge' => self::optionalString($camera['event_archive_max_age'] ?? null),
+            'timelapseEnabled' => (int)($camera['timelapse_enabled'] ?? 0) === 1,
+            'timelapseFramesPerHour' => self::positiveInt($camera['timelapse_frames_per_hour'] ?? null, 60),
+            'timelapseRetentionDays' => self::optionalString($camera['timelapse_retention_days'] ?? null),
+            'timelapsePlaybackFps' => self::positiveInt($camera['timelapse_playback_fps'] ?? null, 25),
+            'directArchiveVideoTimelineRepairMode' => self::optionalTimelineRepairMode($camera['direct_archive_video_timeline_repair_mode'] ?? null),
+            'audioCodec' => self::audioCodec($camera['audio_codec'] ?? null),
+        ];
+    }
+
+    private static function optionalString(mixed $value): ?string
+    {
+        $value = trim((string)$value);
+        return $value !== '' ? $value : null;
+    }
+
+    private static function optionalNonNegativeInt(mixed $value): ?int
+    {
+        if ($value === null || trim((string)$value) === '') {
+            return null;
+        }
+        return max(0, (int)$value);
+    }
+
+    private static function positiveInt(mixed $value, int $default): int
+    {
+        $int = (int)$value;
+        return $int > 0 ? $int : $default;
+    }
+
+    private static function optionalTimelineRepairMode(mixed $value): ?string
+    {
+        $value = strtolower(trim((string)$value));
+        return in_array($value, ['auto', 'always', 'off'], true) ? $value : null;
+    }
+
+    private static function audioCodec(mixed $value): string
+    {
+        return strtolower(trim((string)$value)) === 'aac' ? 'aac' : 'copy';
     }
 
     public static function deleteCameraStream(int $cameraId, bool $purgeArchive): array
@@ -3762,6 +3885,52 @@ final class App
         return in_array($value, ['1', 'true', 'yes', 'on'], true);
     }
 
+    private static function apiOptionalString(array $input, array $keys, ?array $current, string $currentKey): ?string
+    {
+        foreach ($keys as $key) {
+            if (array_key_exists($key, $input)) {
+                $value = trim((string)$input[$key]);
+                return $value !== '' ? $value : null;
+            }
+        }
+        if ($current && array_key_exists($currentKey, $current)) {
+            $value = trim((string)($current[$currentKey] ?? ''));
+            return $value !== '' ? $value : null;
+        }
+        return null;
+    }
+
+    private static function apiOptionalNonNegativeInt(array $input, array $keys, ?array $current, string $currentKey): ?int
+    {
+        foreach ($keys as $key) {
+            if (array_key_exists($key, $input)) {
+                if ($input[$key] === null || trim((string)$input[$key]) === '') {
+                    return null;
+                }
+                return max(0, (int)$input[$key]);
+            }
+        }
+        if ($current && array_key_exists($currentKey, $current)) {
+            if ($current[$currentKey] === null || trim((string)$current[$currentKey]) === '') {
+                return null;
+            }
+            return max(0, (int)$current[$currentKey]);
+        }
+        return null;
+    }
+
+    private static function apiPositiveInt(array $input, array $keys, ?array $current, string $currentKey, int $default): int
+    {
+        foreach ($keys as $key) {
+            if (array_key_exists($key, $input)) {
+                $value = (int)$input[$key];
+                return $value > 0 ? $value : $default;
+            }
+        }
+        $value = (int)($current[$currentKey] ?? $default);
+        return $value > 0 ? $value : $default;
+    }
+
     private static function apiBlockedValue(array $input, ?array $current = null): int
     {
         if (array_key_exists('blocked', $input)) {
@@ -4483,6 +4652,25 @@ final class App
             array_key_exists('archiveEnabled', $input) || array_key_exists('archive_enabled', $input)
                 ? (self::apiBool($input['archiveEnabled'] ?? $input['archive_enabled']) ? 1 : 0)
                 : (int)($current['archive_enabled'] ?? 1),
+            array_key_exists('webrtcFastStart', $input) || array_key_exists('webrtc_fast_start', $input)
+                ? (self::apiBool($input['webrtcFastStart'] ?? $input['webrtc_fast_start']) ? 1 : 0)
+                : (int)($current['webrtc_fast_start'] ?? 0),
+            array_key_exists('eventArchiveRetentionEnabled', $input) || array_key_exists('event_archive_retention_enabled', $input)
+                ? (self::apiBool($input['eventArchiveRetentionEnabled'] ?? $input['event_archive_retention_enabled']) ? 1 : 0)
+                : (int)($current['event_archive_retention_enabled'] ?? 0),
+            self::apiOptionalNonNegativeInt($input, ['eventArchiveMaxBytes', 'event_archive_max_bytes'], $current, 'event_archive_max_bytes'),
+            self::apiOptionalString($input, ['eventArchiveMaxDuration', 'event_archive_max_duration'], $current, 'event_archive_max_duration'),
+            self::apiOptionalString($input, ['eventArchiveMaxAge', 'event_archive_max_age'], $current, 'event_archive_max_age'),
+            array_key_exists('timelapseEnabled', $input) || array_key_exists('timelapse_enabled', $input)
+                ? (self::apiBool($input['timelapseEnabled'] ?? $input['timelapse_enabled']) ? 1 : 0)
+                : (int)($current['timelapse_enabled'] ?? 0),
+            self::apiPositiveInt($input, ['timelapseFramesPerHour', 'timelapse_frames_per_hour'], $current, 'timelapse_frames_per_hour', 60),
+            self::apiOptionalString($input, ['timelapseRetentionDays', 'timelapse_retention_days'], $current, 'timelapse_retention_days'),
+            self::apiPositiveInt($input, ['timelapsePlaybackFps', 'timelapse_playback_fps'], $current, 'timelapse_playback_fps', 25),
+            self::cameraTimelineRepairMode(self::apiOptionalString($input, ['directArchiveVideoTimelineRepairMode', 'direct_archive_video_timeline_repair_mode'], $current, 'direct_archive_video_timeline_repair_mode')),
+            array_key_exists('audioCodec', $input) || array_key_exists('audio_codec', $input)
+                ? self::cameraAudioCodec($input['audioCodec'] ?? $input['audio_codec'])
+                : self::cameraAudioCodec($current['audio_codec'] ?? 'copy'),
             $controlMode,
             $agentId !== '' ? $agentId : null,
             $agentCameraId !== '' ? $agentCameraId : null,
@@ -4509,10 +4697,10 @@ final class App
         $pdo->beginTransaction();
         try {
             if ($id > 0) {
-                $pdo->prepare('UPDATE cameras SET name=?, source_url=?, server_id=?, server_selection=?, latitude=?, longitude=?, direction_deg=?, view_angle_deg=?, retention_days=?, archive_enabled=?, dvr_control_mode=?, agent_id=?, agent_camera_id=?, onvif_events_requested=?, watermark_enabled=?, watermark_intensity=?, blocked=?, dvr_stream_name=?, updated_at=? WHERE id=?')
+                $pdo->prepare('UPDATE cameras SET name=?, source_url=?, server_id=?, server_selection=?, latitude=?, longitude=?, direction_deg=?, view_angle_deg=?, retention_days=?, archive_enabled=?, webrtc_fast_start=?, event_archive_retention_enabled=?, event_archive_max_bytes=?, event_archive_max_duration=?, event_archive_max_age=?, timelapse_enabled=?, timelapse_frames_per_hour=?, timelapse_retention_days=?, timelapse_playback_fps=?, direct_archive_video_timeline_repair_mode=?, audio_codec=?, dvr_control_mode=?, agent_id=?, agent_camera_id=?, onvif_events_requested=?, watermark_enabled=?, watermark_intensity=?, blocked=?, dvr_stream_name=?, updated_at=? WHERE id=?')
                     ->execute([...$values, Util::now(), $id]);
             } else {
-                $pdo->prepare('INSERT INTO cameras(name, source_url, server_id, server_selection, latitude, longitude, direction_deg, view_angle_deg, retention_days, archive_enabled, dvr_control_mode, agent_id, agent_camera_id, onvif_events_requested, watermark_enabled, watermark_intensity, blocked, dvr_stream_name, created_at, updated_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+                $pdo->prepare('INSERT INTO cameras(name, source_url, server_id, server_selection, latitude, longitude, direction_deg, view_angle_deg, retention_days, archive_enabled, webrtc_fast_start, event_archive_retention_enabled, event_archive_max_bytes, event_archive_max_duration, event_archive_max_age, timelapse_enabled, timelapse_frames_per_hour, timelapse_retention_days, timelapse_playback_fps, direct_archive_video_timeline_repair_mode, audio_codec, dvr_control_mode, agent_id, agent_camera_id, onvif_events_requested, watermark_enabled, watermark_intensity, blocked, dvr_stream_name, created_at, updated_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
                     ->execute([...$values, Util::now(), Util::now()]);
                 $id = DB::lastInsertId('cameras');
             }
@@ -4842,6 +5030,17 @@ final class App
             'viewAngleDeg' => (int)($camera['view_angle_deg'] ?? 60),
             'retentionDays' => (string)($camera['retention_days'] ?? '7d'),
             'archiveEnabled' => (int)($camera['archive_enabled'] ?? 1) === 1,
+            'webrtcFastStart' => (int)($camera['webrtc_fast_start'] ?? 0) === 1,
+            'eventArchiveRetentionEnabled' => (int)($camera['event_archive_retention_enabled'] ?? 0) === 1,
+            'eventArchiveMaxBytes' => ($camera['event_archive_max_bytes'] ?? null) !== null ? (int)$camera['event_archive_max_bytes'] : null,
+            'eventArchiveMaxDuration' => $camera['event_archive_max_duration'] ?? null,
+            'eventArchiveMaxAge' => $camera['event_archive_max_age'] ?? null,
+            'timelapseEnabled' => (int)($camera['timelapse_enabled'] ?? 0) === 1,
+            'timelapseFramesPerHour' => self::cameraPositiveInt($camera['timelapse_frames_per_hour'] ?? 60, 60),
+            'timelapseRetentionDays' => $camera['timelapse_retention_days'] ?? null,
+            'timelapsePlaybackFps' => self::cameraPositiveInt($camera['timelapse_playback_fps'] ?? 25, 25),
+            'directArchiveVideoTimelineRepairMode' => self::cameraTimelineRepairMode($camera['direct_archive_video_timeline_repair_mode'] ?? null),
+            'audioCodec' => self::cameraAudioCodec($camera['audio_codec'] ?? 'copy'),
             'dvrControlMode' => (string)($camera['dvr_control_mode'] ?? 'managed'),
             'agentId' => $camera['agent_id'] ?? null,
             'agentCameraId' => $camera['agent_camera_id'] ?? null,
@@ -5823,6 +6022,17 @@ final class App
                         (int)Util::post('view_angle_deg', 60),
                         Util::post('retention_days', '7d'),
                         Util::checkbox('archive_enabled'),
+                        Util::checkbox('webrtc_fast_start'),
+                        Util::checkbox('event_archive_retention_enabled'),
+                        self::cameraOptionalNonNegativeInt(Util::post('event_archive_max_bytes')),
+                        self::cameraOptionalString(Util::post('event_archive_max_duration')),
+                        self::cameraOptionalString(Util::post('event_archive_max_age')),
+                        Util::checkbox('timelapse_enabled'),
+                        self::cameraPositiveInt(Util::post('timelapse_frames_per_hour', 60), 60),
+                        self::cameraOptionalString(Util::post('timelapse_retention_days')),
+                        self::cameraPositiveInt(Util::post('timelapse_playback_fps', 25), 25),
+                        self::cameraTimelineRepairMode(Util::post('direct_archive_video_timeline_repair_mode')),
+                        self::cameraAudioCodec(Util::post('audio_codec', 'copy')),
                         $controlMode,
                         $agentId !== '' ? $agentId : null,
                         $agentCameraId !== '' ? $agentCameraId : null,
@@ -5833,10 +6043,10 @@ final class App
                         $stream,
                     ];
                     if ($id > 0) {
-                        $pdo->prepare('UPDATE cameras SET name=?, source_url=?, server_id=?, server_selection=?, latitude=?, longitude=?, direction_deg=?, view_angle_deg=?, retention_days=?, archive_enabled=?, dvr_control_mode=?, agent_id=?, agent_camera_id=?, onvif_events_requested=?, watermark_enabled=?, watermark_intensity=?, blocked=?, dvr_stream_name=?, updated_at=? WHERE id=?')
+                        $pdo->prepare('UPDATE cameras SET name=?, source_url=?, server_id=?, server_selection=?, latitude=?, longitude=?, direction_deg=?, view_angle_deg=?, retention_days=?, archive_enabled=?, webrtc_fast_start=?, event_archive_retention_enabled=?, event_archive_max_bytes=?, event_archive_max_duration=?, event_archive_max_age=?, timelapse_enabled=?, timelapse_frames_per_hour=?, timelapse_retention_days=?, timelapse_playback_fps=?, direct_archive_video_timeline_repair_mode=?, audio_codec=?, dvr_control_mode=?, agent_id=?, agent_camera_id=?, onvif_events_requested=?, watermark_enabled=?, watermark_intensity=?, blocked=?, dvr_stream_name=?, updated_at=? WHERE id=?')
                             ->execute([...$values, Util::now(), $id]);
                     } else {
-                        $pdo->prepare('INSERT INTO cameras(name, source_url, server_id, server_selection, latitude, longitude, direction_deg, view_angle_deg, retention_days, archive_enabled, dvr_control_mode, agent_id, agent_camera_id, onvif_events_requested, watermark_enabled, watermark_intensity, blocked, dvr_stream_name, created_at, updated_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+                        $pdo->prepare('INSERT INTO cameras(name, source_url, server_id, server_selection, latitude, longitude, direction_deg, view_angle_deg, retention_days, archive_enabled, webrtc_fast_start, event_archive_retention_enabled, event_archive_max_bytes, event_archive_max_duration, event_archive_max_age, timelapse_enabled, timelapse_frames_per_hour, timelapse_retention_days, timelapse_playback_fps, direct_archive_video_timeline_repair_mode, audio_codec, dvr_control_mode, agent_id, agent_camera_id, onvif_events_requested, watermark_enabled, watermark_intensity, blocked, dvr_stream_name, created_at, updated_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
                             ->execute([...$values, Util::now(), Util::now()]);
                         $id = DB::lastInsertId('cameras');
                     }
@@ -5925,6 +6135,25 @@ final class App
             echo '<div class="form-row"><label>' . self::t('cameras.direction', 'Направление') . '<input id="camera-direction" name="direction_deg" type="number" min="0" max="359" value="' . Util::h($form['direction_deg'] ?? 0) . '"></label><label>' . self::t('cameras.viewAngle', 'Угол обзора') . '<input name="view_angle_deg" type="number" min="1" max="180" value="' . Util::h($form['view_angle_deg'] ?? 60) . '"></label></div>';
             echo '<div class="form-row"><label>' . self::t('cameras.retention', 'Глубина архива') . '<input name="retention_days" value="' . Util::h($form['retention_days'] ?? '7d') . '"></label>';
             echo '<label class="check"><input type="checkbox" name="archive_enabled" ' . (!empty($form['archive_enabled']) ? 'checked' : '') . '> ' . self::t('cameras.archiveEnabled', 'Пишет архив') . '</label></div>';
+            $timelineRepairMode = self::cameraTimelineRepairMode($form['direct_archive_video_timeline_repair_mode'] ?? null) ?? '';
+            $audioCodec = self::cameraAudioCodec($form['audio_codec'] ?? 'copy');
+            echo '<details class="camera-stream-options"><summary>' . self::t('cameras.dvrStreamOptions', 'Настройки потока DVR') . '</summary>';
+            echo '<label class="check"><input type="checkbox" name="webrtc_fast_start" ' . (!empty($form['webrtc_fast_start']) ? 'checked' : '') . '> ' . self::t('cameras.webrtcFastStart', 'WebRTC FastStart') . '</label>';
+            echo '<label class="check"><input type="checkbox" name="event_archive_retention_enabled" ' . (!empty($form['event_archive_retention_enabled']) ? 'checked' : '') . '> ' . self::t('cameras.eventArchiveRetentionEnabled', 'Сохранять архив по событиям') . '</label>';
+            echo '<div class="form-row"><label>' . self::t('cameras.eventArchiveMaxBytes', 'Лимит размера архива событий, bytes') . '<input name="event_archive_max_bytes" type="number" min="0" value="' . Util::h($form['event_archive_max_bytes'] ?? '') . '"></label><label>' . self::t('cameras.eventArchiveMaxDuration', 'Максимальная длительность архива событий') . '<input name="event_archive_max_duration" value="' . Util::h($form['event_archive_max_duration'] ?? '') . '" placeholder="6h"></label></div>';
+            echo '<label>' . self::t('cameras.eventArchiveMaxAge', 'Срок хранения архива событий') . '<input name="event_archive_max_age" value="' . Util::h($form['event_archive_max_age'] ?? '') . '" placeholder="30d"></label>';
+            echo '<label class="check"><input type="checkbox" name="timelapse_enabled" ' . (!empty($form['timelapse_enabled']) ? 'checked' : '') . '> ' . self::t('cameras.timelapseEnabled', 'Писать timelapse') . '</label>';
+            echo '<div class="form-row"><label>' . self::t('cameras.timelapseFramesPerHour', 'Кадров в час') . '<input name="timelapse_frames_per_hour" type="number" min="1" value="' . Util::h(self::cameraPositiveInt($form['timelapse_frames_per_hour'] ?? 60, 60)) . '"></label><label>' . self::t('cameras.timelapseRetentionDays', 'Хранение timelapse') . '<input name="timelapse_retention_days" value="' . Util::h($form['timelapse_retention_days'] ?? '') . '" placeholder="30d"></label></div>';
+            echo '<div class="form-row"><label>' . self::t('cameras.timelapsePlaybackFps', 'FPS воспроизведения') . '<input name="timelapse_playback_fps" type="number" min="1" value="' . Util::h(self::cameraPositiveInt($form['timelapse_playback_fps'] ?? 25, 25)) . '"></label><label>' . self::t('cameras.timelineRepairMode', 'MP4 timeline repair') . '<select name="direct_archive_video_timeline_repair_mode">';
+            echo '<option value="" ' . ($timelineRepairMode === '' ? 'selected' : '') . '>' . self::t('cameras.timelineRepairDefault', 'По умолчанию') . '</option>';
+            echo '<option value="auto" ' . ($timelineRepairMode === 'auto' ? 'selected' : '') . '>auto</option>';
+            echo '<option value="always" ' . ($timelineRepairMode === 'always' ? 'selected' : '') . '>always</option>';
+            echo '<option value="off" ' . ($timelineRepairMode === 'off' ? 'selected' : '') . '>off</option>';
+            echo '</select></label></div>';
+            echo '<label>' . self::t('cameras.audioCodec', 'Аудиокодек') . '<select name="audio_codec">';
+            echo '<option value="copy" ' . ($audioCodec === 'copy' ? 'selected' : '') . '>' . self::t('cameras.audioCodecCopy', 'Копировать') . '</option>';
+            echo '<option value="aac" ' . ($audioCodec === 'aac' ? 'selected' : '') . '>' . self::t('cameras.audioCodecAac', 'Транскодировать AAC') . '</option>';
+            echo '</select></label></details>';
             echo '<label class="check"><input type="checkbox" name="blocked" ' . (!empty($form['blocked']) ? 'checked' : '') . '> ' . self::t('cameras.blocked', 'Заблокирована') . '</label>';
             self::groupCheckboxTree(self::t('cameras.groups', 'Группы'), 'group_ids[]', $groups, $linkedGroups);
             echo '<button class="primary">' . self::t('action.saveSync', 'Сохранить и синхронизировать') . '</button></form></section>';
@@ -5937,6 +6166,37 @@ final class App
     {
         $mode = trim((string)$value);
         return in_array($mode, ['managed', 'edge_agent', 'read_only'], true) ? $mode : 'managed';
+    }
+
+    private static function cameraTimelineRepairMode(mixed $value): ?string
+    {
+        $mode = strtolower(trim((string)$value));
+        return in_array($mode, ['auto', 'always', 'off'], true) ? $mode : null;
+    }
+
+    private static function cameraAudioCodec(mixed $value): string
+    {
+        return strtolower(trim((string)$value)) === 'aac' ? 'aac' : 'copy';
+    }
+
+    private static function cameraPositiveInt(mixed $value, int $default): int
+    {
+        $value = (int)$value;
+        return $value > 0 ? $value : $default;
+    }
+
+    private static function cameraOptionalNonNegativeInt(mixed $value): ?int
+    {
+        if ($value === null || trim((string)$value) === '') {
+            return null;
+        }
+        return max(0, (int)$value);
+    }
+
+    private static function cameraOptionalString(mixed $value): ?string
+    {
+        $value = trim((string)$value);
+        return $value !== '' ? $value : null;
     }
 
     private static function watermarkIntensity(mixed $value): int
@@ -6016,6 +6276,17 @@ final class App
             'view_angle_deg' => 60,
             'retention_days' => (string)($_GET['retention_days'] ?? '7d'),
             'archive_enabled' => array_key_exists('archive_enabled', $_GET) ? (int)!empty($_GET['archive_enabled']) : 1,
+            'webrtc_fast_start' => !empty($_GET['webrtc_fast_start']) ? 1 : 0,
+            'event_archive_retention_enabled' => !empty($_GET['event_archive_retention_enabled']) ? 1 : 0,
+            'event_archive_max_bytes' => self::cameraOptionalNonNegativeInt($_GET['event_archive_max_bytes'] ?? null),
+            'event_archive_max_duration' => self::cameraOptionalString($_GET['event_archive_max_duration'] ?? ''),
+            'event_archive_max_age' => self::cameraOptionalString($_GET['event_archive_max_age'] ?? ''),
+            'timelapse_enabled' => !empty($_GET['timelapse_enabled']) ? 1 : 0,
+            'timelapse_frames_per_hour' => self::cameraPositiveInt($_GET['timelapse_frames_per_hour'] ?? 60, 60),
+            'timelapse_retention_days' => self::cameraOptionalString($_GET['timelapse_retention_days'] ?? ''),
+            'timelapse_playback_fps' => self::cameraPositiveInt($_GET['timelapse_playback_fps'] ?? 25, 25),
+            'direct_archive_video_timeline_repair_mode' => self::cameraTimelineRepairMode($_GET['direct_archive_video_timeline_repair_mode'] ?? null),
+            'audio_codec' => self::cameraAudioCodec($_GET['audio_codec'] ?? 'copy'),
             'dvr_control_mode' => self::cameraControlMode($_GET['mode'] ?? $_GET['dvr_control_mode'] ?? 'managed'),
             'agent_id' => (string)($_GET['agent_id'] ?? ''),
             'agent_camera_id' => (string)($_GET['agent_camera_id'] ?? ''),

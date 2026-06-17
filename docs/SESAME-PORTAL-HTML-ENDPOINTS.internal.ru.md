@@ -416,11 +416,22 @@ Query parameters:
 | Параметр | Описание |
 | --- | --- |
 | `display_name` / `displayName` / `name` | Название потока. Используется как имя камеры в Portal. |
-| `stream` / `dvr_stream_name` / `dvrStreamName` | Техническое имя потока SesameDVR: только `A-Z`, `a-z`, `0-9`, `-` и `_`, максимум 128 символов. |
+| `stream` / `dvr_stream_name` / `dvrStreamName` | Техническое имя потока SesameDVR: только `A-Z`, `a-z`, `0-9`, `.`, `-` и `_`, максимум 128 символов. |
 | `source_url` | URL источника. |
 | `server_id` | ID DVR-сервера. |
 | `retention_days` | Глубина архива, например `7d`. |
 | `archive_enabled` | Непустое значение включает запись архива на SesameDVR при синхронизации. По умолчанию включено. |
+| `webrtc_fast_start` | Непустое значение включает WebRTC FastStart при синхронизации с SesameDVR. |
+| `event_archive_retention_enabled` | Непустое значение включает сохранение архива по событиям. |
+| `event_archive_max_bytes` | Лимит размера event-архива в bytes. Пусто - без override. |
+| `event_archive_max_duration` | Максимальная длительность event-архива, например `6h`. |
+| `event_archive_max_age` | Срок хранения event-архива, например `30d`. |
+| `timelapse_enabled` | Непустое значение включает запись timelapse. |
+| `timelapse_frames_per_hour` | Кадров в час для timelapse, по умолчанию `60`. |
+| `timelapse_retention_days` | Хранение timelapse, например `30d`. |
+| `timelapse_playback_fps` | FPS воспроизведения timelapse, по умолчанию `25`. |
+| `direct_archive_video_timeline_repair_mode` | `auto`, `always`, `off` или пусто для стандартного поведения DVR. |
+| `audio_codec` | `copy` или `aac`. |
 | `mode` / `dvr_control_mode` | `managed`, `edge_agent` или `read_only`. |
 | `agent_id` | Edge Agent ID. |
 | `agent_camera_id` | ID камеры внутри агента. |
@@ -481,6 +492,17 @@ Actions:
 | `view_angle_deg` | Угол обзора, градусы. |
 | `retention_days` | Глубина архива. |
 | `archive_enabled` | Checkbox “Пишет архив”; пробрасывается в SesameDVR как `archiveEnabled`. |
+| `webrtc_fast_start` | Checkbox `WebRTC FastStart`; пробрасывается как `webrtcFastStart`. |
+| `event_archive_retention_enabled` | Checkbox “Сохранять архив по событиям”; пробрасывается как `eventArchiveRetentionEnabled`. |
+| `event_archive_max_bytes` | Лимит размера event-архива в bytes; пробрасывается как `eventArchiveMaxBytes`. |
+| `event_archive_max_duration` | Максимальная длительность event-архива; пробрасывается как `eventArchiveMaxDuration`. |
+| `event_archive_max_age` | Срок хранения event-архива; пробрасывается как `eventArchiveMaxAge`. |
+| `timelapse_enabled` | Checkbox “Писать timelapse”; пробрасывается как `timelapseEnabled`. |
+| `timelapse_frames_per_hour` | Кадров в час; пробрасывается как `timelapseFramesPerHour`. |
+| `timelapse_retention_days` | Хранение timelapse; пробрасывается как `timelapseRetentionDays`. |
+| `timelapse_playback_fps` | FPS воспроизведения timelapse; пробрасывается как `timelapsePlaybackFps`. |
+| `direct_archive_video_timeline_repair_mode` | Режим MP4 timeline repair: `auto`, `always`, `off` или пусто. |
+| `audio_codec` | Аудиокодек: `copy` или `aac`. |
 | `blocked` | Checkbox блокировки камеры. |
 | `group_ids[]` | Полный набор групп камеры. |
 
