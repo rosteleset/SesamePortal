@@ -286,8 +286,14 @@ printf "%s" "$admin_cameras_form" | grep -q "Изменить камеру"
 printf "%s" "$admin_cameras_form" | grep -F -q 'href="/admin/cameras">Новая камера</a>'
 printf "%s" "$admin_cameras_form" | grep -q "Название потока"
 printf "%s" "$admin_cameras_form" | grep -q "Техническое имя потока"
+printf "%s" "$admin_cameras_form" | grep -F -q 'name="dvr_control_mode" data-camera-mode-select'
+printf "%s" "$admin_cameras_form" | grep -F -q 'data-camera-agent-field hidden'
 printf "%s" "$admin_cameras_form" | grep -q "Показывать водяной знак"
 printf "%s" "$admin_cameras_form" | grep -q "Интенсивность водяного знака"
+printf "%s" "$admin_cameras_form" | grep -F -q 'name="watermark_enabled" data-watermark-toggle checked'
+printf "%s" "$admin_cameras_form" | grep -F -q 'data-watermark-dependent'
+printf "%s" "$admin_cameras_form" | grep -q "Расположение камеры"
+printf "%s" "$admin_cameras_form" | grep -F -q 'data-camera-location-options'
 printf "%s" "$admin_cameras_form" | grep -q "Пишет архив"
 printf "%s" "$admin_cameras_form" | grep -q "Глубина архива"
 printf "%s" "$admin_cameras_form" | grep -q "Настройки потока DVR"
@@ -305,6 +311,8 @@ printf "%s" "$admin_cameras_form" | grep -q "group-tree-checkbox-list"
 printf "%s" "$admin_cameras_form" | grep -F -q 'name="group_ids[]"'
 printf "%s" "$admin_cameras_form" | grep -q "data-group-tree-toggle"
 printf "%s" "$admin_cameras_form" | grep -q "Smoke Subgroup"
+admin_cameras_new_form="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/admin/cameras")"
+printf "%s" "$admin_cameras_new_form" | grep -F -q 'data-watermark-dependent hidden'
 camera_csrf="$(printf "%s" "$admin_cameras_form" | sed -n 's/.*name="csrf" value="\([^"]*\)".*/\1/p' | head -n 1)"
 test -n "$camera_csrf"
 invalid_camera_form="$(

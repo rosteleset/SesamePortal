@@ -6,6 +6,7 @@
   initPreviewRefresh();
   initDensitySwitch();
   initGroupTreePickers();
+  initCameraFormVisibility();
   initDvrStreamOptions();
   initSubmitProgress();
   initAssignmentPickers();
@@ -42,6 +43,20 @@
     const container = document.getElementById("camera-position-map");
     if (!window.L || !container) return;
 
+    const panel = container.closest("[data-camera-location-options]");
+    const init = () => {
+      if (container.dataset.cameraPositionEditorBound === "1") return;
+      if (panel && !panel.open) return;
+      container.dataset.cameraPositionEditorBound = "1";
+      initCameraPositionEditorMap(container);
+    };
+    if (panel) {
+      panel.addEventListener("toggle", init);
+    }
+    init();
+  }
+
+  function initCameraPositionEditorMap(container) {
     const latInput = document.getElementById("camera-latitude") || document.querySelector('input[name="latitude"]');
     const lngInput = document.getElementById("camera-longitude") || document.querySelector('input[name="longitude"]');
     const directionInput = document.getElementById("camera-direction") || document.querySelector('input[name="direction_deg"]');
@@ -693,6 +708,32 @@
           button.setAttribute("aria-disabled", "true");
         });
       });
+    });
+  }
+
+  function initCameraFormVisibility(root = document) {
+    root.querySelectorAll("form").forEach((form) => {
+      if (form.dataset.cameraFormVisibilityBound === "1") return;
+      const modeSelect = form.querySelector("[data-camera-mode-select]");
+      const watermarkToggle = form.querySelector("[data-watermark-toggle]");
+      if (!modeSelect && !watermarkToggle) return;
+      form.dataset.cameraFormVisibilityBound = "1";
+
+      const sync = () => {
+        const agentVisible = modeSelect?.value === "edge_agent";
+        form.querySelectorAll("[data-camera-agent-field]").forEach((field) => {
+          field.hidden = !agentVisible;
+        });
+
+        const watermarkVisible = !!watermarkToggle?.checked;
+        form.querySelectorAll("[data-watermark-dependent]").forEach((field) => {
+          field.hidden = !watermarkVisible;
+        });
+      };
+
+      modeSelect?.addEventListener("change", sync);
+      watermarkToggle?.addEventListener("change", sync);
+      sync();
     });
   }
 

@@ -1042,6 +1042,7 @@ final class I18n
                 'cameras.onvifEvents' => 'Запускать ONVIF events через агента',
                 'cameras.watermarkEnabled' => 'Показывать водяной знак с логином в плеере',
                 'cameras.watermarkIntensity' => 'Интенсивность водяного знака, %',
+                'cameras.locationOptions' => 'Расположение камеры',
                 'cameras.archiveEnabled' => 'Пишет архив',
                 'cameras.dvrStreamOptions' => 'Настройки потока DVR',
                 'cameras.webrtcFastStart' => 'WebRTC FastStart',
@@ -1281,6 +1282,7 @@ final class I18n
                 'cameras.onvifEvents' => 'Start ONVIF events through the agent',
                 'cameras.watermarkEnabled' => 'Show player watermark with user login',
                 'cameras.watermarkIntensity' => 'Watermark intensity, %',
+                'cameras.locationOptions' => 'Camera location',
                 'cameras.dvrStreamOptions' => 'DVR stream options',
                 'cameras.webrtcFastStart' => 'WebRTC FastStart',
                 'cameras.eventArchiveRetentionEnabled' => 'Record archive by events',
@@ -6110,7 +6112,8 @@ final class App
             echo '<form method="post" class="form">' . Csrf::field();
             echo '<input type="hidden" name="action" value="save"><input type="hidden" name="id" value="' . Util::h($edit['id'] ?? 0) . '">';
             echo '<label>' . self::t('cameras.displayName', 'Название потока') . '<input name="display_name" value="' . Util::h($form['name'] ?? '') . '"></label>';
-            echo '<label>' . self::t('cameras.mode', 'Режим камеры') . '<select name="dvr_control_mode">';
+            $edgeAgentMode = ($form['dvr_control_mode'] ?? 'managed') === 'edge_agent';
+            echo '<label>' . self::t('cameras.mode', 'Режим камеры') . '<select name="dvr_control_mode" data-camera-mode-select>';
             echo '<option value="managed" ' . (($form['dvr_control_mode'] ?? 'managed') === 'managed' ? 'selected' : '') . '>' . self::t('cameras.modeManaged', 'Полное управление на DVR') . '</option>';
             echo '<option value="edge_agent" ' . (($form['dvr_control_mode'] ?? '') === 'edge_agent' ? 'selected' : '') . '>' . self::t('cameras.modeEdgeAgent', 'Edge Agent push stream') . '</option>';
             echo '<option value="read_only" ' . (($form['dvr_control_mode'] ?? '') === 'read_only' ? 'selected' : '') . '>' . self::t('cameras.modeReadOnly', 'Read-only поток с DVR') . '</option></select></label>';
@@ -6123,16 +6126,19 @@ final class App
             echo '<label>' . self::t('cameras.serverSelection', 'Выбор сервера') . '<select name="server_selection"><option value="manual">' . self::t('cameras.selectionManual', 'конкретный') . '</option><option value="auto" ' . (($form['server_selection'] ?? '') === 'auto' ? 'selected' : '') . '>' . self::t('cameras.selectionAuto', 'автоматический случайный') . '</option></select></label>';
             $streamNameHint = self::t('cameras.streamNameHint', 'Starts with A-Z, a-z, or 0-9; then A-Z, a-z, 0-9, dot, hyphen, and underscore are allowed. Leave empty to generate it.');
             echo '<label>' . self::t('cameras.streamName', 'Техническое имя потока') . '<input name="dvr_stream_name" value="' . Util::h($form['dvr_stream_name'] ?? '') . '" maxlength="' . Util::DVR_STREAM_NAME_MAX_BYTES . '" pattern="' . Util::DVR_STREAM_NAME_HTML_PATTERN . '" placeholder="domofon-g-sukhum-ul-kiaraz-9-p1" autocomplete="off" autocapitalize="none" spellcheck="false" title="' . Util::h($streamNameHint) . '"></label>';
-            echo '<div class="form-row"><label>' . self::t('cameras.agentId', 'Agent ID') . '<input name="agent_id" value="' . Util::h($form['agent_id'] ?? '') . '"></label><label>' . self::t('cameras.agentCameraId', 'Agent camera ID') . '<input name="agent_camera_id" value="' . Util::h($form['agent_camera_id'] ?? '') . '"></label></div>';
-            echo '<label class="check"><input type="checkbox" name="onvif_events_requested" ' . (!empty($form['onvif_events_requested']) ? 'checked' : '') . '> ' . self::t('cameras.onvifEvents', 'Запускать ONVIF events через агента') . '</label>';
-            echo '<div class="form-row"><label class="check"><input type="checkbox" name="watermark_enabled" ' . (!empty($form['watermark_enabled']) ? 'checked' : '') . '> ' . self::t('cameras.watermarkEnabled', 'Показывать водяной знак с логином в плеере') . '</label>';
-            echo '<label>' . self::t('cameras.watermarkIntensity', 'Интенсивность водяного знака, %') . '<input name="watermark_intensity" type="number" min="1" max="100" value="' . Util::h(self::watermarkIntensity($form['watermark_intensity'] ?? 16)) . '"></label></div>';
+            echo '<div class="form-row" data-camera-agent-field' . ($edgeAgentMode ? '' : ' hidden') . '><label>' . self::t('cameras.agentId', 'Agent ID') . '<input name="agent_id" value="' . Util::h($form['agent_id'] ?? '') . '"></label><label>' . self::t('cameras.agentCameraId', 'Agent camera ID') . '<input name="agent_camera_id" value="' . Util::h($form['agent_camera_id'] ?? '') . '"></label></div>';
+            echo '<label class="check" data-camera-agent-field' . ($edgeAgentMode ? '' : ' hidden') . '><input type="checkbox" name="onvif_events_requested" ' . (!empty($form['onvif_events_requested']) ? 'checked' : '') . '> ' . self::t('cameras.onvifEvents', 'Запускать ONVIF events через агента') . '</label>';
+            $watermarkEnabled = !empty($form['watermark_enabled']);
+            echo '<div class="form-row"><label class="check"><input type="checkbox" name="watermark_enabled" data-watermark-toggle ' . ($watermarkEnabled ? 'checked' : '') . '> ' . self::t('cameras.watermarkEnabled', 'Показывать водяной знак с логином в плеере') . '</label>';
+            echo '<label data-watermark-dependent' . ($watermarkEnabled ? '' : ' hidden') . '>' . self::t('cameras.watermarkIntensity', 'Интенсивность водяного знака, %') . '<input name="watermark_intensity" type="number" min="1" max="100" value="' . Util::h(self::watermarkIntensity($form['watermark_intensity'] ?? 16)) . '"></label></div>';
             $lat = $form['latitude'] ?? '';
             $lng = $form['longitude'] ?? '';
+            echo '<details class="camera-location-options" data-camera-location-options><summary>' . self::t('cameras.locationOptions', 'Расположение камеры') . '</summary>';
             echo '<div class="form-row"><label>' . self::t('geo.latitude', 'Широта') . '<input id="camera-latitude" name="latitude" value="' . Util::h($lat) . '"></label><label>' . self::t('geo.longitude', 'Долгота') . '<input id="camera-longitude" name="longitude" value="' . Util::h($lng) . '"></label></div>';
             echo '<div class="camera-position-field"><div class="camera-position-head"><strong>' . self::t('cameras.position', 'Положение на карте') . '</strong><button type="button" class="camera-map-clear">' . self::t('cameras.clearPosition', 'Очистить точку') . '</button></div>';
             echo '<div id="camera-position-map" class="camera-position-map" data-lat="' . Util::h($lat) . '" data-lng="' . Util::h($lng) . '"></div></div>';
             echo '<div class="form-row"><label>' . self::t('cameras.direction', 'Направление') . '<input id="camera-direction" name="direction_deg" type="number" min="0" max="359" value="' . Util::h($form['direction_deg'] ?? 0) . '"></label><label>' . self::t('cameras.viewAngle', 'Угол обзора') . '<input name="view_angle_deg" type="number" min="1" max="180" value="' . Util::h($form['view_angle_deg'] ?? 60) . '"></label></div>';
+            echo '</details>';
             $timelineRepairMode = self::cameraTimelineRepairMode($form['direct_archive_video_timeline_repair_mode'] ?? null) ?? '';
             $audioCodec = self::cameraAudioCodec($form['audio_codec'] ?? 'copy');
             $archiveEnabled = !empty($form['archive_enabled']);
