@@ -510,6 +510,14 @@ button:disabled {
   display: grid;
   gap: 12px;
 }
+.camera-dvr-dependent:not([hidden]) {
+  display: grid;
+  gap: 12px;
+}
+.camera-dvr-dependent[hidden],
+.camera-stream-options [data-dvr-dependent][hidden] {
+  display: none;
+}
 .camera-stream-options > summary {
   cursor: pointer;
   font-weight: 800;

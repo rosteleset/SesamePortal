@@ -6,6 +6,7 @@
   initPreviewRefresh();
   initDensitySwitch();
   initGroupTreePickers();
+  initDvrStreamOptions();
   initSubmitProgress();
   initAssignmentPickers();
   initLocalTimes();
@@ -692,6 +693,28 @@
           button.setAttribute("aria-disabled", "true");
         });
       });
+    });
+  }
+
+  function initDvrStreamOptions(root = document) {
+    root.querySelectorAll("[data-dvr-stream-options]").forEach((container) => {
+      if (container.dataset.dvrStreamOptionsBound === "1") return;
+      container.dataset.dvrStreamOptionsBound = "1";
+
+      const sync = () => {
+        container.querySelectorAll("[data-dvr-dependent]").forEach((section) => {
+          const key = section.dataset.dvrDependent || "";
+          const toggle = Array.from(container.querySelectorAll("[data-dvr-toggle]")).find((candidate) => {
+            return (candidate.dataset.dvrToggle || "") === key;
+          });
+          section.hidden = !toggle?.checked;
+        });
+      };
+
+      container.querySelectorAll("[data-dvr-toggle]").forEach((toggle) => {
+        toggle.addEventListener("change", sync);
+      });
+      sync();
     });
   }
 
