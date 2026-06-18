@@ -1048,6 +1048,7 @@ final class I18n
                 'cameras.webrtcFastStart' => 'WebRTC FastStart',
                 'cameras.eventArchiveRetentionEnabled' => 'Сохранять архив по событиям',
                 'cameras.eventArchiveMaxBytes' => 'Лимит размера архива событий, bytes',
+                'cameras.eventArchiveMaxMb' => 'Лимит размера архива событий, MB',
                 'cameras.eventArchiveMaxDuration' => 'Максимальная длительность архива событий',
                 'cameras.eventArchiveMaxAge' => 'Срок хранения архива событий',
                 'cameras.timelapseEnabled' => 'Писать timelapse',
@@ -1287,6 +1288,7 @@ final class I18n
                 'cameras.webrtcFastStart' => 'WebRTC FastStart',
                 'cameras.eventArchiveRetentionEnabled' => 'Record archive by events',
                 'cameras.eventArchiveMaxBytes' => 'Event archive size limit, bytes',
+                'cameras.eventArchiveMaxMb' => 'Event archive size limit, MB',
                 'cameras.eventArchiveMaxDuration' => 'Event archive max duration',
                 'cameras.eventArchiveMaxAge' => 'Event archive retention',
                 'cameras.timelapseEnabled' => 'Record timelapse',
@@ -3921,6 +3923,16 @@ final class App
         return null;
     }
 
+    private static function apiOptionalMegabytesAsBytes(array $input, array $megabyteKeys, array $byteKeys, ?array $current, string $currentKey): ?int
+    {
+        foreach ($megabyteKeys as $key) {
+            if (array_key_exists($key, $input)) {
+                return self::cameraOptionalMegabytesAsBytes($input[$key]);
+            }
+        }
+        return self::apiOptionalNonNegativeInt($input, $byteKeys, $current, $currentKey);
+    }
+
     private static function apiPositiveInt(array $input, array $keys, ?array $current, string $currentKey, int $default): int
     {
         foreach ($keys as $key) {
@@ -4608,6 +4620,8 @@ final class App
         $selection = ($input['serverSelection'] ?? $input['server_selection'] ?? ($current['server_selection'] ?? 'manual')) === 'auto' ? 'auto' : 'manual';
         if ($controlMode === 'edge_agent') {
             $selection = 'manual';
+        } elseif (!$serverId) {
+            $selection = 'auto';
         }
         if ($selection === 'auto' && !$serverId) {
             $serverId = self::randomActiveServerId();
@@ -4660,7 +4674,7 @@ final class App
             array_key_exists('eventArchiveRetentionEnabled', $input) || array_key_exists('event_archive_retention_enabled', $input)
                 ? (self::apiBool($input['eventArchiveRetentionEnabled'] ?? $input['event_archive_retention_enabled']) ? 1 : 0)
                 : (int)($current['event_archive_retention_enabled'] ?? 0),
-            self::apiOptionalNonNegativeInt($input, ['eventArchiveMaxBytes', 'event_archive_max_bytes'], $current, 'event_archive_max_bytes'),
+            self::apiOptionalMegabytesAsBytes($input, ['eventArchiveMaxMb', 'event_archive_max_mb'], ['eventArchiveMaxBytes', 'event_archive_max_bytes'], $current, 'event_archive_max_bytes'),
             self::apiOptionalString($input, ['eventArchiveMaxDuration', 'event_archive_max_duration'], $current, 'event_archive_max_duration'),
             self::apiOptionalString($input, ['eventArchiveMaxAge', 'event_archive_max_age'], $current, 'event_archive_max_age'),
             array_key_exists('timelapseEnabled', $input) || array_key_exists('timelapse_enabled', $input)
@@ -5990,6 +6004,8 @@ final class App
                 $serverId = (int)Util::post('server_id', 0) ?: null;
                 if ($controlMode === 'edge_agent') {
                     $selection = 'manual';
+                } elseif (!$serverId) {
+                    $selection = 'auto';
                 }
                 if ($selection === 'auto' && !$serverId) {
                     $serverId = self::randomActiveServerId();
@@ -6026,7 +6042,7 @@ final class App
                         Util::checkbox('archive_enabled'),
                         Util::checkbox('webrtc_fast_start'),
                         Util::checkbox('event_archive_retention_enabled'),
-                        self::cameraOptionalNonNegativeInt(Util::post('event_archive_max_bytes')),
+                        self::cameraEventArchiveMaxBytesFromPost(),
                         self::cameraOptionalString(Util::post('event_archive_max_duration')),
                         self::cameraOptionalString(Util::post('event_archive_max_age')),
                         Util::checkbox('timelapse_enabled'),
@@ -6150,7 +6166,7 @@ final class App
             echo '<label class="check"><input type="checkbox" name="webrtc_fast_start" ' . (!empty($form['webrtc_fast_start']) ? 'checked' : '') . '> ' . self::t('cameras.webrtcFastStart', 'WebRTC FastStart') . '</label>';
             echo '<label class="check"><input type="checkbox" name="event_archive_retention_enabled" data-dvr-toggle="event-archive" ' . ($eventArchiveEnabled ? 'checked' : '') . '> ' . self::t('cameras.eventArchiveRetentionEnabled', 'Сохранять архив по событиям') . '</label>';
             echo '<div class="camera-dvr-dependent" data-dvr-dependent="event-archive"' . ($eventArchiveEnabled ? '' : ' hidden') . '>';
-            echo '<div class="form-row"><label>' . self::t('cameras.eventArchiveMaxBytes', 'Лимит размера архива событий, bytes') . '<input name="event_archive_max_bytes" type="number" min="0" value="' . Util::h($form['event_archive_max_bytes'] ?? '') . '"></label><label>' . self::t('cameras.eventArchiveMaxDuration', 'Максимальная длительность архива событий') . '<input name="event_archive_max_duration" value="' . Util::h($form['event_archive_max_duration'] ?? '') . '" placeholder="6h"></label></div>';
+            echo '<div class="form-row"><label>' . self::t('cameras.eventArchiveMaxMb', 'Лимит размера архива событий, MB') . '<input name="event_archive_max_mb" type="number" min="0" step="0.01" value="' . Util::h(self::eventArchiveBytesToMegabytesInput($form['event_archive_max_bytes'] ?? null)) . '"></label><label>' . self::t('cameras.eventArchiveMaxDuration', 'Максимальная длительность архива событий') . '<input name="event_archive_max_duration" value="' . Util::h($form['event_archive_max_duration'] ?? '') . '" placeholder="6h"></label></div>';
             echo '<label>' . self::t('cameras.eventArchiveMaxAge', 'Срок хранения архива событий') . '<input name="event_archive_max_age" value="' . Util::h($form['event_archive_max_age'] ?? '') . '" placeholder="30d"></label>';
             echo '</div>';
             echo '<label class="check"><input type="checkbox" name="timelapse_enabled" data-dvr-toggle="timelapse" ' . ($timelapseEnabled ? 'checked' : '') . '> ' . self::t('cameras.timelapseEnabled', 'Писать timelapse') . '</label>';
@@ -6204,6 +6220,33 @@ final class App
             return null;
         }
         return max(0, (int)$value);
+    }
+
+    private static function cameraOptionalMegabytesAsBytes(mixed $value): ?int
+    {
+        if ($value === null || trim((string)$value) === '') {
+            return null;
+        }
+        $megabytes = max(0.0, (float)str_replace(',', '.', trim((string)$value)));
+        return (int)ceil($megabytes * 1024 * 1024);
+    }
+
+    private static function cameraEventArchiveMaxBytesFromPost(): ?int
+    {
+        if (array_key_exists('event_archive_max_mb', $_POST)) {
+            return self::cameraOptionalMegabytesAsBytes(Util::post('event_archive_max_mb'));
+        }
+        return self::cameraOptionalNonNegativeInt(Util::post('event_archive_max_bytes'));
+    }
+
+    private static function eventArchiveBytesToMegabytesInput(mixed $value): string
+    {
+        $bytes = self::cameraOptionalNonNegativeInt($value);
+        if ($bytes === null) {
+            return '';
+        }
+        $text = number_format($bytes / 1024 / 1024, 2, '.', '');
+        return rtrim(rtrim($text, '0'), '.');
     }
 
     private static function cameraOptionalString(mixed $value): ?string
@@ -6277,12 +6320,18 @@ final class App
             'display_name' => $_GET['display_name'] ?? $_GET['displayName'] ?? $_GET['name'] ?? '',
             'dvr_stream_name' => $_GET['stream'] ?? $_GET['dvr_stream_name'] ?? $_GET['dvrStreamName'] ?? '',
         ], null);
+        $serverId = (int)($_GET['server_id'] ?? 0) ?: '';
+        $controlMode = self::cameraControlMode($_GET['mode'] ?? $_GET['dvr_control_mode'] ?? 'managed');
+        $serverSelection = $controlMode === 'edge_agent' || $serverId !== '' ? 'manual' : 'auto';
+        if (isset($_GET['server_selection'])) {
+            $serverSelection = $_GET['server_selection'] === 'auto' && $controlMode !== 'edge_agent' ? 'auto' : 'manual';
+        }
 
         return [
             'name' => $name,
             'source_url' => (string)($_GET['source_url'] ?? ''),
-            'server_id' => (int)($_GET['server_id'] ?? 0) ?: '',
-            'server_selection' => 'manual',
+            'server_id' => $serverId,
+            'server_selection' => $serverSelection,
             'latitude' => '',
             'longitude' => '',
             'direction_deg' => 0,
@@ -6291,7 +6340,9 @@ final class App
             'archive_enabled' => array_key_exists('archive_enabled', $_GET) ? (int)!empty($_GET['archive_enabled']) : 1,
             'webrtc_fast_start' => !empty($_GET['webrtc_fast_start']) ? 1 : 0,
             'event_archive_retention_enabled' => !empty($_GET['event_archive_retention_enabled']) ? 1 : 0,
-            'event_archive_max_bytes' => self::cameraOptionalNonNegativeInt($_GET['event_archive_max_bytes'] ?? null),
+            'event_archive_max_bytes' => array_key_exists('event_archive_max_mb', $_GET)
+                ? self::cameraOptionalMegabytesAsBytes($_GET['event_archive_max_mb'])
+                : self::cameraOptionalNonNegativeInt($_GET['event_archive_max_bytes'] ?? null),
             'event_archive_max_duration' => self::cameraOptionalString($_GET['event_archive_max_duration'] ?? ''),
             'event_archive_max_age' => self::cameraOptionalString($_GET['event_archive_max_age'] ?? ''),
             'timelapse_enabled' => !empty($_GET['timelapse_enabled']) ? 1 : 0,
@@ -6300,7 +6351,7 @@ final class App
             'timelapse_playback_fps' => self::cameraPositiveInt($_GET['timelapse_playback_fps'] ?? 25, 25),
             'direct_archive_video_timeline_repair_mode' => self::cameraTimelineRepairMode($_GET['direct_archive_video_timeline_repair_mode'] ?? null),
             'audio_codec' => self::cameraAudioCodec($_GET['audio_codec'] ?? 'copy'),
-            'dvr_control_mode' => self::cameraControlMode($_GET['mode'] ?? $_GET['dvr_control_mode'] ?? 'managed'),
+            'dvr_control_mode' => $controlMode,
             'agent_id' => (string)($_GET['agent_id'] ?? ''),
             'agent_camera_id' => (string)($_GET['agent_camera_id'] ?? ''),
             'onvif_events_requested' => !empty($_GET['onvif_events_requested']) ? 1 : 0,

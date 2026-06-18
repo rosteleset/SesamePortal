@@ -423,7 +423,8 @@ Query parameters:
 | `archive_enabled` | Непустое значение включает запись архива на SesameDVR при синхронизации. По умолчанию включено. |
 | `webrtc_fast_start` | Непустое значение включает WebRTC FastStart при синхронизации с SesameDVR. |
 | `event_archive_retention_enabled` | Непустое значение включает сохранение архива по событиям. |
-| `event_archive_max_bytes` | Лимит размера event-архива в bytes. Пусто - без override. |
+| `event_archive_max_mb` | Лимит размера event-архива в MB. Пусто - без override. |
+| `event_archive_max_bytes` | Старое имя для лимита размера event-архива в bytes; поддерживается для совместимости. |
 | `event_archive_max_duration` | Максимальная длительность event-архива, например `6h`. |
 | `event_archive_max_age` | Срок хранения event-архива, например `30d`. |
 | `timelapse_enabled` | Непустое значение включает запись timelapse. |
@@ -494,7 +495,8 @@ Actions:
 | `archive_enabled` | Checkbox “Пишет архив”; пробрасывается в SesameDVR как `archiveEnabled`. |
 | `webrtc_fast_start` | Checkbox `WebRTC FastStart`; пробрасывается как `webrtcFastStart`. |
 | `event_archive_retention_enabled` | Checkbox “Сохранять архив по событиям”; пробрасывается как `eventArchiveRetentionEnabled`. |
-| `event_archive_max_bytes` | Лимит размера event-архива в bytes; пробрасывается как `eventArchiveMaxBytes`. |
+| `event_archive_max_mb` | Лимит размера event-архива в MB; сохраняется в Portal как bytes и пробрасывается как `eventArchiveMaxBytes`. |
+| `event_archive_max_bytes` | Старое имя для лимита размера event-архива в bytes; поддерживается для совместимости. |
 | `event_archive_max_duration` | Максимальная длительность event-архива; пробрасывается как `eventArchiveMaxDuration`. |
 | `event_archive_max_age` | Срок хранения event-архива; пробрасывается как `eventArchiveMaxAge`. |
 | `timelapse_enabled` | Checkbox “Писать timelapse”; пробрасывается как `timelapseEnabled`. |

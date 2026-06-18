@@ -397,7 +397,7 @@ Payload камеры:
   "archiveEnabled": true,
   "webrtcFastStart": true,
   "eventArchiveRetentionEnabled": true,
-  "eventArchiveMaxBytes": 1073741824,
+  "eventArchiveMaxMb": 1024,
   "eventArchiveMaxDuration": "6h",
   "eventArchiveMaxAge": "30d",
   "timelapseEnabled": true,
@@ -444,7 +444,8 @@ SesameDVR при `sync=true`:
 | --- | --- | --- |
 | `webrtcFastStart` | `webrtc_fast_start` | Включает WebRTC FastStart для потока. |
 | `eventArchiveRetentionEnabled` | `event_archive_retention_enabled` | Включает сохранение архива по событиям. |
-| `eventArchiveMaxBytes` | `event_archive_max_bytes` | Лимит размера event-архива в bytes, `null`/пусто - без override. |
+| `eventArchiveMaxMb` | `event_archive_max_mb` | Лимит размера event-архива в MB, `null`/пусто - без override. |
+| `eventArchiveMaxBytes` | `event_archive_max_bytes` | Старое имя для лимита размера event-архива в bytes; поддерживается для совместимости. |
 | `eventArchiveMaxDuration` | `event_archive_max_duration` | Максимальная длительность event-архива, например `6h`. |
 | `eventArchiveMaxAge` | `event_archive_max_age` | Срок хранения event-архива, например `30d`. |
 | `timelapseEnabled` | `timelapse_enabled` | Включает запись timelapse. |

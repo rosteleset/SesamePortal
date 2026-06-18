@@ -302,6 +302,8 @@ printf "%s" "$admin_cameras_form" | grep -F -q 'name="archive_enabled" data-dvr-
 printf "%s" "$admin_cameras_form" | grep -F -q 'data-dvr-dependent="archive"'
 printf "%s" "$admin_cameras_form" | grep -q "WebRTC FastStart"
 printf "%s" "$admin_cameras_form" | grep -q "Сохранять архив по событиям"
+printf "%s" "$admin_cameras_form" | grep -F -q 'name="event_archive_max_mb"'
+printf "%s" "$admin_cameras_form" | grep -q "Лимит размера архива событий, MB"
 printf "%s" "$admin_cameras_form" | grep -F -q 'data-dvr-dependent="event-archive" hidden'
 printf "%s" "$admin_cameras_form" | grep -q "Писать timelapse"
 printf "%s" "$admin_cameras_form" | grep -F -q 'data-dvr-dependent="timelapse" hidden'
@@ -313,6 +315,7 @@ printf "%s" "$admin_cameras_form" | grep -q "data-group-tree-toggle"
 printf "%s" "$admin_cameras_form" | grep -q "Smoke Subgroup"
 admin_cameras_new_form="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/admin/cameras")"
 printf "%s" "$admin_cameras_new_form" | grep -F -q 'data-watermark-dependent hidden'
+printf "%s" "$admin_cameras_new_form" | grep -F -q '<option value="auto" selected>автоматический случайный</option>'
 camera_csrf="$(printf "%s" "$admin_cameras_form" | sed -n 's/.*name="csrf" value="\([^"]*\)".*/\1/p' | head -n 1)"
 test -n "$camera_csrf"
 invalid_camera_form="$(
@@ -352,11 +355,22 @@ failed_camera_save="$(
     --data-urlencode "dvr_stream_name=no-sync-notice-cam" \
     -d "retention_days=1d" -d "direction_deg=0" -d "view_angle_deg=60" \
     -d "archive_enabled=1" \
+    -d "event_archive_max_mb=128" \
     -d "blocked=1" \
     "http://127.0.0.1:$PORT/admin/cameras"
 )"
 printf "%s" "$failed_camera_save" | grep -F -q '<div class="alert">Камера сохранена, но синхронизация с DVR не выполнена</div>'
 ! printf "%s" "$failed_camera_save" | grep -F -q '<div class="alert">No SesameDVR server selected</div>'
+blank_server_camera="$(
+  php <<'PHP'
+<?php
+require getenv('ROOT') . '/app/Portal.php';
+$stmt = \SesamePortal\DB::pdo()->prepare('SELECT server_selection || ":" || COALESCE(server_id, 0) || ":" || COALESCE(event_archive_max_bytes, 0) FROM cameras WHERE dvr_stream_name = ?');
+$stmt->execute(['no-sync-notice-cam']);
+echo (string)$stmt->fetchColumn();
+PHP
+)"
+[[ "$blank_server_camera" =~ ^auto:[1-9][0-9]*:134217728$ ]]
 admin_servers="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/admin/servers")"
 printf "%s" "$admin_servers" | grep -q "technical-result"
 printf "%s" "$admin_servers" | grep -F -q 'aria-label="Изменить"'
