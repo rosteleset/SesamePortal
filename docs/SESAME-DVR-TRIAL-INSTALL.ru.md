@@ -3,11 +3,12 @@
 Эта инструкция нужна, чтобы быстро развернуть SesameDVR рядом с SesamePortal и
 подключить его как DVR-сервер для тестирования портала.
 
-Для GitHub используется отдельный публичный trial-ключ:
+Получите персональный trial-ключ на странице
+[Trial-версия SesameDVR](https://sesameware.com/ru/sesamedvr-trial/).
 
-```text
-SDVR-TRIAL-85GT2-A7YYD-HSSEN-YW98U
-```
+После подтверждения email вы получите письмо с персональным ключом и готовой
+командой установки. Если при запросе ключа указать домен SesameDVR, команда уже
+будет содержать параметры публикации через nginx и Let's Encrypt.
 
 `bootstrap-trial-install.sh` - это удобный wrapper над protected bootstrap. Он
 берёт текущий `protected/release` artifact из:
@@ -40,7 +41,7 @@ https://license.sesameware.com/sesame-dvr-artifacts/protected/index.json
 ## Быстрая установка
 
 ```bash
-curl -fsSL https://license.sesameware.com/sesame-dvr-artifacts/bootstrap-trial-install.sh | sudo bash -s -- --license-key SDVR-TRIAL-85GT2-A7YYD-HSSEN-YW98U
+curl -fsSL https://license.sesameware.com/sesame-dvr-artifacts/bootstrap-trial-install.sh | sudo bash -s -- --license-key SDVR-TRIAL-XXXX-XXXX-XXXX-XXXX
 ```
 
 ## Установка с публичным HTTPS
@@ -48,7 +49,7 @@ curl -fsSL https://license.sesameware.com/sesame-dvr-artifacts/bootstrap-trial-i
 ```bash
 curl -fsSL https://license.sesameware.com/sesame-dvr-artifacts/bootstrap-trial-install.sh \
   | sudo bash -s -- \
-      --license-key SDVR-TRIAL-85GT2-A7YYD-HSSEN-YW98U \
+      --license-key SDVR-TRIAL-XXXX-XXXX-XXXX-XXXX \
       --publish-service \
       --publish-server-name dvr.example.com \
       --publish-acme \
@@ -58,6 +59,7 @@ curl -fsSL https://license.sesameware.com/sesame-dvr-artifacts/bootstrap-trial-i
 Замените:
 
 - `dvr.example.com` на домен SesameDVR;
+- `SDVR-TRIAL-XXXX-XXXX-XXXX-XXXX` на персональный ключ из письма;
 - `admin@example.com` на email администратора для Let's Encrypt.
 
 ## Установка с публичным HTTP без сертификата
@@ -65,7 +67,7 @@ curl -fsSL https://license.sesameware.com/sesame-dvr-artifacts/bootstrap-trial-i
 ```bash
 curl -fsSL https://license.sesameware.com/sesame-dvr-artifacts/bootstrap-trial-install.sh \
   | sudo bash -s -- \
-      --license-key SDVR-TRIAL-85GT2-A7YYD-HSSEN-YW98U \
+      --license-key SDVR-TRIAL-XXXX-XXXX-XXXX-XXXX \
       --publish-service \
       --publish-server-name dvr.example.com
 ```
