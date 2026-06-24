@@ -10,6 +10,8 @@ use DateTimeZone;
 use PDO;
 use RuntimeException;
 
+require_once __DIR__ . '/PortalI18nCatalog.php';
+
 final class Config
 {
     private static ?array $config = null;
@@ -940,7 +942,7 @@ final class I18n
         return $html . '</select></label>';
     }
 
-    private static function messages(): array
+    private static function messages(bool $includeFallback = true): array
     {
         $messages = [
             'ru' => [
@@ -2322,6 +2324,12 @@ final class I18n
             'geo.latitude' => 'Լայնություն',
             'geo.longitude' => 'Երկայնություն',
         ];
+
+        $messages = I18nCatalog::complete($messages);
+
+        if (!$includeFallback) {
+            return $messages;
+        }
 
         foreach (array_keys(self::LOCALES) as $locale) {
             $messages[$locale] ??= [];

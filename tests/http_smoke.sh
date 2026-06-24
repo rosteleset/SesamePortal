@@ -52,6 +52,41 @@ test "$sqlite_duplicate_group_migration" = "2"
 php "$ROOT/bin/portal" migrate >/dev/null
 php "$ROOT/bin/portal" create-admin admin admin123 >/dev/null
 
+php <<'PHP'
+<?php
+require getenv('ROOT') . '/app/Portal.php';
+
+$class = new ReflectionClass(\SesamePortal\I18n::class);
+$locales = $class->getConstant('LOCALES');
+$method = $class->getMethod('messages');
+$method->setAccessible(true);
+$messages = $method->invoke(null, false);
+$baseKeys = array_keys($messages['en'] ?? []);
+$failed = false;
+
+foreach (array_keys($locales) as $locale) {
+    $items = $messages[$locale] ?? [];
+    $missing = array_values(array_diff($baseKeys, array_keys($items)));
+    $extra = array_values(array_diff(array_keys($items), $baseKeys));
+    if ($missing !== [] || $extra !== []) {
+        $failed = true;
+        fwrite(
+            STDERR,
+            sprintf(
+                "Locale %s is not in sync: missing=%s extra=%s\n",
+                $locale,
+                $missing === [] ? '-' : implode(',', $missing),
+                $extra === [] ? '-' : implode(',', $extra)
+            )
+        );
+    }
+}
+
+if ($failed) {
+    exit(1);
+}
+PHP
+
 TOKEN="$(
   php <<'PHP'
 <?php
@@ -378,7 +413,7 @@ printf "%s" "$admin_servers" | grep -F -q 'aria-label="Проверить"'
 printf "%s" "$admin_servers" | grep -F -q 'aria-label="Удалить"'
 admin_cameras="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/admin/cameras?q=read")"
 printf "%s" "$admin_cameras" | grep -q "read_only"
-printf "%s" "$admin_cameras" | grep -q "Read-only mode"
+printf "%s" "$admin_cameras" | grep -q "Read-only режим"
 printf "%s" "$admin_cameras" | grep -q "sync-result-dot-readonly"
 printf "%s" "$admin_cameras" | grep -q "table-result"
 ! printf "%s" "$admin_cameras" | grep -q "technical-result"
