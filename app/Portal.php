@@ -3593,6 +3593,31 @@ final class Repo
         return $stmt->fetchAll();
     }
 
+    public static function accessibleMapCameras(array $user, string $filter = 'all', string $query = ''): array
+    {
+        [$join, $where, $params] = self::accessibleCameraScope($user, $filter, $query);
+        $where[] = 'c.latitude IS NOT NULL';
+        $where[] = 'c.longitude IS NOT NULL';
+
+        $sql = 'SELECT DISTINCT
+                    c.id,
+                    c.name,
+                    c.dvr_stream_name,
+                    c.latitude,
+                    c.longitude,
+                    c.direction_deg,
+                    c.view_angle_deg,
+                    c.server_id,
+                    s.name AS server_name,
+                    s.base_url AS server_url
+                FROM cameras c ' . $join . '
+                WHERE ' . implode(' AND ', $where) . '
+                ORDER BY c.name ASC';
+        $stmt = DB::pdo()->prepare($sql);
+        $stmt->execute($params);
+        return $stmt->fetchAll();
+    }
+
     public static function accessibleCamerasPage(array $user, string $filter, string $query, int $page, int $pageSize): array
     {
         [$join, $where, $params] = self::accessibleCameraScope($user, $filter, $query);
@@ -3705,6 +3730,25 @@ final class Repo
             $map[(int)$row['camera_id']] = true;
         }
         return $map;
+    }
+
+    public static function serverMetricsJsonByIds(array $serverIds): array
+    {
+        $ids = array_values(array_unique(array_filter(array_map('intval', $serverIds), static fn(int $id): bool => $id > 0)));
+        if (!$ids) {
+            return [];
+        }
+
+        $stmt = DB::pdo()->prepare(
+            'SELECT id, last_metrics_json FROM dvr_servers WHERE id IN (' . self::placeholders($ids) . ')'
+        );
+        $stmt->execute($ids);
+
+        $result = [];
+        foreach ($stmt->fetchAll() as $row) {
+            $result[(int)$row['id']] = (string)($row['last_metrics_json'] ?? '');
+        }
+        return $result;
     }
 
     public static function cameraAllowedForUser(array $user, int $cameraId): bool
@@ -6456,7 +6500,7 @@ final class App
         $previewRefresh = self::viewerPreviewRefresh();
         $cameraPager = null;
         if ($mode === 'map') {
-            $cameras = Repo::accessibleCameras($user, $filter, $searchQuery);
+            $cameras = Repo::accessibleMapCameras($user, $filter, $searchQuery);
         } else {
             $cameraPager = Repo::accessibleCamerasPage($user, $filter, $searchQuery, (int)($_GET['page'] ?? 1), self::viewerPageSize($cols));
             $cameras = $cameraPager['rows'];
@@ -6545,6 +6589,7 @@ final class App
     {
         echo '<section class="panel map-panel"><div id="map" class="map"></div></section>';
         $payload = [];
+        $streamUnavailableByServer = self::mapStreamUnavailableByServer($cameras);
         foreach ($cameras as $camera) {
             if ($camera['latitude'] === null || $camera['longitude'] === null) {
                 continue;
@@ -6559,7 +6604,7 @@ final class App
                 'favorite' => isset($favorites[(int)$camera['id']]),
                 'player' => self::playerUrl($camera),
                 'preview' => self::previewUrl($camera),
-                'streamUnavailable' => self::cameraStreamUnavailable($camera),
+                'streamUnavailable' => self::cameraStreamUnavailableFromMapMetrics($camera, $streamUnavailableByServer),
                 'server' => $camera['server_name'] ?? self::t('common.noServer', 'Без сервера'),
             ];
         }
@@ -7859,6 +7904,63 @@ final class App
             $displayName = (string)($stream['displayName'] ?? $stream['title'] ?? '');
             if ($name === $streamName || $name === (string)$camera['name'] || $displayName === (string)$camera['name']) {
                 return self::streamMetricUnavailable($stream);
+            }
+        }
+
+        return false;
+    }
+
+    private static function mapStreamUnavailableByServer(array $cameras): array
+    {
+        $serverIds = [];
+        foreach ($cameras as $camera) {
+            if (($camera['server_id'] ?? null) !== null) {
+                $serverIds[] = (int)$camera['server_id'];
+            }
+        }
+
+        $metricsByServer = Repo::serverMetricsJsonByIds($serverIds);
+        $result = [];
+        foreach ($metricsByServer as $serverId => $json) {
+            $metrics = json_decode($json, true);
+            $streams = is_array($metrics) ? ($metrics['streams']['streams'] ?? null) : null;
+            if (!is_array($streams)) {
+                continue;
+            }
+
+            $lookup = [];
+            foreach ($streams as $stream) {
+                if (!is_array($stream)) {
+                    continue;
+                }
+                $unavailable = self::streamMetricUnavailable($stream);
+                foreach ([(string)($stream['name'] ?? ''), (string)($stream['displayName'] ?? $stream['title'] ?? '')] as $key) {
+                    if ($key !== '' && !array_key_exists($key, $lookup)) {
+                        $lookup[$key] = $unavailable;
+                    }
+                }
+            }
+
+            if ($lookup) {
+                $result[(int)$serverId] = $lookup;
+            }
+        }
+
+        return $result;
+    }
+
+    private static function cameraStreamUnavailableFromMapMetrics(array $camera, array $streamUnavailableByServer): bool
+    {
+        $serverId = (int)($camera['server_id'] ?? 0);
+        $lookup = $serverId > 0 ? ($streamUnavailableByServer[$serverId] ?? null) : null;
+        if (!is_array($lookup)) {
+            return false;
+        }
+
+        $streamName = (string)($camera['dvr_stream_name'] ?: $camera['name']);
+        foreach ([$streamName, (string)$camera['name']] as $key) {
+            if ($key !== '' && array_key_exists($key, $lookup)) {
+                return (bool)$lookup[$key];
             }
         }
 
