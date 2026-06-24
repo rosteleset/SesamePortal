@@ -892,6 +892,8 @@ tr:last-child td {
   border-color: #DEBD78;
 }
 .viewer-filters {
+  position: relative;
+  z-index: 1200;
   margin-bottom: 8px;
 }
 .density-switch {
@@ -965,7 +967,7 @@ tr:last-child td {
 }
 .group-tree-menu {
   position: absolute;
-  z-index: 40;
+  z-index: 1300;
   top: calc(100% + 6px);
   left: 0;
   width: min(460px, calc(100vw - 32px));
