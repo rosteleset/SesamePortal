@@ -3584,7 +3584,7 @@ final class Repo
     public static function accessibleCameras(array $user, string $filter = 'all', string $query = ''): array
     {
         [$join, $where, $params] = self::accessibleCameraScope($user, $filter, $query);
-        $sql = 'SELECT DISTINCT c.*, s.name AS server_name, s.base_url AS server_url, s.last_metrics_json AS server_metrics_json
+        $sql = 'SELECT DISTINCT c.*, s.name AS server_name, s.base_url AS server_url
                 FROM cameras c ' . $join . '
                 WHERE ' . implode(' AND ', $where) . '
                 ORDER BY c.name ASC';
@@ -3630,7 +3630,7 @@ final class Repo
         $page = min(max(1, $page), $pages);
 
         $stmt = $pdo->prepare(
-            'SELECT DISTINCT c.*, s.name AS server_name, s.base_url AS server_url, s.last_metrics_json AS server_metrics_json
+            'SELECT DISTINCT c.*, s.name AS server_name, s.base_url AS server_url
              FROM cameras c ' . $join . '
              WHERE ' . implode(' AND ', $where) . '
              ORDER BY c.name ASC
@@ -4416,10 +4416,8 @@ final class App
         $idsKey = $isUsers ? 'userIds' : 'cameraIds';
         $rowsKey = $isUsers ? 'users' : 'cameras';
         $ids = $group ? self::linkedIds($linkTable, 'group_id', (int)$group['id'], $targetKey) : [];
-        $rows = array_map(
-            $isUsers ? [self::class, 'apiUserRow'] : [self::class, 'apiCameraRow'],
-            self::rowsByIds($targetTable, $ids)
-        );
+        $memberRows = self::rowsByIds($targetTable, $ids);
+        $rows = $isUsers ? array_map([self::class, 'apiUserRow'], $memberRows) : self::apiCameraRows($memberRows);
 
         return [
             'group' => self::apiGroupRow($group, true),
@@ -4606,7 +4604,7 @@ final class App
                 } else {
                     $list = Repo::accessibleCamerasPage($user, (string)($_GET['filter'] ?? 'all'), self::viewerSearchQuery(), (int)($_GET['page'] ?? 1), self::apiPageSize(25, 500));
                 }
-                self::apiJson(['cameras' => array_map([self::class, 'apiCameraRow'], $list['rows']), 'pagination' => self::apiPagination($list)]);
+                self::apiJson(['cameras' => self::apiCameraRows($list['rows']), 'pagination' => self::apiPagination($list)]);
                 return;
             }
             if ($method === 'POST') {
@@ -4820,7 +4818,7 @@ final class App
             $list = Repo::accessibleCamerasPage($user, 'favorites', self::viewerSearchQuery(), (int)($_GET['page'] ?? 1), self::apiPageSize(25, 500));
             self::apiJson([
                 'cameraIds' => array_map(static fn($row) => (int)$row['id'], $list['rows']),
-                'cameras' => array_map([self::class, 'apiCameraRow'], $list['rows']),
+                'cameras' => self::apiCameraRows($list['rows']),
                 'pagination' => self::apiPagination($list),
             ]);
             return;
@@ -5079,11 +5077,23 @@ final class App
         return $stmt->fetch() ?: null;
     }
 
-    private static function apiCameraRow(?array $camera, bool $detailed = false): array
+    private static function apiCameraRows(array $cameras): array
+    {
+        $streamUnavailableByServer = self::mapStreamUnavailableByServer($cameras);
+        return array_map(
+            static fn(array $camera): array => self::apiCameraRow($camera, false, $streamUnavailableByServer),
+            $cameras
+        );
+    }
+
+    private static function apiCameraRow(?array $camera, bool $detailed = false, ?array $streamUnavailableByServer = null): array
     {
         if (!$camera) {
             return [];
         }
+        $streamUnavailable = $streamUnavailableByServer === null
+            ? self::cameraStreamUnavailable($camera)
+            : self::cameraStreamUnavailableFromMapMetrics($camera, $streamUnavailableByServer);
         $row = [
             'id' => (int)$camera['id'],
             'name' => (string)$camera['name'],
@@ -5117,7 +5127,7 @@ final class App
             'watermarkIntensity' => self::watermarkIntensity($camera['watermark_intensity'] ?? 16),
             'blocked' => (int)($camera['blocked'] ?? 0) === 1,
             'dvrStreamName' => (string)($camera['dvr_stream_name'] ?? ''),
-            'streamUnavailable' => self::cameraStreamUnavailable($camera),
+            'streamUnavailable' => $streamUnavailable,
             'lastSyncAt' => $camera['last_sync_at'] ?? null,
             'lastSyncOk' => $camera['last_sync_ok'] === null ? null : (int)$camera['last_sync_ok'] === 1,
             'lastSyncMessage' => $camera['last_sync_message'] ?? null,
@@ -6554,11 +6564,12 @@ final class App
 
     private static function mosaic(array $cameras, array $favorites, array $pager, int $cols, string $previewRefresh): void
     {
+        $streamUnavailableByServer = self::mapStreamUnavailableByServer($cameras);
         echo '<section class="camera-grid cols-' . Util::h($cols) . '">';
         foreach ($cameras as $camera) {
             $player = self::playerUrl($camera);
             $preview = self::previewUrl($camera);
-            $streamUnavailable = self::cameraStreamUnavailable($camera);
+            $streamUnavailable = self::cameraStreamUnavailableFromMapMetrics($camera, $streamUnavailableByServer);
             $stateText = $streamUnavailable
                 ? self::t('js.streamUnavailable', 'Поток недоступен')
                 : self::t('js.previewUnavailable', 'Превью недоступно');
@@ -7306,7 +7317,7 @@ final class App
         $count->execute($params);
         $total = (int)$count->fetchColumn();
 
-        $stmt = $pdo->prepare('SELECT c.*, s.name AS server_name, s.base_url AS server_url, s.last_metrics_json AS server_metrics_json FROM cameras c LEFT JOIN dvr_servers s ON s.id = c.server_id' . $where . ' ORDER BY c.name ASC LIMIT ? OFFSET ?');
+        $stmt = $pdo->prepare('SELECT c.*, s.name AS server_name, s.base_url AS server_url FROM cameras c LEFT JOIN dvr_servers s ON s.id = c.server_id' . $where . ' ORDER BY c.name ASC LIMIT ? OFFSET ?');
         $bind = [...$params, $pageSize, ($page - 1) * $pageSize];
         foreach ($bind as $idx => $value) {
             $stmt->bindValue($idx + 1, $value, is_int($value) ? PDO::PARAM_INT : PDO::PARAM_STR);
