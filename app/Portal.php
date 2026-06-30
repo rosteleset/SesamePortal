@@ -4599,10 +4599,11 @@ final class App
 
         if (count($parts) === 1) {
             if ($method === 'GET') {
-                if ($admin && (string)($_GET['scope'] ?? 'all') !== 'accessible') {
+                $filter = self::apiCameraListFilter();
+                if ($admin && (string)($_GET['scope'] ?? 'all') !== 'accessible' && $filter === 'all') {
                     $list = self::filteredCameras(self::apiPageSize(25, 500));
                 } else {
-                    $list = Repo::accessibleCamerasPage($user, (string)($_GET['filter'] ?? 'all'), self::viewerSearchQuery(), (int)($_GET['page'] ?? 1), self::apiPageSize(25, 500));
+                    $list = Repo::accessibleCamerasPage($user, $filter, self::viewerSearchQuery(), (int)($_GET['page'] ?? 1), self::apiPageSize(25, 500));
                 }
                 self::apiJson(['cameras' => self::apiCameraRows($list['rows']), 'pagination' => self::apiPagination($list)]);
                 return;
@@ -4655,6 +4656,27 @@ final class App
             return;
         }
         self::apiError(404, 'not_found', 'Unknown cameras endpoint');
+    }
+
+    private static function apiCameraListFilter(): string
+    {
+        $groupId = (int)($_GET['groupId'] ?? $_GET['groupID'] ?? $_GET['group_id'] ?? 0);
+        if ($groupId > 0) {
+            return 'group:' . $groupId;
+        }
+
+        $filter = trim((string)($_GET['filter'] ?? 'all'));
+        if ($filter === '') {
+            return 'all';
+        }
+        if (preg_match('/^group(?:id)?[:=](\d+)$/i', $filter, $matches) === 1) {
+            return 'group:' . (int)$matches[1];
+        }
+        if (ctype_digit($filter) && (int)$filter > 0) {
+            return 'group:' . (int)$filter;
+        }
+
+        return $filter;
     }
 
     private static function apiSaveCamera(int $id, array $input): void

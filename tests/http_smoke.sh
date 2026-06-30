@@ -690,6 +690,17 @@ printf "%s" "$api_technical_camera" | grep -q '"displayName": "technical-only-ca
 api_accessible="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/api/portal/v1/cameras?scope=accessible&filter=group:1")"
 printf "%s" "$api_accessible" | grep -q '"Smoke Cam"'
 printf "%s" "$api_accessible" | grep -q '"Read Only Cam"'
+api_admin_group_filter="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/api/portal/v1/cameras?filter=group:1&pageSize=100")"
+printf "%s" "$api_admin_group_filter" | grep -q '"Smoke Cam"'
+printf "%s" "$api_admin_group_filter" | grep -q '"Read Only Cam"'
+printf "%s" "$api_admin_group_filter" | grep -q '"Display Smoke Cam"'
+! printf "%s" "$api_admin_group_filter" | grep -q '"technical-only-cam"'
+api_admin_group_id_filter="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/api/portal/v1/cameras?groupID=1&pageSize=100")"
+printf "%s" "$api_admin_group_id_filter" | grep -q '"Smoke Cam"'
+printf "%s" "$api_admin_group_id_filter" | grep -q '"Read Only Cam"'
+api_admin_numeric_group_filter="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/api/portal/v1/cameras?filter=1&pageSize=100")"
+printf "%s" "$api_admin_numeric_group_filter" | grep -q '"Smoke Cam"'
+printf "%s" "$api_admin_numeric_group_filter" | grep -q '"Read Only Cam"'
 api_group="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/api/portal/v1/groups/1")"
 printf "%s" "$api_group" | grep -q '"id": 1'
 printf "%s" "$api_group" | grep -q '"parentGroupId": null'
