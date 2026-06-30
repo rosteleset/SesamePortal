@@ -4032,6 +4032,22 @@ final class App
         return array_keys($ids);
     }
 
+    private static function formIntArray(string $jsonKey, string $fallbackKey): array
+    {
+        if (array_key_exists($jsonKey, $_POST)) {
+            $raw = trim((string)$_POST[$jsonKey]);
+            if ($raw === '') {
+                return [];
+            }
+            $decoded = json_decode($raw, true);
+            if (is_array($decoded)) {
+                return self::apiIntArray($decoded);
+            }
+        }
+
+        return self::apiIntArray($_POST[$fallbackKey] ?? []);
+    }
+
     private static function apiValidateExistingIds(string $field, string $table, array $ids): void
     {
         $missing = self::missingIds($table, $ids);
@@ -4193,13 +4209,23 @@ final class App
             self::apiUserLoginExists($existing);
             return;
         }
+        if (array_key_exists('groupIds', $input) || array_key_exists('group_ids', $input)) {
+            $groupIds = self::apiIntArray($input['groupIds'] ?? $input['group_ids'] ?? []);
+            self::apiValidateExistingIds('groupIds', 'portal_groups', $groupIds);
+        } else {
+            $groupIds = null;
+        }
 
         $beforeGroupIds = $id > 0 ? self::linkedIds('user_groups', 'user_id', $id, 'group_id') : [];
         $pdo = DB::pdo();
+        $pdo->beginTransaction();
         try {
             if ($id > 0) {
                 if ($password !== '') {
                     if (strlen($password) < 6) {
+                        if ($pdo->inTransaction()) {
+                            $pdo->rollBack();
+                        }
                         self::apiError(422, 'validation_failed', 'password must be at least 6 characters');
                         return;
                     }
@@ -4214,8 +4240,15 @@ final class App
                     ->execute([$login, password_hash($password, PASSWORD_DEFAULT), $role, $blocked, Util::randomToken(), TokenService::today(), Util::now()]);
                 $id = DB::lastInsertId('users');
             }
-        } catch (\PDOException $error) {
-            if (self::isUserLoginUniqueConstraint($error)) {
+            if ($groupIds !== null) {
+                self::replaceLinks('user_groups', 'user_id', $id, 'group_id', $groupIds);
+            }
+            $pdo->commit();
+        } catch (\Throwable $error) {
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+            if ($error instanceof \PDOException && self::isUserLoginUniqueConstraint($error)) {
                 self::apiUserLoginExists(self::userByLogin($login));
                 return;
             }
@@ -5489,7 +5522,11 @@ final class App
                 $blocked = Util::checkbox('blocked');
                 $beforeUser = $id > 0 ? self::rowById('users', $id) : null;
                 $beforeGroupIds = $id > 0 ? self::linkedIds('user_groups', 'user_id', $id, 'group_id') : [];
-                if ($login === '') {
+                $groupIds = self::formIntArray('group_ids_json', 'group_ids');
+                $missingGroupIds = self::missingIds('portal_groups', $groupIds);
+                if ($missingGroupIds !== []) {
+                    $message = 'Selected groups contain unknown id(s): ' . implode(', ', $missingGroupIds);
+                } elseif ($login === '') {
                     $message = self::t('users.loginRequired', 'Логин обязателен');
                 } elseif ($id === 0 && strlen($password) < 6) {
                     $message = self::t('users.passwordShort', 'Пароль должен быть не короче 6 символов');
@@ -5512,7 +5549,6 @@ final class App
                         $id = DB::lastInsertId('users');
                     }
                     if ($message === '') {
-                        $groupIds = (array)($_POST['group_ids'] ?? []);
                         self::replaceLinks('user_groups', 'user_id', $id, 'group_id', $groupIds);
                         $afterUser = self::rowById('users', $id) ?: ['login' => $login, 'role' => $role, 'blocked' => $blocked];
                         $afterGroupIds = self::linkedIds('user_groups', 'user_id', $id, 'group_id');
@@ -5550,7 +5586,7 @@ final class App
             echo '<label>' . self::t('field.password', 'Пароль') . '<input name="password" type="password" minlength="6" placeholder="' . ($edit ? self::t('users.passwordPlaceholderEdit', 'оставьте пустым, чтобы не менять') : self::t('users.passwordPlaceholderNew', 'минимум 6 символов')) . '"></label>';
             echo '<label>' . self::t('column.role', 'Роль') . '<select name="role"><option value="user">user</option><option value="admin" ' . (($edit['role'] ?? '') === 'admin' ? 'selected' : '') . '>admin</option></select></label>';
             echo '<label class="check"><input type="checkbox" name="blocked" ' . (!empty($edit['blocked']) ? 'checked' : '') . '> ' . self::t('users.blocked', 'Заблокирован') . '</label>';
-            self::groupCheckboxTree(self::t('groups.title', 'Группы'), 'group_ids[]', $groups, $linkedGroups);
+            self::groupCheckboxTree(self::t('groups.title', 'Группы'), 'group_ids[]', $groups, $linkedGroups, 'group_ids_json');
             echo '<div class="form-submit-row"><button type="submit" class="primary" data-submit-button>' . self::t('action.save', 'Сохранить') . '</button><div class="submit-progress" data-submit-status hidden role="status" aria-live="polite">' . Util::h($savingLabel) . '</div></div></form></section>';
             self::table(self::t('users.title', 'Пользователи'), ['login', 'role', 'blocked', 'static_token_hash', 'last_login_at'], $users, '/admin/users', false, $list);
             echo '</div>';
@@ -7776,10 +7812,11 @@ final class App
         echo '</div></fieldset>';
     }
 
-    private static function groupCheckboxTree(string $title, string $name, array $groups, array $selected): void
+    private static function groupCheckboxTree(string $title, string $name, array $groups, array $selected, string $jsonName = ''): void
     {
         [$byId, $children] = self::groupTreeStructure($groups);
-        $selectedSet = array_flip(array_map('intval', $selected));
+        $selectedIds = self::apiIntArray($selected);
+        $selectedSet = array_flip($selectedIds);
         $expanded = self::groupTreeExpandedAncestors($byId, array_keys($selectedSet));
 
         echo '<fieldset class="group-tree-field"><legend>' . Util::h($title) . '</legend>';
@@ -7792,12 +7829,16 @@ final class App
         echo '<button type="button" data-group-tree-check-all>' . Util::h(self::t('groups.selectAll', 'Выбрать все')) . '</button>';
         echo '<button type="button" data-group-tree-clear-all>' . Util::h(self::t('groups.clearAll', 'Снять все')) . '</button>';
         echo '</div>';
+        if ($jsonName !== '') {
+            echo '<input type="hidden" name="' . Util::h($jsonName) . '" value="' . Util::h(json_encode($selectedIds)) . '" data-group-tree-json>';
+        }
         echo '<div class="group-tree-list group-tree-checkbox-list" role="tree" aria-label="' . Util::h($title) . '">';
-        self::renderGroupTreeNodes($byId, $children, $expanded, static function (array $group, int $depth, bool $hasChildren, bool $isExpanded, callable $renderToggle) use ($name, $selectedSet): void {
+        self::renderGroupTreeNodes($byId, $children, $expanded, static function (array $group, int $depth, bool $hasChildren, bool $isExpanded, callable $renderToggle) use ($name, $jsonName, $selectedSet): void {
             $id = (int)$group['id'];
+            $inputName = $jsonName === '' ? ' name="' . Util::h($name) . '"' : '';
             echo '<div class="group-tree-row" style="--depth: ' . (int)$depth . '">';
             $renderToggle();
-            echo '<label class="group-tree-check" role="treeitem" aria-level="' . (int)($depth + 1) . '"><input type="checkbox" name="' . Util::h($name) . '" value="' . $id . '" ' . (isset($selectedSet[$id]) ? 'checked' : '') . '> <span>' . Util::h((string)$group['name']) . '</span></label>';
+            echo '<label class="group-tree-check" role="treeitem" aria-level="' . (int)($depth + 1) . '"><input type="checkbox"' . $inputName . ' value="' . $id . '" ' . (isset($selectedSet[$id]) ? 'checked' : '') . '> <span>' . Util::h((string)$group['name']) . '</span></label>';
             echo '</div>';
         });
         echo '</div></fieldset>';

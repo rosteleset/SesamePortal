@@ -589,7 +589,8 @@
   function initGroupTreePickers(root = document) {
     const pickers = Array.from(root.querySelectorAll("[data-group-tree-picker]"));
     const toggles = Array.from(root.querySelectorAll("[data-group-tree-toggle]"));
-    if (!pickers.length && !toggles.length) return;
+    const jsonInputs = Array.from(root.querySelectorAll("[data-group-tree-json]"));
+    if (!pickers.length && !toggles.length && !jsonInputs.length) return;
 
     const closePicker = (picker) => {
       const trigger = picker.querySelector(".group-tree-trigger");
@@ -623,6 +624,34 @@
       node?.classList.toggle("is-expanded", nextExpanded);
     };
 
+    const syncGroupTreeJson = (field) => {
+      const input = field?.querySelector("[data-group-tree-json]");
+      if (!field || !input) return;
+      const ids = [];
+      const seen = new Set();
+      field.querySelectorAll('.group-tree-checkbox-list input[type="checkbox"]:checked').forEach((checkbox) => {
+        const id = Number.parseInt(checkbox.value, 10);
+        if (Number.isFinite(id) && id > 0 && !seen.has(id)) {
+          seen.add(id);
+          ids.push(id);
+        }
+      });
+      input.value = JSON.stringify(ids);
+    };
+
+    jsonInputs.forEach((input) => {
+      const field = input.closest(".group-tree-field");
+      if (!field || field.dataset.groupTreeJsonBound === "1") return;
+      field.dataset.groupTreeJsonBound = "1";
+      field.addEventListener("change", (event) => {
+        if (event.target?.matches?.('.group-tree-checkbox-list input[type="checkbox"]')) {
+          syncGroupTreeJson(field);
+        }
+      });
+      field.closest("form")?.addEventListener("submit", () => syncGroupTreeJson(field), { capture: true });
+      syncGroupTreeJson(field);
+    });
+
     toggles.forEach((toggle) => {
       toggle.addEventListener("click", (event) => {
         event.preventDefault();
@@ -639,6 +668,7 @@
           checkbox.checked = checked;
           checkbox.dispatchEvent(new Event("change", { bubbles: true }));
         });
+        syncGroupTreeJson(field);
       });
     });
 

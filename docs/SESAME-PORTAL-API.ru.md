@@ -152,11 +152,15 @@ Payload создания/обновления:
   "login": "operator",
   "password": "secret123",
   "role": "user",
-  "blocked": false
+  "blocked": false,
+  "groupIds": [1, 2, 3]
 }
 ```
 
 При обновлении пустой или отсутствующий `password` оставляет текущий пароль.
+Если передан `groupIds`, Portal полностью заменяет список групп пользователя
+указанным массивом id. Если `groupIds` отсутствует, членство пользователя в
+группах не меняется.
 
 ### /api/portal/v1/groups
 
