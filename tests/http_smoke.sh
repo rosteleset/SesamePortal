@@ -698,6 +698,10 @@ printf "%s" "$api_admin_group_filter" | grep -q '"Display Smoke Cam"'
 api_admin_group_id_filter="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/api/portal/v1/cameras?groupID=1&pageSize=100")"
 printf "%s" "$api_admin_group_id_filter" | grep -q '"Smoke Cam"'
 printf "%s" "$api_admin_group_id_filter" | grep -q '"Read Only Cam"'
+api_admin_group_ids_filter="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/api/portal/v1/cameras?groupIds=2,3&pageSize=100")"
+printf "%s" "$api_admin_group_ids_filter" | grep -q '"Read Only Cam"'
+printf "%s" "$api_admin_group_ids_filter" | grep -q '"Display Smoke Cam"'
+! printf "%s" "$api_admin_group_ids_filter" | grep -q '"Smoke Cam"'
 api_admin_numeric_group_filter="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/api/portal/v1/cameras?filter=1&pageSize=100")"
 printf "%s" "$api_admin_numeric_group_filter" | grep -q '"Smoke Cam"'
 printf "%s" "$api_admin_numeric_group_filter" | grep -q '"Read Only Cam"'

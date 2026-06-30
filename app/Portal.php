@@ -3673,8 +3673,8 @@ final class Repo
             $join .= ' JOIN favorites f ON f.camera_id = c.id AND f.user_id = ?';
             $params[] = (int)$user['id'];
         } elseif (str_starts_with($filter, 'group:')) {
-            $groupId = (int)substr($filter, 6);
-            $filterGroupIds = self::groupBranchIds([$groupId], true, $user['role'] === 'admin');
+            $groupIds = self::groupFilterRootIds($filter);
+            $filterGroupIds = self::groupBranchIds($groupIds, true, $user['role'] === 'admin');
             $join .= ' JOIN camera_groups cg_filter ON cg_filter.camera_id = c.id';
             if (!$filterGroupIds) {
                 $where[] = '1 = 0';
@@ -3699,6 +3699,15 @@ final class Repo
         }
 
         return [$join, $where, $params];
+    }
+
+    private static function groupFilterRootIds(string $filter): array
+    {
+        $raw = substr($filter, 6);
+        $ids = preg_split('/[,\s]+/', $raw, -1, PREG_SPLIT_NO_EMPTY) ?: [];
+        $ids = array_map('intval', $ids);
+        $ids = array_filter($ids, static fn(int $id): bool => $id > 0);
+        return array_values(array_unique($ids));
     }
 
     private static function placeholders(array $values): string
@@ -4660,6 +4669,13 @@ final class App
 
     private static function apiCameraListFilter(): string
     {
+        foreach (['groupIds', 'groupIDs', 'group_ids'] as $key) {
+            if (array_key_exists($key, $_GET)) {
+                $groupIds = self::apiGroupIdsQueryValue($_GET[$key]);
+                return 'group:' . implode(',', $groupIds);
+            }
+        }
+
         $groupId = (int)($_GET['groupId'] ?? $_GET['groupID'] ?? $_GET['group_id'] ?? 0);
         if ($groupId > 0) {
             return 'group:' . $groupId;
@@ -4677,6 +4693,14 @@ final class App
         }
 
         return $filter;
+    }
+
+    private static function apiGroupIdsQueryValue(mixed $value): array
+    {
+        $values = is_array($value) ? $value : preg_split('/[,\s]+/', (string)$value, -1, PREG_SPLIT_NO_EMPTY);
+        $ids = array_map('intval', $values ?: []);
+        $ids = array_filter($ids, static fn(int $id): bool => $id > 0);
+        return array_values(array_unique($ids));
     }
 
     private static function apiSaveCamera(int $id, array $input): void
