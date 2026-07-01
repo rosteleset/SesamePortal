@@ -141,6 +141,7 @@ final class DB
             $pdo->exec($statement);
         }
 
+        self::ensureColumn('users', 'admin_comment', 'TEXT');
         self::ensureColumn('portal_groups', 'parent_group_id', self::driver() === 'mysql' ? 'BIGINT NULL' : 'INTEGER');
         self::dropPortalGroupNameUniqueConstraint();
         self::ensureIndex('camera_groups', 'idx_camera_groups_group', 'group_id');
@@ -240,6 +241,7 @@ final class DB
                 previous_daily_token TEXT,
                 daily_token_date TEXT,
                 static_token_hash TEXT,
+                admin_comment TEXT,
                 created_at TEXT NOT NULL,
                 last_login_at TEXT
             )',
@@ -339,6 +341,7 @@ final class DB
                 previous_daily_token TEXT,
                 daily_token_date TEXT,
                 static_token_hash TEXT,
+                admin_comment TEXT,
                 created_at TEXT NOT NULL,
                 last_login_at TEXT
             )",
@@ -439,6 +442,7 @@ final class DB
                 previous_daily_token TEXT,
                 daily_token_date VARCHAR(64),
                 static_token_hash VARCHAR(255),
+                admin_comment TEXT,
                 created_at VARCHAR(64) NOT NULL,
                 last_login_at VARCHAR(64)
             ){$suffix}",
@@ -2132,6 +2136,26 @@ final class I18n
         ] as $locale => [$saveDone, $saving]) {
             $messages[$locale]['users.saveDone'] = $saveDone;
             $messages[$locale]['users.saving'] = $saving;
+        }
+
+        foreach ([
+            'ru' => 'Комментарий администратора',
+            'en' => 'Admin comment',
+            'de' => 'Admin-Kommentar',
+            'fr' => 'Commentaire admin',
+            'es' => 'Comentario de administrador',
+            'it' => 'Commento admin',
+            'pt' => 'Comentário do administrador',
+            'bg' => 'Администраторски коментар',
+            'pl' => 'Komentarz administratora',
+            'zh' => '管理员备注',
+            'ja' => '管理者コメント',
+            'ko' => '관리자 메모',
+            'ar' => 'تعليق المسؤول',
+            'hy' => 'Ադմինի մեկնաբանություն',
+        ] as $locale => $label) {
+            $messages[$locale]['users.adminComment'] = $label;
+            $messages[$locale]['column.admin_comment'] = $label;
         }
 
         $messages['ru'] += [
@@ -4132,8 +4156,11 @@ final class App
 
         if (count($parts) === 1) {
             if ($method === 'GET') {
-                $list = self::filteredRows('users', ['login', 'role'], 'login ASC', self::apiPageSize());
-                self::apiJson(['users' => array_map([self::class, 'apiUserRow'], $list['rows']), 'pagination' => self::apiPagination($list)]);
+                $list = self::filteredRows('users', ['login', 'role', 'admin_comment'], 'login ASC', self::apiPageSize());
+                self::apiJson([
+                    'users' => array_map(static fn(array $row): array => self::apiUserRow($row, false, true), $list['rows']),
+                    'pagination' => self::apiPagination($list),
+                ]);
                 return;
             }
             if ($method === 'POST') {
@@ -4150,7 +4177,7 @@ final class App
         if (count($parts) === 2) {
             if ($method === 'GET') {
                 $user = self::rowById('users', $id);
-                $user ? self::apiJson(['user' => self::apiUserRow($user, true)]) : self::apiError(404, 'not_found', 'User not found');
+                $user ? self::apiJson(['user' => self::apiUserRow($user, true, true)]) : self::apiError(404, 'not_found', 'User not found');
                 return;
             }
             if ($method === 'PATCH' || $method === 'PUT') {
@@ -4196,6 +4223,7 @@ final class App
         $password = (string)($input['password'] ?? '');
         $role = ($input['role'] ?? ($current['role'] ?? 'user')) === 'admin' ? 'admin' : 'user';
         $blocked = self::apiBlockedValue($input, $current);
+        $adminComment = trim((string)($input['adminComment'] ?? $input['admin_comment'] ?? ($current['admin_comment'] ?? '')));
         if ($login === '') {
             self::apiError(422, 'validation_failed', 'login is required');
             return;
@@ -4229,15 +4257,15 @@ final class App
                         self::apiError(422, 'validation_failed', 'password must be at least 6 characters');
                         return;
                     }
-                    $pdo->prepare('UPDATE users SET login=?, password_hash=?, role=?, blocked=? WHERE id=?')
-                        ->execute([$login, password_hash($password, PASSWORD_DEFAULT), $role, $blocked, $id]);
+                    $pdo->prepare('UPDATE users SET login=?, password_hash=?, role=?, blocked=?, admin_comment=? WHERE id=?')
+                        ->execute([$login, password_hash($password, PASSWORD_DEFAULT), $role, $blocked, $adminComment, $id]);
                 } else {
-                    $pdo->prepare('UPDATE users SET login=?, role=?, blocked=? WHERE id=?')
-                        ->execute([$login, $role, $blocked, $id]);
+                    $pdo->prepare('UPDATE users SET login=?, role=?, blocked=?, admin_comment=? WHERE id=?')
+                        ->execute([$login, $role, $blocked, $adminComment, $id]);
                 }
             } else {
-                $pdo->prepare('INSERT INTO users(login, password_hash, role, blocked, daily_token, daily_token_date, created_at) VALUES(?, ?, ?, ?, ?, ?, ?)')
-                    ->execute([$login, password_hash($password, PASSWORD_DEFAULT), $role, $blocked, Util::randomToken(), TokenService::today(), Util::now()]);
+                $pdo->prepare('INSERT INTO users(login, password_hash, role, blocked, admin_comment, daily_token, daily_token_date, created_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?)')
+                    ->execute([$login, password_hash($password, PASSWORD_DEFAULT), $role, $blocked, $adminComment, Util::randomToken(), TokenService::today(), Util::now()]);
                 $id = DB::lastInsertId('users');
             }
             if ($groupIds !== null) {
@@ -4257,7 +4285,7 @@ final class App
         $after = self::rowById('users', $id) ?: ['login' => $login, 'role' => $role, 'blocked' => $blocked];
         $afterGroupIds = self::linkedIds('user_groups', 'user_id', $id, 'group_id');
         self::logUserSaveAudit($actor, $id, $current, $after, $beforeGroupIds, $afterGroupIds);
-        self::apiJson(['user' => self::apiUserRow($after, true)], $current ? 200 : 201);
+        self::apiJson(['user' => self::apiUserRow($after, true, true)], $current ? 200 : 201);
     }
 
     private static function apiUserLoginExists(?array $existing): void
@@ -4459,7 +4487,9 @@ final class App
         $rowsKey = $isUsers ? 'users' : 'cameras';
         $ids = $group ? self::linkedIds($linkTable, 'group_id', (int)$group['id'], $targetKey) : [];
         $memberRows = self::rowsByIds($targetTable, $ids);
-        $rows = $isUsers ? array_map([self::class, 'apiUserRow'], $memberRows) : self::apiCameraRows($memberRows);
+        $rows = $isUsers
+            ? array_map(static fn(array $row): array => self::apiUserRow($row, false, true), $memberRows)
+            : self::apiCameraRows($memberRows);
 
         return [
             'group' => self::apiGroupRow($group, true),
@@ -5048,7 +5078,7 @@ final class App
         self::apiJson(['events' => array_map([self::class, 'apiAuditRow'], $list['rows']), 'pagination' => self::apiPagination($list)]);
     }
 
-    private static function apiUserRow(?array $user, bool $detailed = false): array
+    private static function apiUserRow(?array $user, bool $detailed = false, bool $includeAdminComment = false): array
     {
         if (!$user) {
             return [];
@@ -5062,6 +5092,9 @@ final class App
             'createdAt' => $user['created_at'] ?? null,
             'lastLoginAt' => $user['last_login_at'] ?? null,
         ];
+        if ($includeAdminComment) {
+            $row['adminComment'] = (string)($user['admin_comment'] ?? '');
+        }
         if ($detailed) {
             $row['groupIds'] = self::linkedIds('user_groups', 'user_id', (int)$user['id'], 'group_id');
         }
@@ -5520,6 +5553,7 @@ final class App
                 $password = (string)Util::post('password');
                 $role = Util::post('role') === 'admin' ? 'admin' : 'user';
                 $blocked = Util::checkbox('blocked');
+                $adminComment = trim((string)Util::post('admin_comment'));
                 $beforeUser = $id > 0 ? self::rowById('users', $id) : null;
                 $beforeGroupIds = $id > 0 ? self::linkedIds('user_groups', 'user_id', $id, 'group_id') : [];
                 $groupIds = self::formIntArray('group_ids_json', 'group_ids');
@@ -5536,16 +5570,16 @@ final class App
                             if (strlen($password) < 6) {
                                 $message = self::t('users.passwordShort', 'Пароль должен быть не короче 6 символов');
                             } else {
-                                $pdo->prepare('UPDATE users SET login=?, password_hash=?, role=?, blocked=? WHERE id=?')
-                                    ->execute([$login, password_hash($password, PASSWORD_DEFAULT), $role, $blocked, $id]);
+                                $pdo->prepare('UPDATE users SET login=?, password_hash=?, role=?, blocked=?, admin_comment=? WHERE id=?')
+                                    ->execute([$login, password_hash($password, PASSWORD_DEFAULT), $role, $blocked, $adminComment, $id]);
                             }
                         } else {
-                            $pdo->prepare('UPDATE users SET login=?, role=?, blocked=? WHERE id=?')
-                                ->execute([$login, $role, $blocked, $id]);
+                            $pdo->prepare('UPDATE users SET login=?, role=?, blocked=?, admin_comment=? WHERE id=?')
+                                ->execute([$login, $role, $blocked, $adminComment, $id]);
                         }
                     } else {
-                        $pdo->prepare('INSERT INTO users(login, password_hash, role, blocked, daily_token, daily_token_date, created_at) VALUES(?, ?, ?, ?, ?, ?, ?)')
-                            ->execute([$login, password_hash($password, PASSWORD_DEFAULT), $role, $blocked, Util::randomToken(), TokenService::today(), Util::now()]);
+                        $pdo->prepare('INSERT INTO users(login, password_hash, role, blocked, admin_comment, daily_token, daily_token_date, created_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?)')
+                            ->execute([$login, password_hash($password, PASSWORD_DEFAULT), $role, $blocked, $adminComment, Util::randomToken(), TokenService::today(), Util::now()]);
                         $id = DB::lastInsertId('users');
                     }
                     if ($message === '') {
@@ -5570,7 +5604,7 @@ final class App
         $edit = self::rowById('users', (int)($_GET['edit'] ?? 0));
         $linkedGroups = $edit ? self::linkedIds('user_groups', 'user_id', (int)$edit['id'], 'group_id') : [];
         $groups = self::groupRowsWithDisplayLabels(Repo::all('portal_groups', 'name ASC'));
-        $list = self::filteredRows('users', ['login', 'role'], 'login ASC');
+        $list = self::filteredRows('users', ['login', 'role', 'admin_comment'], 'login ASC');
         $users = $list['rows'];
         self::layout(self::t('users.title', 'Пользователи'), function () use ($users, $edit, $groups, $linkedGroups, $message, $messageClass, $staticToken, $list) {
             self::notice($message, $messageClass);
@@ -5585,10 +5619,11 @@ final class App
             echo '<label>' . self::t('field.login', 'Логин') . '<input name="login" value="' . Util::h($edit['login'] ?? '') . '" required></label>';
             echo '<label>' . self::t('field.password', 'Пароль') . '<input name="password" type="password" minlength="6" placeholder="' . ($edit ? self::t('users.passwordPlaceholderEdit', 'оставьте пустым, чтобы не менять') : self::t('users.passwordPlaceholderNew', 'минимум 6 символов')) . '"></label>';
             echo '<label>' . self::t('column.role', 'Роль') . '<select name="role"><option value="user">user</option><option value="admin" ' . (($edit['role'] ?? '') === 'admin' ? 'selected' : '') . '>admin</option></select></label>';
+            echo '<label>' . self::t('users.adminComment', 'Комментарий администратора') . '<textarea name="admin_comment" rows="3">' . Util::h($edit['admin_comment'] ?? '') . '</textarea></label>';
             echo '<label class="check"><input type="checkbox" name="blocked" ' . (!empty($edit['blocked']) ? 'checked' : '') . '> ' . self::t('users.blocked', 'Заблокирован') . '</label>';
             self::groupCheckboxTree(self::t('groups.title', 'Группы'), 'group_ids[]', $groups, $linkedGroups, 'group_ids_json');
             echo '<div class="form-submit-row"><button type="submit" class="primary" data-submit-button>' . self::t('action.save', 'Сохранить') . '</button><div class="submit-progress" data-submit-status hidden role="status" aria-live="polite">' . Util::h($savingLabel) . '</div></div></form></section>';
-            self::table(self::t('users.title', 'Пользователи'), ['login', 'role', 'blocked', 'static_token_hash', 'last_login_at'], $users, '/admin/users', false, $list);
+            self::table(self::t('users.title', 'Пользователи'), ['login', 'role', 'admin_comment', 'blocked', 'static_token_hash', 'last_login_at'], $users, '/admin/users', false, $list);
             echo '</div>';
         });
     }
@@ -7573,6 +7608,16 @@ final class App
                 ? self::t('token.staticPresent', 'есть')
                 : self::t('token.staticMissing', 'нет');
             echo '<td><span class="pill ' . ($hasToken ? 'success' : 'danger') . '">' . Util::h($label) . '</span></td>';
+            return;
+        }
+
+        if ($column === 'admin_comment') {
+            $text = trim((string)$value);
+            if ($text === '') {
+                echo '<td class="muted">-</td>';
+                return;
+            }
+            echo '<td class="table-comment" title="' . Util::h($text) . '">' . Util::h(self::technicalSummary($text)) . '</td>';
             return;
         }
 

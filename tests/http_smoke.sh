@@ -270,11 +270,13 @@ printf "%s" "$admin_users_page" | grep -F -q 'aria-label="Изменить"'
 printf "%s" "$admin_users_page" | grep -F -q 'aria-label="Выпустить статический токен"'
 printf "%s" "$admin_users_page" | grep -F -q 'aria-label="Удалить"'
 printf "%s" "$admin_users_page" | grep -q "group-tree-checkbox-list"
-printf "%s" "$admin_users_page" | grep -F -q 'name="group_ids[]"'
+printf "%s" "$admin_users_page" | grep -F -q 'name="group_ids_json"'
 printf "%s" "$admin_users_page" | grep -F -q 'data-group-tree-check-all'
 printf "%s" "$admin_users_page" | grep -F -q 'data-group-tree-clear-all'
 printf "%s" "$admin_users_page" | grep -F -q 'data-submit-progress="Сохраняем пользователя...'
 printf "%s" "$admin_users_page" | grep -F -q 'data-submit-status'
+printf "%s" "$admin_users_page" | grep -F -q 'name="admin_comment"'
+printf "%s" "$admin_users_page" | grep -F -q '<th>Комментарий администратора</th>'
 ! printf "%s" "$admin_users_page" | grep -F -q '>Удалить</button>'
 user_csrf="$(printf "%s" "$admin_users_page" | sed -n 's/.*name="csrf" value="\([^"]*\)".*/\1/p' | head -n 1)"
 test -n "$user_csrf"
@@ -282,13 +284,18 @@ user_group_save="$(
   curl -fsS -b "$COOKIE_JAR" -c "$COOKIE_JAR" \
     -d "csrf=$user_csrf" -d "action=save" -d "id=1" \
     -d "login=admin" -d "password=" -d "role=admin" \
+    --data-urlencode "admin_comment=admin-only smoke note" \
     -d "group_ids[]=1" -d "group_ids[]=2" \
     "http://127.0.0.1:$PORT/admin/users?q=admin"
 )"
 printf "%s" "$user_group_save" | grep -q "admin"
 printf "%s" "$user_group_save" | grep -q "Пользователь сохранён"
+printf "%s" "$user_group_save" | grep -q "admin-only smoke note"
 api_admin_user="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/api/portal/v1/users/1")"
 printf "%s" "$api_admin_user" | php -r '$d=json_decode(stream_get_contents(STDIN), true); $ids=$d["user"]["groupIds"] ?? []; sort($ids); exit($ids === [1, 2] ? 0 : 1);'
+printf "%s" "$api_admin_user" | grep -q '"adminComment": "admin-only smoke note"'
+api_me_no_admin_comment="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/api/portal/v1/me")"
+! printf "%s" "$api_me_no_admin_comment" | grep -q '"adminComment"'
 api_duplicate_user_status="$(
   curl -sS -o "$STATE_DIR/api_duplicate_user_login.json" -w '%{http_code}' -b "$COOKIE_JAR" -H 'Content-Type: application/json' \
     -d '{"login":"admin","password":"secret123","role":"admin"}' \
@@ -514,7 +521,8 @@ printf "%s" "$refresh_off_page" | grep -q 'data-preview-refresh="off"'
 group_page="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/?filter=group:1")"
 printf "%s" "$group_page" | grep -q "Smoke Cam"
 printf "%s" "$group_page" | grep -q "Read Only Cam"
-curl -fsS "http://127.0.0.1:$PORT/assets/styles.css" | grep -q "aspect-ratio: 16 / 9"
+styles_css_asset="$(curl -fsS "http://127.0.0.1:$PORT/assets/styles.css")"
+grep -q "aspect-ratio: 16 / 9" <<<"$styles_css_asset"
 map_page="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/viewer/map")"
 printf "%s" "$map_page" | grep -q '"/viewer/preview?id=1"'
 ! printf "%s" "$map_page" | grep -E -q '"preview":"[^"]*token='
@@ -531,22 +539,23 @@ map_unicode_search_page="$(
     "http://127.0.0.1:$PORT/viewer/map"
 )"
 printf "%s" "$map_unicode_search_page" | grep -q "Двор Камера"
-curl -fsS "http://127.0.0.1:$PORT/assets/app.js" | grep -q "camera-view-cone"
-curl -fsS "http://127.0.0.1:$PORT/assets/app.js" | grep -q "markerHitSize"
-curl -fsS "http://127.0.0.1:$PORT/assets/app.js" | grep -q "markerClusterGroup"
-curl -fsS "http://127.0.0.1:$PORT/assets/styles.css" | grep -q "camera-cluster"
-curl -fsS "http://127.0.0.1:$PORT/assets/styles.css" | grep -q "camera-marker-icon"
-curl -fsS "http://127.0.0.1:$PORT/assets/app.js" | grep -q "setPlainLeafletAttribution"
-curl -fsS "http://127.0.0.1:$PORT/assets/app.js" | grep -q "map-popup-actions"
-curl -fsS "http://127.0.0.1:$PORT/assets/app.js" | grep -q "/favorite/toggle"
-curl -fsS "http://127.0.0.1:$PORT/assets/app.js" | grep -q "new Image"
-curl -fsS "http://127.0.0.1:$PORT/assets/app.js" | grep -q "previewLoading"
-curl -fsS "http://127.0.0.1:$PORT/assets/app.js" | grep -q "is-loading"
-curl -fsS "http://127.0.0.1:$PORT/assets/app.js" | grep -q "initDensitySwitch"
-curl -fsS "http://127.0.0.1:$PORT/assets/app.js" | grep -q "updateViewerLinks"
-curl -fsS "http://127.0.0.1:$PORT/assets/app.js" | grep -q "initLocalTimes"
-curl -fsS "http://127.0.0.1:$PORT/assets/styles.css" | grep -q "preview-spin"
-curl -fsS "http://127.0.0.1:$PORT/assets/styles.css" | grep -q "local-time"
+app_js_asset="$(curl -fsS "http://127.0.0.1:$PORT/assets/app.js")"
+grep -q "camera-view-cone" <<<"$app_js_asset"
+grep -q "markerHitSize" <<<"$app_js_asset"
+grep -q "markerClusterGroup" <<<"$app_js_asset"
+grep -q "camera-cluster" <<<"$styles_css_asset"
+grep -q "camera-marker-icon" <<<"$styles_css_asset"
+grep -q "setPlainLeafletAttribution" <<<"$app_js_asset"
+grep -q "map-popup-actions" <<<"$app_js_asset"
+grep -q "/favorite/toggle" <<<"$app_js_asset"
+grep -q "new Image" <<<"$app_js_asset"
+grep -q "previewLoading" <<<"$app_js_asset"
+grep -q "is-loading" <<<"$app_js_asset"
+grep -q "initDensitySwitch" <<<"$app_js_asset"
+grep -q "updateViewerLinks" <<<"$app_js_asset"
+grep -q "initLocalTimes" <<<"$app_js_asset"
+grep -q "preview-spin" <<<"$styles_css_asset"
+grep -q "local-time" <<<"$styles_css_asset"
 player_page="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/viewer/player?id=1")"
 printf "%s" "$player_page" | grep -q "back_url="
 printf "%s" "$player_page" | grep -q "back_label="

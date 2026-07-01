@@ -834,6 +834,10 @@ tr:last-child td {
   max-width: 210px;
   min-width: 180px;
 }
+.table-comment {
+  max-width: 220px;
+  color: var(--muted);
+}
 .local-time {
   white-space: nowrap;
 }

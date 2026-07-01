@@ -299,7 +299,7 @@ Actions:
 
 | `action` | Поля | Описание |
 | --- | --- | --- |
-| `save` | `id`, `login`, `password`, `role`, `blocked`, `group_ids[]` | Создать или обновить пользователя. Для нового пользователя пароль должен быть не короче 6 символов. При редактировании пустой `password` означает "не менять". `role`: `admin` или `user`. `group_ids[]` полностью заменяет membership пользователя в группах. |
+| `save` | `id`, `login`, `password`, `role`, `blocked`, `admin_comment`, `group_ids_json` / `group_ids[]` | Создать или обновить пользователя. Для нового пользователя пароль должен быть не короче 6 символов. При редактировании пустой `password` означает "не менять". `role`: `admin` или `user`. `admin_comment` хранит комментарий, видимый только администраторам. `group_ids_json` полностью заменяет membership пользователя в группах; `group_ids[]` поддерживается как fallback. |
 | `delete` | `id` | Удалить пользователя. |
 | `issue_static` | `id` | Выпустить static token. Если token уже был, действие заменяет его, старый token сразу перестаёт работать. Новый token показывается один раз в HTML notice. |
 | `revoke_static` | `id` | Отозвать static playback token. |
