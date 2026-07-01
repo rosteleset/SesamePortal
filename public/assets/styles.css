@@ -1664,8 +1664,52 @@ tr:last-child td {
   display: block;
   margin-top: 16px;
 }
+.login-page {
+  grid-template-columns: minmax(0, 410px);
+  place-content: center;
+  justify-items: center;
+  gap: 22px;
+  padding: clamp(24px, 5vh, 56px) 16px;
+  background:
+    radial-gradient(circle at 50% 18%, rgba(193,150,78,.22), transparent 38%),
+    #121212;
+}
+.login-visual {
+  display: contents;
+  padding: 0;
+  background: transparent;
+}
+.login-visual > div:first-child {
+  order: 1;
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  text-align: center;
+}
+.login-visual > div:first-child p {
+  margin: 0;
+  color: rgba(247,244,237,.86);
+}
+.login-visual img {
+  width: min(280px, 72vw);
+  margin: 0;
+}
+.login-card {
+  order: 2;
+  width: min(410px, 100%);
+  margin: 0;
+}
+.login-card .login-brand {
+  text-align: center;
+}
+.login-card .login-brand img {
+  display: block;
+  margin: 0 auto 18px;
+}
 .login-features {
+  order: 3;
   display: flex;
+  justify-content: center;
   gap: 8px;
   flex-wrap: wrap;
 }
