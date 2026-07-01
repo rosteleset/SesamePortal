@@ -5517,7 +5517,6 @@ final class App
             echo '<section class="login-visual"><div><img src="/assets/logo-sesameportal-inverse.svg" alt="SesamePortal"><p>' . self::t('login.subtitle', 'Портал видеонаблюдения SesameWare') . '</p></div>';
             echo '<div class="login-features"><span>' . Util::h(self::t('login.feature.secure', 'Безопасно')) . '</span><span>' . Util::h(self::t('login.feature.reliable', 'Надежно')) . '</span><span>' . Util::h(self::t('login.feature.efficient', 'Производительно')) . '</span></div></section>';
             echo '<section class="login-panel login-card">';
-            echo '<div class="login-brand"><img src="/assets/logo-sesameportal.svg" alt="SesamePortal"><img class="brand-mark-compat" src="/assets/brand-mark.svg" alt="" aria-hidden="true"></div>';
             if ($error) {
                 echo '<div class="alert danger">' . Util::h($error) . '</div>';
             }

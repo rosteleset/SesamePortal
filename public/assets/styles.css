@@ -157,9 +157,6 @@ code {
 .workspace {
   min-width: 0;
 }
-.brand-mark-compat {
-  display: none !important;
-}
 .sr-only {
   position: absolute;
   width: 1px;
@@ -1649,10 +1646,6 @@ tr:last-child td {
 .audit-action {
   white-space: nowrap;
 }
-.login-brand {
-  display: block;
-  margin-bottom: 10px;
-}
 .login-card {
   justify-self: center;
 }
@@ -1698,13 +1691,6 @@ tr:last-child td {
   order: 2;
   width: min(410px, 100%);
   margin: 0;
-}
-.login-card .login-brand {
-  text-align: center;
-}
-.login-card .login-brand img {
-  display: block;
-  margin: 0 auto 18px;
 }
 .login-features {
   order: 3;

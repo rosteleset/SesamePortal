@@ -172,7 +172,7 @@ sleep 0.4
 login_page="$(curl -fsS -c "$COOKIE_JAR" "http://127.0.0.1:$PORT/login")"
 csrf="$(printf "%s" "$login_page" | sed -n 's/.*name="csrf" value="\([^"]*\)".*/\1/p' | head -n 1)"
 test -n "$csrf"
-printf "%s" "$login_page" | grep -q "/assets/brand-mark.svg"
+printf "%s" "$login_page" | grep -q "/assets/logo-sesameportal-inverse.svg"
 printf "%s" "$login_page" | grep -q "/assets/favicon.svg"
 printf "%s" "$login_page" | grep -q 'select name="lang"'
 printf "%s" "$login_page" | grep -q 'DE - Deutsch'
