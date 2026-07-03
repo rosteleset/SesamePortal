@@ -291,6 +291,8 @@ user_group_save="$(
 printf "%s" "$user_group_save" | grep -q "admin"
 printf "%s" "$user_group_save" | grep -q "Пользователь сохранён"
 printf "%s" "$user_group_save" | grep -q "admin-only smoke note"
+admin_user_edit_page="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/admin/users?q=admin&edit=1")"
+printf "%s" "$admin_user_edit_page" | php -r '$html = stream_get_contents(STDIN); $selected = strpos($html, ">Smoke Group<"); $unselected = strpos($html, ">Moscow<"); exit($selected !== false && $unselected !== false && $selected < $unselected ? 0 : 1);'
 api_admin_user="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/api/portal/v1/users/1")"
 printf "%s" "$api_admin_user" | php -r '$d=json_decode(stream_get_contents(STDIN), true); $ids=$d["user"]["groupIds"] ?? []; sort($ids); exit($ids === [1, 2] ? 0 : 1);'
 printf "%s" "$api_admin_user" | grep -q '"adminComment": "admin-only smoke note"'
@@ -355,6 +357,7 @@ printf "%s" "$admin_cameras_form" | grep -q "group-tree-checkbox-list"
 printf "%s" "$admin_cameras_form" | grep -F -q 'name="group_ids[]"'
 printf "%s" "$admin_cameras_form" | grep -q "data-group-tree-toggle"
 printf "%s" "$admin_cameras_form" | grep -q "Smoke Subgroup"
+printf "%s" "$admin_cameras_form" | php -r '$html = stream_get_contents(STDIN); $selected = strpos($html, ">Smoke Group<"); $unselected = strpos($html, ">Moscow<"); exit($selected !== false && $unselected !== false && $selected < $unselected ? 0 : 1);'
 admin_cameras_new_form="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/admin/cameras")"
 printf "%s" "$admin_cameras_new_form" | grep -F -q 'data-watermark-dependent hidden'
 printf "%s" "$admin_cameras_new_form" | grep -F -q '<option value="auto" selected>автоматический случайный</option>'

@@ -7119,6 +7119,47 @@ final class App
         return [$byId, $children];
     }
 
+    private static function sortGroupTreeSelectedFirst(array &$children, array $byId, array $selectedSet): void
+    {
+        $branchSelected = [];
+        $hasSelected = static function (int $id) use (&$hasSelected, &$branchSelected, $children, $selectedSet): bool {
+            if (array_key_exists($id, $branchSelected)) {
+                return $branchSelected[$id];
+            }
+            if (isset($selectedSet[$id])) {
+                $branchSelected[$id] = true;
+                return true;
+            }
+            foreach ($children[$id] ?? [] as $childId) {
+                if ($hasSelected((int)$childId)) {
+                    $branchSelected[$id] = true;
+                    return true;
+                }
+            }
+            $branchSelected[$id] = false;
+            return false;
+        };
+
+        foreach ($children as &$ids) {
+            usort($ids, static function (int $left, int $right) use ($byId, $selectedSet, $hasSelected): int {
+                $leftSelected = isset($selectedSet[$left]) ? 0 : 1;
+                $rightSelected = isset($selectedSet[$right]) ? 0 : 1;
+                if ($leftSelected !== $rightSelected) {
+                    return $leftSelected <=> $rightSelected;
+                }
+
+                $leftBranchSelected = $hasSelected($left) ? 0 : 1;
+                $rightBranchSelected = $hasSelected($right) ? 0 : 1;
+                if ($leftBranchSelected !== $rightBranchSelected) {
+                    return $leftBranchSelected <=> $rightBranchSelected;
+                }
+
+                return strnatcasecmp((string)$byId[$left]['name'], (string)$byId[$right]['name']);
+            });
+        }
+        unset($ids);
+    }
+
     private static function groupTreeExpandedAncestors(array $byId, array $selectedIds): array
     {
         $expanded = [];
@@ -7861,6 +7902,7 @@ final class App
         [$byId, $children] = self::groupTreeStructure($groups);
         $selectedIds = self::apiIntArray($selected);
         $selectedSet = array_flip($selectedIds);
+        self::sortGroupTreeSelectedFirst($children, $byId, $selectedSet);
         $expanded = self::groupTreeExpandedAncestors($byId, array_keys($selectedSet));
 
         echo '<fieldset class="group-tree-field"><legend>' . Util::h($title) . '</legend>';
