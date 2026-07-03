@@ -139,6 +139,11 @@ $pdo->prepare('INSERT INTO camera_groups(camera_id, group_id) VALUES(?, ?)')
     ->execute([2, 2]);
 $pdo->prepare('INSERT INTO camera_groups(camera_id, group_id) VALUES(?, ?)')
     ->execute([$unicodeCameraId, 1]);
+$pdo->prepare('INSERT INTO users(login, password_hash, role, blocked, static_token_hash, created_at) VALUES(?, ?, ?, ?, ?, ?)')
+    ->execute(['plain-user', password_hash('user123', PASSWORD_DEFAULT), 'user', 0, password_hash('sp_smoke_user_token', PASSWORD_DEFAULT), $now]);
+$plainUserId = \SesamePortal\DB::lastInsertId('users');
+$pdo->prepare('INSERT INTO user_groups(user_id, group_id) VALUES(?, ?)')
+    ->execute([$plainUserId, 1]);
 \SesamePortal\DvrClient::syncCamera(2);
 $pdo->prepare('INSERT INTO audit_logs(actor_user_id, action, details, created_at) VALUES(?, ?, ?, ?)')
     ->execute([1, 'camera.save', 'camera_id=1 sync=ok', $now]);
@@ -894,6 +899,14 @@ curl -fsS -H "X-Portal-Token: $STATIC_TOKEN" "http://127.0.0.1:$PORT/api/portal/
 curl -fsS -b "$COOKIE_JAR" -X PUT "http://127.0.0.1:$PORT/api/portal/v1/favorites/1" | grep -q '"favorite": true'
 curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/api/portal/v1/favorites" | grep -q '"cameraIds"'
 curl -fsS -b "$COOKIE_JAR" -X DELETE "http://127.0.0.1:$PORT/api/portal/v1/favorites/1" | grep -q '"favorite": false'
+curl -fsS -H "Authorization: Bearer sp_smoke_user_token" -X PUT "http://127.0.0.1:$PORT/api/portal/v1/favorites/1" | grep -q '"favorite": true'
+plain_user_favorites="$(
+  curl -fsS -H "Authorization: Bearer sp_smoke_user_token" \
+    "http://127.0.0.1:$PORT/api/portal/v1/favorites"
+)"
+plain_user_favorite_ids="$(printf "%s" "$plain_user_favorites" | php -r '$d=json_decode(stream_get_contents(STDIN), true); echo implode(",", $d["cameraIds"] ?? []);')"
+test "$plain_user_favorite_ids" = "1"
+curl -fsS -H "Authorization: Bearer sp_smoke_user_token" -X DELETE "http://127.0.0.1:$PORT/api/portal/v1/favorites/1" | grep -q '"favorite": false'
 curl -fsS -b "$COOKIE_JAR" -X DELETE "http://127.0.0.1:$PORT/api/portal/v1/users/1/static-token" | grep -q '"ok": true'
 revoked_static_denied="$(
   curl -sS -o /dev/null -w '%{http_code}' \

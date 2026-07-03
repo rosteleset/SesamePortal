@@ -3678,7 +3678,8 @@ final class Repo
 
     private static function accessibleCameraScope(array $user, string $filter, string $query = ''): array
     {
-        $params = [];
+        $joinParams = [];
+        $whereParams = [];
         $where = ['c.blocked = 0'];
         $join = 'LEFT JOIN dvr_servers s ON s.id = c.server_id';
 
@@ -3689,13 +3690,13 @@ final class Repo
             } else {
                 $join .= ' JOIN camera_groups cg_access ON cg_access.camera_id = c.id';
                 $where[] = 'cg_access.group_id IN (' . self::placeholders($accessGroupIds) . ')';
-                array_push($params, ...$accessGroupIds);
+                array_push($whereParams, ...$accessGroupIds);
             }
         }
 
         if ($filter === 'favorites') {
             $join .= ' JOIN favorites f ON f.camera_id = c.id AND f.user_id = ?';
-            $params[] = (int)$user['id'];
+            $joinParams[] = (int)$user['id'];
         } elseif (str_starts_with($filter, 'group:')) {
             $groupIds = self::groupFilterRootIds($filter);
             $filterGroupIds = self::groupBranchIds($groupIds, true, $user['role'] === 'admin');
@@ -3704,7 +3705,7 @@ final class Repo
                 $where[] = '1 = 0';
             } else {
                 $where[] = 'cg_filter.group_id IN (' . self::placeholders($filterGroupIds) . ')';
-                array_push($params, ...$filterGroupIds);
+                array_push($whereParams, ...$filterGroupIds);
             }
             if ($user['role'] !== 'admin') {
                 $allowedGroupIds = self::userAccessibleGroupIds($user);
@@ -3718,11 +3719,11 @@ final class Repo
         if ($query !== '') {
             $where[] = '(' . DB::caseInsensitiveLike('c.name') . ' OR ' . DB::caseInsensitiveLike('c.dvr_stream_name') . ')';
             $needle = '%' . $query . '%';
-            $params[] = $needle;
-            $params[] = $needle;
+            $whereParams[] = $needle;
+            $whereParams[] = $needle;
         }
 
-        return [$join, $where, $params];
+        return [$join, $where, [...$joinParams, ...$whereParams]];
     }
 
     private static function groupFilterRootIds(string $filter): array
