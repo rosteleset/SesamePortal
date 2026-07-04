@@ -363,6 +363,8 @@ printf "%s" "$admin_cameras_form" | grep -F -q 'name="group_ids[]"'
 printf "%s" "$admin_cameras_form" | grep -q "data-group-tree-toggle"
 printf "%s" "$admin_cameras_form" | grep -q "Smoke Subgroup"
 printf "%s" "$admin_cameras_form" | php -r '$html = stream_get_contents(STDIN); $selected = strpos($html, ">Smoke Group<"); $unselected = strpos($html, ">Moscow<"); exit($selected !== false && $unselected !== false && $selected < $unselected ? 0 : 1);'
+admin_cameras_back_form="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/admin/cameras?edit=1&back=%2Fviewer%2Fplayer%3Fid%3D1%26back%3D%252F%253Fcols%253D6")"
+printf "%s" "$admin_cameras_back_form" | grep -F -q 'href="/viewer/player?id=1&amp;back=%2F%3Fcols%3D6">Назад</a>'
 admin_cameras_new_form="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/admin/cameras")"
 printf "%s" "$admin_cameras_new_form" | grep -F -q 'data-watermark-dependent hidden'
 printf "%s" "$admin_cameras_new_form" | grep -F -q '<option value="auto" selected>автоматический случайный</option>'
@@ -592,6 +594,9 @@ grep -q "local-time" <<<"$styles_css_asset"
 player_page="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/viewer/player?id=1")"
 printf "%s" "$player_page" | grep -q "back_url="
 printf "%s" "$player_page" | grep -q "back_label="
+printf "%s" "$player_page" | grep -q "settings_url="
+printf "%s" "$player_page" | grep -q "settings_label="
+printf "%s" "$player_page" | grep -q "admin%2Fcameras%3Fedit%3D1"
 printf "%s" "$player_page" | grep -q "player-watermark"
 printf "%s" "$player_page" | grep -q -- "--player-watermark-alpha:0.16"
 printf "%s" "$player_page" | grep -q ">admin<"
@@ -599,6 +604,17 @@ printf "%s" "$player_page" | grep -q ">admin<"
 ! printf "%s" "$player_page" | grep -q "player-fullscreen"
 ! printf "%s" "$player_page" | grep -q "player-edge-swipe"
 ! printf "%s" "$player_page" | grep -q 'class="topbar"'
+PLAIN_COOKIE_JAR="$STATE_DIR/plain-cookies.txt"
+curl -fsS -c "$PLAIN_COOKIE_JAR" "http://127.0.0.1:$PORT/login" >/dev/null
+plain_login_status="$(
+  curl -sS -o /dev/null -w '%{http_code}' -b "$PLAIN_COOKIE_JAR" -c "$PLAIN_COOKIE_JAR" \
+    -d "login=plain-user" -d "password=user123" \
+    "http://127.0.0.1:$PORT/login"
+)"
+test "$plain_login_status" = "303"
+plain_player_page="$(curl -fsS -b "$PLAIN_COOKIE_JAR" "http://127.0.0.1:$PORT/viewer/player?id=1")"
+! printf "%s" "$plain_player_page" | grep -q "settings_url="
+! printf "%s" "$plain_player_page" | grep -q "admin%2Fcameras"
 
 api_unauth="$(
   curl -sS -o /dev/null -w '%{http_code}' \

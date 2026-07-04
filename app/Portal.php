@@ -6351,13 +6351,17 @@ final class App
         $servers = Repo::all('dvr_servers', 'name ASC');
         $groups = self::groupRowsWithDisplayLabels(Repo::all('portal_groups', 'name ASC'));
         $list = self::filteredCameras();
+        $backPath = self::safeLocalPath((string)($_GET['back'] ?? ''));
         $cameras = $list['rows'];
-        self::layout(self::t('cameras.title', 'Камеры'), function () use ($edit, $form, $delete, $servers, $groups, $linkedGroups, $cameras, $message, $list) {
+        self::layout(self::t('cameras.title', 'Камеры'), function () use ($edit, $form, $delete, $servers, $groups, $linkedGroups, $cameras, $message, $list, $backPath) {
             self::notice($message);
             if ($delete) {
                 self::cameraDeletePanel($delete);
             }
             echo '<div class="admin-grid"><section class="panel"><div class="section-head"><h2>' . ($edit ? self::t('cameras.edit', 'Изменить камеру') : self::t('cameras.new', 'Новая камера')) . '</h2>';
+            if ($backPath !== '') {
+                echo '<a class="btn" href="' . Util::h($backPath) . '">' . self::t('action.back', 'Назад') . '</a>';
+            }
             if ($edit) {
                 echo '<a class="btn" href="' . Util::h(self::tableActionUrl('/admin/cameras', [], $list)) . '">' . self::t('cameras.new', 'Новая камера') . '</a>';
             }
@@ -6822,7 +6826,18 @@ final class App
         }
 
         $back = self::safeBackPath((string)($_GET['back'] ?? ($_SERVER['HTTP_REFERER'] ?? '/')));
-        $embed = self::embedUrl($camera, (string)($user['daily_token'] ?? ''), $back, self::t('action.back', 'Назад'));
+        $settingsUrl = '';
+        if (($user['role'] ?? '') === 'admin') {
+            $settingsBack = self::safeLocalPath((string)($_SERVER['REQUEST_URI'] ?? ''));
+            if ($settingsBack === '') {
+                $settingsBack = '/viewer/player?' . http_build_query(['id' => $cameraId]);
+            }
+            $settingsUrl = '/admin/cameras?' . http_build_query([
+                'edit' => $cameraId,
+                'back' => $settingsBack,
+            ]);
+        }
+        $embed = self::embedUrl($camera, (string)($user['daily_token'] ?? ''), $back, self::t('action.back', 'Назад'), $settingsUrl, self::t('settings.title', 'Настройки'));
         $watermarkLogin = (int)($camera['watermark_enabled'] ?? 0) === 1 ? (string)$user['login'] : '';
         $watermarkAlpha = number_format(self::watermarkIntensity($camera['watermark_intensity'] ?? 16) / 100, 2, '.', '');
         self::layout(self::t('player.title', 'Плеер'), function () use ($embed, $watermarkLogin, $watermarkAlpha) {
@@ -8258,7 +8273,7 @@ final class App
         }
     }
 
-    private static function embedUrl(array $camera, string $token, string $back = '', string $backLabel = ''): string
+    private static function embedUrl(array $camera, string $token, string $back = '', string $backLabel = '', string $settings = '', string $settingsLabel = ''): string
     {
         if (empty($camera['server_url'])) {
             return '#';
@@ -8271,6 +8286,10 @@ final class App
         if ($back !== '') {
             $query['back_url'] = self::absolutePortalUrl($back);
             $query['back_label'] = $backLabel !== '' ? $backLabel : self::t('action.back', 'Назад');
+        }
+        if ($settings !== '') {
+            $query['settings_url'] = self::absolutePortalUrl($settings);
+            $query['settings_label'] = $settingsLabel !== '' ? $settingsLabel : self::t('settings.title', 'Настройки');
         }
 
         return rtrim($camera['server_url'], '/') . '/' . rawurlencode($camera['dvr_stream_name']) . '/embed.html?' . http_build_query($query);
@@ -8300,6 +8319,28 @@ final class App
         }
 
         return parse_url($path, PHP_URL_PATH) === '/viewer/player' ? '/' : $path;
+    }
+
+    private static function safeLocalPath(string $path): string
+    {
+        $path = trim($path);
+        if ($path === '' || str_contains($path, "\r") || str_contains($path, "\n")) {
+            return '';
+        }
+
+        if (str_starts_with($path, 'http://') || str_starts_with($path, 'https://')) {
+            $parts = parse_url($path);
+            $path = (string)($parts['path'] ?? '/');
+            if (!empty($parts['query'])) {
+                $path .= '?' . $parts['query'];
+            }
+        }
+
+        if (!str_starts_with($path, '/') || str_starts_with($path, '//')) {
+            return '';
+        }
+
+        return $path;
     }
 
     private static function absolutePortalUrl(string $path): string
