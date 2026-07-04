@@ -2158,6 +2158,64 @@ final class I18n
             $messages[$locale]['column.admin_comment'] = $label;
         }
 
+        foreach ([
+            'ru' => ['Обновлено', 'Создано', 'Все серверы', 'Все режимы', 'Архив: все', 'Архив включён', 'Архив выключен', 'Синхронизация: все', 'Синхронизация ok', 'Синхронизация с ошибкой', 'Read-only', 'Без результата', 'Все группы', 'Сортировка', 'Сортировка', 'Направление сортировки', 'По возрастанию', 'По убыванию', 'Сбросить'],
+            'en' => ['Updated', 'Created', 'All servers', 'All modes', 'Archive: all', 'Archive on', 'Archive off', 'Sync: all', 'Sync ok', 'Sync failed', 'Read-only', 'No result', 'All groups', 'Sort', 'Sort', 'Sort direction', 'Ascending', 'Descending', 'Reset'],
+            'de' => ['Aktualisiert', 'Erstellt', 'Alle Server', 'Alle Modi', 'Archiv: alle', 'Archiv aktiv', 'Archiv inaktiv', 'Sync: alle', 'Sync ok', 'Sync fehlgeschlagen', 'Read-only', 'Kein Ergebnis', 'Alle Gruppen', 'Sortierung', 'Sortierung', 'Sortierrichtung', 'Aufsteigend', 'Absteigend', 'Zurücksetzen'],
+            'fr' => ['Mis à jour', 'Créé', 'Tous les serveurs', 'Tous les modes', 'Archive : toutes', 'Archive activée', 'Archive désactivée', 'Sync : toutes', 'Sync ok', 'Sync en erreur', 'Read-only', 'Aucun résultat', 'Tous les groupes', 'Tri', 'Tri', 'Sens du tri', 'Croissant', 'Décroissant', 'Réinitialiser'],
+            'es' => ['Actualizado', 'Creado', 'Todos los servidores', 'Todos los modos', 'Archivo: todo', 'Archivo activo', 'Archivo inactivo', 'Sync: todo', 'Sync ok', 'Sync con error', 'Read-only', 'Sin resultado', 'Todos los grupos', 'Ordenar', 'Ordenar', 'Dirección de orden', 'Ascendente', 'Descendente', 'Restablecer'],
+            'it' => ['Aggiornato', 'Creato', 'Tutti i server', 'Tutte le modalità', 'Archivio: tutti', 'Archivio attivo', 'Archivio inattivo', 'Sync: tutte', 'Sync ok', 'Sync non riuscita', 'Read-only', 'Nessun risultato', 'Tutti i gruppi', 'Ordina', 'Ordina', 'Direzione ordinamento', 'Crescente', 'Decrescente', 'Reimposta'],
+            'pt' => ['Atualizado', 'Criado', 'Todos os servidores', 'Todos os modos', 'Arquivo: todos', 'Arquivo ativo', 'Arquivo inativo', 'Sync: todos', 'Sync ok', 'Sync com erro', 'Read-only', 'Sem resultado', 'Todos os grupos', 'Ordenar', 'Ordenar', 'Direção da ordenação', 'Ascendente', 'Descendente', 'Repor'],
+            'bg' => ['Обновено', 'Създадено', 'Всички сървъри', 'Всички режими', 'Архив: всички', 'Архивът е включен', 'Архивът е изключен', 'Синхр.: всички', 'Синхр. ok', 'Синхр. с грешка', 'Read-only', 'Без резултат', 'Всички групи', 'Сортиране', 'Сортиране', 'Посока на сортиране', 'Възходящо', 'Низходящо', 'Нулиране'],
+            'pl' => ['Zaktualizowano', 'Utworzono', 'Wszystkie serwery', 'Wszystkie tryby', 'Archiwum: wszystkie', 'Archiwum włączone', 'Archiwum wyłączone', 'Sync: wszystkie', 'Sync ok', 'Sync z błędem', 'Read-only', 'Brak wyniku', 'Wszystkie grupy', 'Sortowanie', 'Sortowanie', 'Kierunek sortowania', 'Rosnąco', 'Malejąco', 'Resetuj'],
+            'zh' => ['已更新', '已创建', '所有服务器', '所有模式', '归档：全部', '归档开启', '归档关闭', '同步：全部', '同步正常', '同步失败', '只读', '无结果', '所有组', '排序', '排序', '排序方向', '升序', '降序', '重置'],
+            'ja' => ['更新日時', '作成日時', 'すべてのサーバー', 'すべてのモード', 'アーカイブ: すべて', 'アーカイブ有効', 'アーカイブ無効', '同期: すべて', '同期 ok', '同期エラー', 'Read-only', '結果なし', 'すべてのグループ', '並び替え', '並び替え', '並び順', '昇順', '降順', 'リセット'],
+            'ko' => ['업데이트됨', '생성됨', '모든 서버', '모든 모드', '아카이브: 전체', '아카이브 켬', '아카이브 끔', '동기화: 전체', '동기화 ok', '동기화 오류', '읽기 전용', '결과 없음', '모든 그룹', '정렬', '정렬', '정렬 방향', '오름차순', '내림차순', '초기화'],
+            'ar' => ['تم التحديث', 'تم الإنشاء', 'كل الخوادم', 'كل الأوضاع', 'الأرشيف: الكل', 'الأرشيف مفعل', 'الأرشيف معطل', 'المزامنة: الكل', 'المزامنة ok', 'خطأ في المزامنة', 'قراءة فقط', 'بلا نتيجة', 'كل المجموعات', 'ترتيب', 'ترتيب', 'اتجاه الترتيب', 'تصاعدي', 'تنازلي', 'إعادة ضبط'],
+            'hy' => ['Թարմացվել է', 'Ստեղծվել է', 'Բոլոր սերվերները', 'Բոլոր ռեժիմները', 'Արխիվ՝ բոլորը', 'Արխիվը միացված է', 'Արխիվը անջատված է', 'Համաժամ.՝ բոլորը', 'Համաժամ. ok', 'Համաժամ. սխալով', 'Read-only', 'Արդյունք չկա', 'Բոլոր խմբերը', 'Դասավորում', 'Դասավորում', 'Դասավորման ուղղություն', 'Աճող', 'Նվազող', 'Վերակայել'],
+        ] as $locale => $items) {
+            [
+                $updated,
+                $created,
+                $allServers,
+                $allModes,
+                $allArchive,
+                $archiveOn,
+                $archiveOff,
+                $allSync,
+                $syncOk,
+                $syncBad,
+                $syncReadonly,
+                $syncEmpty,
+                $allGroups,
+                $sort,
+                $sortBy,
+                $direction,
+                $asc,
+                $desc,
+                $reset,
+            ] = $items;
+            $messages[$locale]['cameraFilter.updated'] = $updated;
+            $messages[$locale]['cameraFilter.created'] = $created;
+            $messages[$locale]['cameraFilter.allServers'] = $allServers;
+            $messages[$locale]['cameraFilter.allModes'] = $allModes;
+            $messages[$locale]['cameraFilter.allArchive'] = $allArchive;
+            $messages[$locale]['cameraFilter.archiveOn'] = $archiveOn;
+            $messages[$locale]['cameraFilter.archiveOff'] = $archiveOff;
+            $messages[$locale]['cameraFilter.allSync'] = $allSync;
+            $messages[$locale]['cameraFilter.syncOk'] = $syncOk;
+            $messages[$locale]['cameraFilter.syncBad'] = $syncBad;
+            $messages[$locale]['cameraFilter.syncReadonly'] = $syncReadonly;
+            $messages[$locale]['cameraFilter.syncEmpty'] = $syncEmpty;
+            $messages[$locale]['cameraFilter.allGroups'] = $allGroups;
+            $messages[$locale]['cameraFilter.sort'] = $sort;
+            $messages[$locale]['cameraFilter.sortBy'] = $sortBy;
+            $messages[$locale]['cameraFilter.direction'] = $direction;
+            $messages[$locale]['cameraFilter.asc'] = $asc;
+            $messages[$locale]['cameraFilter.desc'] = $desc;
+            $messages[$locale]['cameraFilter.reset'] = $reset;
+        }
+
         $messages['ru'] += [
             'nav.section.view' => 'Просмотр',
             'nav.section.admin' => 'Администрирование',
@@ -7460,28 +7518,148 @@ final class App
 
     private static function filteredCameras(int $pageSize = 25): array
     {
-        $q = trim((string)($_GET['q'] ?? ''));
-        $page = max(1, (int)($_GET['page'] ?? 1));
-        $where = '';
+        $filters = self::cameraListFilters();
+        $page = $filters['page'];
+        $where = [];
         $params = [];
-        if ($q !== '') {
+        $join = ' LEFT JOIN dvr_servers s ON s.id = c.server_id';
+
+        if ($filters['q'] !== '') {
             $columns = ['c.name', 'c.source_url', 'c.dvr_stream_name', 'c.dvr_control_mode', 'c.agent_id', 'c.agent_camera_id', 's.name', 'c.last_sync_message'];
-            $where = ' WHERE ' . implode(' OR ', array_map([DB::class, 'caseInsensitiveLike'], $columns));
-            $params = array_fill(0, count($columns), '%' . $q . '%');
+            $where[] = '(' . implode(' OR ', array_map([DB::class, 'caseInsensitiveLike'], $columns)) . ')';
+            array_push($params, ...array_fill(0, count($columns), '%' . $filters['q'] . '%'));
         }
 
+        if ($filters['server_id'] === 'none') {
+            $where[] = 'c.server_id IS NULL';
+        } elseif ($filters['server_id'] !== '') {
+            $where[] = 'c.server_id = ?';
+            $params[] = (int)$filters['server_id'];
+        }
+
+        if ($filters['mode'] !== '') {
+            $where[] = 'c.dvr_control_mode = ?';
+            $params[] = $filters['mode'];
+        }
+
+        if ($filters['archive'] === 'on') {
+            $where[] = 'c.archive_enabled = 1';
+        } elseif ($filters['archive'] === 'off') {
+            $where[] = 'c.archive_enabled = 0';
+        }
+
+        if ($filters['sync'] === 'ok') {
+            $where[] = 'c.last_sync_ok = 1';
+        } elseif ($filters['sync'] === 'bad') {
+            $where[] = 'c.last_sync_ok = 0';
+        } elseif ($filters['sync'] === 'readonly') {
+            $where[] = '(' . DB::caseInsensitiveLike('c.last_sync_message') . ' OR ' . DB::caseInsensitiveLike('c.last_sync_message') . ' OR ' . DB::caseInsensitiveLike('c.last_sync_message') . ')';
+            array_push($params, '%read-only%', '%read_only%', '%readonly%');
+        } elseif ($filters['sync'] === 'empty') {
+            $where[] = '(c.last_sync_message IS NULL OR c.last_sync_message = \'\')';
+        }
+
+        if ($filters['group_id'] > 0) {
+            $join .= ' JOIN camera_groups cg_filter ON cg_filter.camera_id = c.id';
+            $groupIds = Repo::groupBranchIds([$filters['group_id']], true, true);
+            if (!$groupIds) {
+                $where[] = '1 = 0';
+            } else {
+                $where[] = 'cg_filter.group_id IN (' . self::sqlPlaceholders($groupIds) . ')';
+                array_push($params, ...$groupIds);
+            }
+        }
+
+        $sqlWhere = $where ? ' WHERE ' . implode(' AND ', $where) : '';
         $pdo = DB::pdo();
-        $count = $pdo->prepare('SELECT COUNT(*) FROM cameras c LEFT JOIN dvr_servers s ON s.id = c.server_id' . $where);
+        $count = $pdo->prepare('SELECT COUNT(DISTINCT c.id) FROM cameras c' . $join . $sqlWhere);
         $count->execute($params);
         $total = (int)$count->fetchColumn();
 
-        $stmt = $pdo->prepare('SELECT c.*, s.name AS server_name, s.base_url AS server_url FROM cameras c LEFT JOIN dvr_servers s ON s.id = c.server_id' . $where . ' ORDER BY c.name ASC LIMIT ? OFFSET ?');
+        $stmt = $pdo->prepare('SELECT DISTINCT c.*, s.name AS server_name, s.base_url AS server_url FROM cameras c' . $join . $sqlWhere . ' ORDER BY ' . self::cameraListOrderSql($filters['sort'], $filters['dir']) . ' LIMIT ? OFFSET ?');
         $bind = [...$params, $pageSize, ($page - 1) * $pageSize];
         foreach ($bind as $idx => $value) {
             $stmt->bindValue($idx + 1, $value, is_int($value) ? PDO::PARAM_INT : PDO::PARAM_STR);
         }
         $stmt->execute();
-        return ['rows' => $stmt->fetchAll(), 'total' => $total, 'page' => $page, 'pageSize' => $pageSize, 'q' => $q];
+        return [
+            'rows' => $stmt->fetchAll(),
+            'total' => $total,
+            'page' => $page,
+            'pageSize' => $pageSize,
+            ...$filters,
+        ];
+    }
+
+    private static function cameraListFilters(): array
+    {
+        $serverId = trim((string)($_GET['server_id'] ?? ''));
+        if ($serverId !== 'none' && (!ctype_digit($serverId) || (int)$serverId <= 0)) {
+            $serverId = '';
+        }
+
+        $mode = (string)($_GET['mode'] ?? '');
+        if (!in_array($mode, ['managed', 'edge_agent', 'read_only'], true)) {
+            $mode = '';
+        }
+
+        $archive = (string)($_GET['archive'] ?? '');
+        if (!in_array($archive, ['on', 'off'], true)) {
+            $archive = '';
+        }
+
+        $sync = (string)($_GET['sync'] ?? '');
+        if (!in_array($sync, ['ok', 'bad', 'readonly', 'empty'], true)) {
+            $sync = '';
+        }
+
+        $sort = (string)($_GET['sort'] ?? 'name');
+        if (!array_key_exists($sort, self::cameraListSortColumns())) {
+            $sort = 'name';
+        }
+
+        $dir = strtolower((string)($_GET['dir'] ?? 'asc')) === 'desc' ? 'desc' : 'asc';
+
+        return [
+            'q' => trim((string)($_GET['q'] ?? '')),
+            'page' => max(1, (int)($_GET['page'] ?? 1)),
+            'server_id' => $serverId,
+            'mode' => $mode,
+            'archive' => $archive,
+            'sync' => $sync,
+            'group_id' => max(0, (int)($_GET['group_id'] ?? 0)),
+            'sort' => $sort,
+            'dir' => $dir,
+        ];
+    }
+
+    private static function cameraListSortColumns(): array
+    {
+        return [
+            'name' => 'c.name',
+            'stream' => 'c.dvr_stream_name',
+            'server' => 'COALESCE(s.name, \'\')',
+            'mode' => 'c.dvr_control_mode',
+            'archive' => 'c.archive_enabled',
+            'retention' => 'c.retention_days',
+            'sync' => 'COALESCE(c.last_sync_ok, -1)',
+            'updated' => 'c.updated_at',
+            'created' => 'c.created_at',
+        ];
+    }
+
+    private static function cameraListOrderSql(string $sort, string $dir): string
+    {
+        $columns = self::cameraListSortColumns();
+        $column = $columns[$sort] ?? $columns['name'];
+        $direction = $dir === 'desc' ? 'DESC' : 'ASC';
+        $tieDirection = $sort === 'name' ? $direction : 'ASC';
+        return $column . ' ' . $direction . ', c.name ' . $tieDirection . ', c.id ASC';
+    }
+
+    private static function sqlPlaceholders(array $values): string
+    {
+        return implode(', ', array_fill(0, count($values), '?'));
     }
 
     private static function filteredAudit(int $pageSize = 50): array
@@ -7572,10 +7750,14 @@ final class App
     {
         echo '<section class="panel"><div class="section-head"><h2>' . Util::h($title) . '</h2>';
         if ($showSearch) {
-            echo '<form method="get" action="' . Util::h($base) . '" class="table-search">';
-            echo '<input name="q" value="' . Util::h($pager['q'] ?? '') . '" placeholder="' . self::t('table.search', 'Поиск') . '">';
-            echo '<button>' . self::t('action.find', 'Найти') . '</button>';
-            echo '</form>';
+            if ($base === '/admin/cameras') {
+                self::cameraTableFilters($pager ?? []);
+            } else {
+                echo '<form method="get" action="' . Util::h($base) . '" class="table-search">';
+                echo '<input name="q" value="' . Util::h($pager['q'] ?? '') . '" placeholder="' . self::t('table.search', 'Поиск') . '">';
+                echo '<button>' . self::t('action.find', 'Найти') . '</button>';
+                echo '</form>';
+            }
         }
         $tableClass = 'data-table';
         if (str_starts_with($base, '/admin/')) {
@@ -7627,6 +7809,74 @@ final class App
             self::pager($base, $pager);
         }
         echo '</section>';
+    }
+
+    private static function cameraTableFilters(array $pager): void
+    {
+        $servers = Repo::all('dvr_servers', 'name ASC');
+        $groups = self::groupRowsWithDisplayLabels(Repo::all('portal_groups', 'name ASC'));
+        $sortOptions = [
+            'name' => self::columnLabel('name'),
+            'stream' => self::t('cameras.streamName', 'Техническое имя потока'),
+            'server' => self::columnLabel('server_name'),
+            'mode' => self::columnLabel('dvr_control_mode'),
+            'archive' => self::columnLabel('archive_enabled'),
+            'retention' => self::columnLabel('retention_days'),
+            'sync' => self::columnLabel('last_sync_message'),
+            'updated' => self::t('cameraFilter.updated', 'Обновлено'),
+            'created' => self::t('cameraFilter.created', 'Создано'),
+        ];
+
+        echo '<form method="get" action="/admin/cameras" class="table-search camera-admin-filters">';
+        echo '<input name="q" value="' . Util::h($pager['q'] ?? '') . '" placeholder="' . Util::h(self::t('filter.cameraSearchPlaceholder', 'Название камеры или потока')) . '">';
+        echo '<select name="server_id" aria-label="' . Util::h(self::t('cameras.server', 'Сервер')) . '">';
+        self::selectOption('', self::t('cameraFilter.allServers', 'Все серверы'), (string)($pager['server_id'] ?? ''));
+        self::selectOption('none', self::t('common.noServer', 'Нет сервера'), (string)($pager['server_id'] ?? ''));
+        foreach ($servers as $server) {
+            self::selectOption((string)$server['id'], (string)$server['name'], (string)($pager['server_id'] ?? ''));
+        }
+        echo '</select>';
+        echo '<select name="mode" aria-label="' . Util::h(self::t('cameras.mode', 'Режим камеры')) . '">';
+        self::selectOption('', self::t('cameraFilter.allModes', 'Все режимы'), (string)($pager['mode'] ?? ''));
+        self::selectOption('managed', self::t('cameras.modeManaged', 'Полное управление на DVR'), (string)($pager['mode'] ?? ''));
+        self::selectOption('edge_agent', self::t('cameras.modeEdgeAgent', 'Edge Agent push stream'), (string)($pager['mode'] ?? ''));
+        self::selectOption('read_only', self::t('cameras.modeReadOnly', 'Read-only поток с DVR'), (string)($pager['mode'] ?? ''));
+        echo '</select>';
+        echo '<select name="archive" aria-label="' . Util::h(self::t('cameras.archiveEnabled', 'Пишет архив')) . '">';
+        self::selectOption('', self::t('cameraFilter.allArchive', 'Архив: все'), (string)($pager['archive'] ?? ''));
+        self::selectOption('on', self::t('cameraFilter.archiveOn', 'Архив включён'), (string)($pager['archive'] ?? ''));
+        self::selectOption('off', self::t('cameraFilter.archiveOff', 'Архив выключен'), (string)($pager['archive'] ?? ''));
+        echo '</select>';
+        echo '<select name="sync" aria-label="' . Util::h(self::columnLabel('last_sync_message')) . '">';
+        self::selectOption('', self::t('cameraFilter.allSync', 'Синхронизация: все'), (string)($pager['sync'] ?? ''));
+        self::selectOption('ok', self::t('cameraFilter.syncOk', 'Синхронизация ok'), (string)($pager['sync'] ?? ''));
+        self::selectOption('bad', self::t('cameraFilter.syncBad', 'Синхронизация с ошибкой'), (string)($pager['sync'] ?? ''));
+        self::selectOption('readonly', self::t('cameraFilter.syncReadonly', 'Read-only'), (string)($pager['sync'] ?? ''));
+        self::selectOption('empty', self::t('cameraFilter.syncEmpty', 'Без результата'), (string)($pager['sync'] ?? ''));
+        echo '</select>';
+        echo '<select name="group_id" aria-label="' . Util::h(self::t('groups.title', 'Группы')) . '">';
+        self::selectOption('0', self::t('cameraFilter.allGroups', 'Все группы'), (string)(int)($pager['group_id'] ?? 0));
+        foreach ($groups as $group) {
+            self::selectOption((string)$group['id'], (string)($group['display_name'] ?? $group['name']), (string)(int)($pager['group_id'] ?? 0));
+        }
+        echo '</select>';
+        echo '<select name="sort" aria-label="' . Util::h(self::t('cameraFilter.sort', 'Сортировка')) . '">';
+        foreach ($sortOptions as $value => $label) {
+            self::selectOption($value, self::t('cameraFilter.sortBy', 'Сортировка') . ': ' . $label, (string)($pager['sort'] ?? 'name'));
+        }
+        echo '</select>';
+        echo '<select name="dir" aria-label="' . Util::h(self::t('cameraFilter.direction', 'Направление сортировки')) . '">';
+        self::selectOption('asc', self::t('cameraFilter.asc', 'По возрастанию'), (string)($pager['dir'] ?? 'asc'));
+        self::selectOption('desc', self::t('cameraFilter.desc', 'По убыванию'), (string)($pager['dir'] ?? 'asc'));
+        echo '</select>';
+        echo '<button>' . self::t('action.find', 'Найти') . '</button>';
+        echo '<a class="camera-filter-reset" href="/admin/cameras">' . self::t('cameraFilter.reset', 'Сбросить') . '</a>';
+        echo '</form>';
+    }
+
+    private static function selectOption(string $value, string $label, string $selected): void
+    {
+        echo '<option value="' . Util::h($value) . '"' . ($selected === $value ? ' selected' : '') . '>' . Util::h($label) . '</option>';
     }
 
     private static function columnLabel(string $column): string
@@ -7799,11 +8049,12 @@ final class App
         }
 
         $pageHref = static function (int $page) use ($base, $pager, $extraParams): string {
-            $query = http_build_query(array_filter([
-                'q' => $pager['q'] ?? '',
-                'page' => $page,
-                ...$extraParams,
-            ], fn($value) => $value !== '' && $value !== null && $value !== 0));
+            $queryParams = self::pagerQueryParams($pager);
+            $queryParams['page'] = $page;
+            foreach ($extraParams as $key => $value) {
+                $queryParams[$key] = $value;
+            }
+            $query = http_build_query(array_filter($queryParams, fn($value) => $value !== '' && $value !== null && $value !== 0));
             return $base . ($query ? '?' . $query : '');
         };
         $visible = [1, $pages];
@@ -7837,10 +8088,7 @@ final class App
     {
         $query = [];
         if ($pager) {
-            $q = trim((string)($pager['q'] ?? ''));
-            if ($q !== '') {
-                $query['q'] = $q;
-            }
+            $query = self::pagerQueryParams($pager);
             $page = (int)($pager['page'] ?? 1);
             if ($page > 1) {
                 $query['page'] = $page;
@@ -7856,6 +8104,33 @@ final class App
 
         $encoded = http_build_query($query);
         return $base . ($encoded !== '' ? '?' . $encoded : '');
+    }
+
+    private static function pagerQueryParams(array $pager): array
+    {
+        $query = [];
+        foreach (['q', 'server_id', 'mode', 'archive', 'sync'] as $key) {
+            $value = trim((string)($pager[$key] ?? ''));
+            if ($value !== '') {
+                $query[$key] = $value;
+            }
+        }
+
+        $groupId = (int)($pager['group_id'] ?? 0);
+        if ($groupId > 0) {
+            $query['group_id'] = $groupId;
+        }
+
+        $sort = trim((string)($pager['sort'] ?? ''));
+        $dir = strtolower(trim((string)($pager['dir'] ?? 'asc')));
+        if ($sort !== '' && ($sort !== 'name' || $dir === 'desc')) {
+            $query['sort'] = $sort;
+        }
+        if ($dir === 'desc') {
+            $query['dir'] = 'desc';
+        }
+
+        return $query;
     }
 
     private static function iconActionLink(string $href, string $label, string $icon, string $class = ''): void

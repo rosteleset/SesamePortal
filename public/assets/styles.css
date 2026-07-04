@@ -649,9 +649,34 @@ legend {
   flex-wrap: wrap;
 }
 .table-search input,
+.table-search select,
 .audit-filters input,
 .audit-filters select {
   width: min(280px, 100%);
+}
+.camera-admin-filters {
+  max-width: min(100%, 1080px);
+  justify-content: flex-end;
+}
+.camera-admin-filters input {
+  width: min(260px, 100%);
+}
+.camera-admin-filters select {
+  width: auto;
+  max-width: 220px;
+}
+.camera-filter-reset {
+  min-height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: 9px;
+  background: #fff;
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 800;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 .table-wrap {
   width: 100%;

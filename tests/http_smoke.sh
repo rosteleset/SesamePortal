@@ -430,6 +430,15 @@ admin_cameras="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/admin/camera
 printf "%s" "$admin_cameras" | grep -q "read_only"
 printf "%s" "$admin_cameras" | grep -q "Read-only режим"
 printf "%s" "$admin_cameras" | grep -q "sync-result-dot-readonly"
+printf "%s" "$admin_cameras" | grep -F -q 'class="table-search camera-admin-filters"'
+printf "%s" "$admin_cameras" | grep -F -q 'name="server_id"'
+printf "%s" "$admin_cameras" | grep -F -q 'name="mode"'
+printf "%s" "$admin_cameras" | grep -F -q 'name="archive"'
+printf "%s" "$admin_cameras" | grep -F -q 'name="sync"'
+printf "%s" "$admin_cameras" | grep -F -q 'name="group_id"'
+printf "%s" "$admin_cameras" | grep -F -q 'name="sort"'
+printf "%s" "$admin_cameras" | grep -F -q 'name="dir"'
+printf "%s" "$admin_cameras" | grep -F -q 'href="/admin/cameras">Сбросить</a>'
 printf "%s" "$admin_cameras" | grep -q "table-result"
 ! printf "%s" "$admin_cameras" | grep -q "technical-result"
 printf "%s" "$admin_cameras" | grep -q "table-cameras"
@@ -439,10 +448,26 @@ printf "%s" "$admin_cameras" | grep -F -q 'aria-label="Синхронизиро�
 printf "%s" "$admin_cameras" | grep -F -q 'aria-label="Удалить"'
 ! printf "%s" "$admin_cameras" | grep -F -q '>Синхронизировать</button>'
 ! printf "%s" "$admin_cameras" | grep -q 'class="crumb"'
+admin_cameras_filtered="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/admin/cameras?mode=read_only&archive=on&sync=readonly&server_id=1&sort=server&dir=desc")"
+printf "%s" "$admin_cameras_filtered" | grep -q "Read Only Cam"
+printf "%s" "$admin_cameras_filtered" | grep -F -q '<option value="read_only" selected>'
+printf "%s" "$admin_cameras_filtered" | grep -F -q '<option value="on" selected>'
+printf "%s" "$admin_cameras_filtered" | grep -F -q '<option value="readonly" selected>'
+printf "%s" "$admin_cameras_filtered" | grep -F -q '<option value="server" selected>'
+printf "%s" "$admin_cameras_filtered" | grep -F -q '<option value="desc" selected>'
+admin_cameras_group_filter="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/admin/cameras?group_id=1")"
+printf "%s" "$admin_cameras_group_filter" | grep -q "Smoke Cam"
+printf "%s" "$admin_cameras_group_filter" | grep -q "Read Only Cam"
+! printf "%s" "$admin_cameras_group_filter" | grep -q "Smoke Extra 01"
+admin_cameras_sorted="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/admin/cameras?q=Smoke%20Extra&sort=name&dir=desc")"
+printf "%s" "$admin_cameras_sorted" | php -r '$html = stream_get_contents(STDIN); $first = strpos($html, "Smoke Extra 30"); $next = strpos($html, "Smoke Extra 29"); exit($first !== false && $next !== false && $first < $next ? 0 : 1);'
 admin_cameras_paged="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/admin/cameras?q=smoke&page=2")"
 printf "%s" "$admin_cameras_paged" | grep -F -q 'href="/admin/cameras?q=smoke&amp;page=2&amp;edit='
 printf "%s" "$admin_cameras_paged" | grep -F -q 'href="/admin/cameras?q=smoke&amp;page=2&amp;delete='
 printf "%s" "$admin_cameras_paged" | grep -F -q 'action="/admin/cameras?q=smoke&amp;page=2"'
+admin_cameras_filtered_paged="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/admin/cameras?q=smoke&server_id=1&mode=managed&archive=on&sort=stream&dir=desc&page=2")"
+printf "%s" "$admin_cameras_filtered_paged" | grep -F -q 'href="/admin/cameras?q=smoke&amp;server_id=1&amp;mode=managed&amp;archive=on&amp;sort=stream&amp;dir=desc&amp;page=2&amp;edit='
+printf "%s" "$admin_cameras_filtered_paged" | grep -F -q 'action="/admin/cameras?q=smoke&amp;server_id=1&amp;mode=managed&amp;archive=on&amp;sort=stream&amp;dir=desc&amp;page=2"'
 admin_cameras_paged_form="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/admin/cameras?q=smoke&page=2&edit=1")"
 printf "%s" "$admin_cameras_paged_form" | grep -F -q 'href="/admin/cameras?q=smoke&amp;page=2">Новая камера</a>'
 printf "%s" "$admin_cameras_paged_form" | grep -q 'value="smoke"'
