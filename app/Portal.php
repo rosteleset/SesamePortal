@@ -2121,6 +2121,188 @@ final class I18n
         }
 
         foreach ([
+            'ru' => [
+                'Группа уже удалена или не найдена',
+                'Подтвердите удаление группы',
+                'Группа удалена',
+                'Удалить группу',
+                'Это действие нельзя отменить.',
+                'Удаление группы отвяжет её от пользователей и камер. Дочерние группы будут перенесены на верхний уровень.',
+                'Пользователей',
+                'Камер',
+                'Дочерних групп',
+                'Подтверждаю удаление группы из портала',
+            ],
+            'en' => [
+                'Group is already deleted or missing',
+                'Confirm group deletion',
+                'Group deleted',
+                'Delete group',
+                'This action cannot be undone.',
+                'Deleting the group will unlink it from users and cameras. Child groups will be moved to the top level.',
+                'Users',
+                'Cameras',
+                'Child groups',
+                'I confirm group deletion from the portal',
+            ],
+            'de' => [
+                'Gruppe ist bereits gelöscht oder fehlt',
+                'Löschen der Gruppe bestätigen',
+                'Gruppe gelöscht',
+                'Gruppe löschen',
+                'Diese Aktion kann nicht rückgängig gemacht werden.',
+                'Beim Löschen der Gruppe wird sie von Benutzern und Kameras getrennt. Untergruppen werden auf die oberste Ebene verschoben.',
+                'Benutzer',
+                'Kameras',
+                'Untergruppen',
+                'Ich bestätige das Löschen der Gruppe aus dem Portal',
+            ],
+            'fr' => [
+                'Le groupe est déjà supprimé ou introuvable',
+                'Confirmez la suppression du groupe',
+                'Groupe supprimé',
+                'Supprimer le groupe',
+                'Cette action est irréversible.',
+                'La suppression du groupe le détachera des utilisateurs et des caméras. Les sous-groupes seront déplacés au niveau racine.',
+                'Utilisateurs',
+                'Caméras',
+                'Sous-groupes',
+                'Je confirme la suppression du groupe du portail',
+            ],
+            'es' => [
+                'El grupo ya está eliminado o no existe',
+                'Confirme la eliminación del grupo',
+                'Grupo eliminado',
+                'Eliminar grupo',
+                'Esta acción no se puede deshacer.',
+                'Al eliminar el grupo se desvinculará de usuarios y cámaras. Los subgrupos se moverán al nivel superior.',
+                'Usuarios',
+                'Cámaras',
+                'Subgrupos',
+                'Confirmo la eliminación del grupo del portal',
+            ],
+            'it' => [
+                'Il gruppo è già stato eliminato o non esiste',
+                'Conferma l’eliminazione del gruppo',
+                'Gruppo eliminato',
+                'Elimina gruppo',
+                'Questa azione non può essere annullata.',
+                'Eliminando il gruppo verrà rimosso il collegamento con utenti e telecamere. I sottogruppi saranno spostati al livello principale.',
+                'Utenti',
+                'Telecamere',
+                'Sottogruppi',
+                'Confermo l’eliminazione del gruppo dal portale',
+            ],
+            'pt' => [
+                'O grupo já foi eliminado ou não existe',
+                'Confirme a eliminação do grupo',
+                'Grupo eliminado',
+                'Eliminar grupo',
+                'Esta ação não pode ser anulada.',
+                'Ao eliminar o grupo, ele será desvinculado dos utilizadores e das câmaras. Os subgrupos serão movidos para o nível superior.',
+                'Utilizadores',
+                'Câmaras',
+                'Subgrupos',
+                'Confirmo a eliminação do grupo do portal',
+            ],
+            'bg' => [
+                'Групата вече е изтрита или не е намерена',
+                'Потвърдете изтриването на групата',
+                'Групата е изтрита',
+                'Изтриване на група',
+                'Това действие не може да бъде отменено.',
+                'Изтриването на групата ще я отвърже от потребителите и камерите. Подгрупите ще бъдат преместени на най-горно ниво.',
+                'Потребители',
+                'Камери',
+                'Подгрупи',
+                'Потвърждавам изтриването на групата от портала',
+            ],
+            'pl' => [
+                'Grupa została już usunięta albo nie istnieje',
+                'Potwierdź usunięcie grupy',
+                'Grupa usunięta',
+                'Usuń grupę',
+                'Tej operacji nie można cofnąć.',
+                'Usunięcie grupy odłączy ją od użytkowników i kamer. Podgrupy zostaną przeniesione na poziom główny.',
+                'Użytkownicy',
+                'Kamery',
+                'Podgrupy',
+                'Potwierdzam usunięcie grupy z portalu',
+            ],
+            'zh' => [
+                '组已删除或不存在',
+                '确认删除组',
+                '组已删除',
+                '删除组',
+                '此操作无法撤销。',
+                '删除组会取消其与用户和摄像机的关联。子组将移动到顶层。',
+                '用户',
+                '摄像机',
+                '子组',
+                '我确认从门户删除此组',
+            ],
+            'ja' => [
+                'グループはすでに削除されているか見つかりません',
+                'グループ削除を確認してください',
+                'グループを削除しました',
+                'グループを削除',
+                'この操作は元に戻せません。',
+                'グループを削除すると、ユーザーとカメラとの関連付けが解除されます。子グループは最上位に移動されます。',
+                'ユーザー',
+                'カメラ',
+                '子グループ',
+                'ポータルからグループを削除することを確認します',
+            ],
+            'ko' => [
+                '그룹이 이미 삭제되었거나 없습니다',
+                '그룹 삭제를 확인하세요',
+                '그룹이 삭제되었습니다',
+                '그룹 삭제',
+                '이 작업은 되돌릴 수 없습니다.',
+                '그룹을 삭제하면 사용자 및 카메라와의 연결이 해제됩니다. 하위 그룹은 최상위로 이동됩니다.',
+                '사용자',
+                '카메라',
+                '하위 그룹',
+                '포털에서 그룹 삭제를 확인합니다',
+            ],
+            'ar' => [
+                'المجموعة محذوفة بالفعل أو غير موجودة',
+                'أكّد حذف المجموعة',
+                'تم حذف المجموعة',
+                'حذف المجموعة',
+                'لا يمكن التراجع عن هذا الإجراء.',
+                'سيؤدي حذف المجموعة إلى فصلها عن المستخدمين والكاميرات. سيتم نقل المجموعات الفرعية إلى المستوى الأعلى.',
+                'المستخدمون',
+                'الكاميرات',
+                'المجموعات الفرعية',
+                'أؤكد حذف المجموعة من البوابة',
+            ],
+            'hy' => [
+                'Խումբն արդեն ջնջված է կամ չի գտնվել',
+                'Հաստատեք խմբի ջնջումը',
+                'Խումբը ջնջված է',
+                'Ջնջել խումբը',
+                'Այս գործողությունը հնարավոր չէ հետարկել։',
+                'Խմբի ջնջումը կհանի դրա կապերը օգտատերերի և տեսախցիկների հետ։ Ենթախմբերը կտեղափոխվեն վերին մակարդակ։',
+                'Օգտատերեր',
+                'Տեսախցիկներ',
+                'Ենթախմբեր',
+                'Հաստատում եմ խմբի ջնջումը պորտալից',
+            ],
+        ] as $locale => [$deleteMissing, $deleteConfirmRequired, $deleteDone, $deleteTitle, $deleteWarning, $deleteWarningText, $linkedUsers, $linkedCameras, $childGroups, $confirmDelete]) {
+            $messages[$locale]['groups.deleteMissing'] = $deleteMissing;
+            $messages[$locale]['groups.deleteConfirmRequired'] = $deleteConfirmRequired;
+            $messages[$locale]['groups.deleteDone'] = $deleteDone;
+            $messages[$locale]['groups.deleteTitle'] = $deleteTitle;
+            $messages[$locale]['groups.deleteWarning'] = $deleteWarning;
+            $messages[$locale]['groups.deleteWarningText'] = $deleteWarningText;
+            $messages[$locale]['groups.linkedUsers'] = $linkedUsers;
+            $messages[$locale]['groups.linkedCameras'] = $linkedCameras;
+            $messages[$locale]['groups.childGroups'] = $childGroups;
+            $messages[$locale]['groups.confirmDelete'] = $confirmDelete;
+        }
+
+        foreach ([
             'de' => ['Benutzer gespeichert', 'Benutzer wird gespeichert...'],
             'fr' => ['Utilisateur enregistré', 'Enregistrement de l’utilisateur...'],
             'es' => ['Usuario guardado', 'Guardando usuario...'],
@@ -5717,13 +5899,22 @@ final class App
                     Audit::log('group.save', $name . ' parent_group_id=' . ($parentId ?? 'none'));
                 }
             } elseif ($action === 'delete' && $id > 0) {
-                $pdo->prepare('UPDATE portal_groups SET parent_group_id = NULL WHERE parent_group_id = ?')->execute([$id]);
-                $pdo->prepare('DELETE FROM portal_groups WHERE id=?')->execute([$id]);
-                Audit::log('group.delete', 'group_id=' . $id);
+                $group = self::rowById('portal_groups', $id);
+                if (!$group) {
+                    $message = self::t('groups.deleteMissing', 'Группа уже удалена или не найдена');
+                } elseif (Util::checkbox('confirm_delete') !== 1) {
+                    $message = self::t('groups.deleteConfirmRequired', 'Подтвердите удаление группы');
+                } else {
+                    $pdo->prepare('UPDATE portal_groups SET parent_group_id = NULL WHERE parent_group_id = ?')->execute([$id]);
+                    $pdo->prepare('DELETE FROM portal_groups WHERE id=?')->execute([$id]);
+                    $message = self::t('groups.deleteDone', 'Группа удалена');
+                    Audit::log('group.delete', 'group_id=' . $id . ' name=' . (string)$group['name']);
+                }
             }
         }
 
         $edit = self::rowById('portal_groups', (int)($_GET['edit'] ?? 0));
+        $delete = self::groupDeleteCandidate((int)($_GET['delete'] ?? 0));
         $linkedUsers = $edit ? self::linkedIds('user_groups', 'group_id', (int)$edit['id'], 'user_id') : [];
         $linkedCameras = $edit ? self::linkedIds('camera_groups', 'group_id', (int)$edit['id'], 'camera_id') : [];
         $users = Repo::all('users', 'login ASC');
@@ -5732,8 +5923,11 @@ final class App
         $list = self::filteredRows('portal_groups', ['name', 'description'], 'name ASC');
         $groups = self::groupRowsWithDisplayLabels($list['rows'], $allGroups);
         $parentGroups = self::groupParentOptions($allGroups, $edit ? (int)$edit['id'] : 0);
-        self::layout(self::t('groups.title', 'Группы'), function () use ($edit, $users, $cameras, $linkedUsers, $linkedCameras, $groups, $parentGroups, $message, $list) {
+        self::layout(self::t('groups.title', 'Группы'), function () use ($edit, $delete, $users, $cameras, $linkedUsers, $linkedCameras, $groups, $parentGroups, $message, $list) {
             self::notice($message);
+            if ($delete) {
+                self::groupDeletePanel($delete);
+            }
             echo '<div class="admin-grid group-admin-grid"><section class="panel"><h2>' . ($edit ? self::t('groups.edit', 'Изменить группу') : self::t('groups.new', 'Новая группа')) . '</h2>';
             echo '<form method="post" class="form">' . Csrf::field();
             echo '<input type="hidden" name="action" value="save"><input type="hidden" name="id" value="' . Util::h($edit['id'] ?? 0) . '">';
@@ -5748,6 +5942,45 @@ final class App
             self::table(self::t('groups.title', 'Группы'), ['id', 'parent_group_name', 'name', 'blocked', 'description'], $groups, '/admin/groups', false, $list);
             echo '</div>';
         });
+    }
+
+    private static function groupDeleteCandidate(int $id): ?array
+    {
+        return $id > 0 ? self::rowById('portal_groups', $id) : null;
+    }
+
+    private static function groupDeletePanel(array $group): void
+    {
+        $id = (int)$group['id'];
+        $childCount = self::countRowsByColumn('portal_groups', 'parent_group_id', $id);
+        $userCount = self::countRowsByColumn('user_groups', 'group_id', $id);
+        $cameraCount = self::countRowsByColumn('camera_groups', 'group_id', $id);
+
+        echo '<section class="panel delete-confirm" role="dialog" aria-labelledby="group-delete-title">';
+        echo '<div class="section-head"><h2 id="group-delete-title">' . self::t('groups.deleteTitle', 'Удалить группу') . '</h2><a href="/admin/groups">' . self::t('action.cancel', 'Отмена') . '</a></div>';
+        echo '<div class="alert warn">';
+        echo '<strong>' . self::t('groups.deleteWarning', 'Это действие нельзя отменить.') . '</strong> ';
+        echo self::t('groups.deleteWarningText', 'Удаление группы отвяжет её от пользователей и камер. Дочерние группы будут перенесены на верхний уровень.');
+        echo '</div>';
+        echo '<dl class="delete-meta">';
+        echo '<dt>' . self::t('column.id', 'ID') . '</dt><dd>' . $id . '</dd>';
+        echo '<dt>' . self::t('column.name', 'Название') . '</dt><dd>' . Util::h($group['name']) . '</dd>';
+        echo '<dt>' . self::t('groups.linkedUsers', 'Пользователей') . '</dt><dd>' . $userCount . '</dd>';
+        echo '<dt>' . self::t('groups.linkedCameras', 'Камер') . '</dt><dd>' . $cameraCount . '</dd>';
+        echo '<dt>' . self::t('groups.childGroups', 'Дочерних групп') . '</dt><dd>' . $childCount . '</dd>';
+        echo '</dl>';
+        echo '<form method="post" action="/admin/groups" class="form">' . Csrf::field();
+        echo '<input type="hidden" name="action" value="delete"><input type="hidden" name="id" value="' . $id . '">';
+        echo '<label class="check"><input type="checkbox" name="confirm_delete" required> ' . self::t('groups.confirmDelete', 'Подтверждаю удаление группы из портала') . '</label>';
+        echo '<div class="form-actions"><button class="danger">' . self::t('action.delete', 'Удалить') . '</button><a href="/admin/groups">' . self::t('action.cancel', 'Отмена') . '</a></div>';
+        echo '</form></section>';
+    }
+
+    private static function countRowsByColumn(string $table, string $column, int $id): int
+    {
+        $stmt = DB::pdo()->prepare('SELECT COUNT(*) FROM ' . $table . ' WHERE ' . $column . ' = ?');
+        $stmt->execute([$id]);
+        return (int)$stmt->fetchColumn();
     }
 
     private static function servers(): void
@@ -7798,7 +8031,7 @@ final class App
             if ($actions && str_contains($base, 'cameras')) {
                 self::smallPost($actionUrl, ['action' => 'sync', 'id' => $row['id']], self::t('action.sync', 'Синхронизировать'), '', '', 'sync');
             }
-            if ($base === '/admin/cameras') {
+            if ($base === '/admin/cameras' || $base === '/admin/groups') {
                 self::iconActionLink(self::tableActionUrl($base, ['delete' => (int)$row['id']], $pager), self::t('action.delete', 'Удалить'), 'trash', 'danger');
             } else {
                 self::smallPost($actionUrl, ['action' => 'delete', 'id' => $row['id']], self::t('action.delete', 'Удалить'), 'danger', '', 'trash');

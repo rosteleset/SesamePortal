@@ -325,6 +325,12 @@ printf "%s" "$admin_groups" | grep -q "assignment-selected-only"
 printf "%s" "$admin_groups" | grep -q "Smoke Cam"
 printf "%s" "$admin_groups" | grep -F -q 'aria-label="Изменить"'
 printf "%s" "$admin_groups" | grep -F -q 'aria-label="Удалить"'
+printf "%s" "$admin_groups" | grep -F -q 'href="/admin/groups?delete=1"'
+admin_group_delete="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/admin/groups?delete=1")"
+printf "%s" "$admin_group_delete" | grep -q "Удалить группу"
+printf "%s" "$admin_group_delete" | grep -q "Smoke Group"
+printf "%s" "$admin_group_delete" | grep -q 'name="confirm_delete"'
+printf "%s" "$admin_group_delete" | grep -q "Дочерних групп"
 admin_groups_filtered="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/admin/groups?q=tEsT")"
 printf "%s" "$admin_groups_filtered" | grep -q "Test Group 1"
 printf "%s" "$admin_groups_filtered" | grep -q "Moscow"
