@@ -142,6 +142,8 @@ $pdo->prepare('INSERT INTO camera_groups(camera_id, group_id) VALUES(?, ?)')
 $pdo->prepare('INSERT INTO users(login, password_hash, role, blocked, static_token_hash, created_at) VALUES(?, ?, ?, ?, ?, ?)')
     ->execute(['plain-user', password_hash('user123', PASSWORD_DEFAULT), 'user', 0, password_hash('sp_smoke_user_token', PASSWORD_DEFAULT), $now]);
 $plainUserId = \SesamePortal\DB::lastInsertId('users');
+$pdo->prepare('UPDATE users SET hide_archive = 1 WHERE id = ?')
+    ->execute([$plainUserId]);
 $pdo->prepare('INSERT INTO user_groups(user_id, group_id) VALUES(?, ?)')
     ->execute([$plainUserId, 1]);
 \SesamePortal\DvrClient::syncCamera(2);
@@ -281,7 +283,9 @@ printf "%s" "$admin_users_page" | grep -F -q 'data-group-tree-clear-all'
 printf "%s" "$admin_users_page" | grep -F -q 'data-submit-progress="Сохраняем пользователя...'
 printf "%s" "$admin_users_page" | grep -F -q 'data-submit-status'
 printf "%s" "$admin_users_page" | grep -F -q 'name="admin_comment"'
+printf "%s" "$admin_users_page" | grep -F -q 'name="hide_archive"'
 printf "%s" "$admin_users_page" | grep -F -q '<th>Комментарий администратора</th>'
+printf "%s" "$admin_users_page" | grep -F -q '<th>Скрывать архив</th>'
 ! printf "%s" "$admin_users_page" | grep -F -q '>Удалить</button>'
 user_csrf="$(printf "%s" "$admin_users_page" | sed -n 's/.*name="csrf" value="\([^"]*\)".*/\1/p' | head -n 1)"
 test -n "$user_csrf"
@@ -301,6 +305,7 @@ printf "%s" "$admin_user_edit_page" | php -r '$html = stream_get_contents(STDIN)
 api_admin_user="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/api/portal/v1/users/1")"
 printf "%s" "$api_admin_user" | php -r '$d=json_decode(stream_get_contents(STDIN), true); $ids=$d["user"]["groupIds"] ?? []; sort($ids); exit($ids === [1, 2] ? 0 : 1);'
 printf "%s" "$api_admin_user" | grep -q '"adminComment": "admin-only smoke note"'
+printf "%s" "$api_admin_user" | grep -q '"hideArchive": false'
 api_me_no_admin_comment="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/api/portal/v1/me")"
 ! printf "%s" "$api_me_no_admin_comment" | grep -q '"adminComment"'
 api_duplicate_user_status="$(
@@ -989,12 +994,39 @@ allowed="$(
     "http://127.0.0.1:$PORT/api/sesamedvr/auth?token=NonAvailable&qs=$qs&name=smoke-cam"
 )"
 test "$allowed" = "200"
+plain_qs="$(php -r 'echo rawurlencode("token=sp_smoke_user_token");')"
+hidden_live="$(
+  curl -sS -o /dev/null -w '%{http_code}' \
+    "http://127.0.0.1:$PORT/api/sesamedvr/auth?token=NonAvailable&qs=$plain_qs&name=smoke-cam&proto=hls&dvr=false"
+)"
+test "$hidden_live" = "200"
+hidden_player="$(
+  curl -fsS \
+    "http://127.0.0.1:$PORT/api/sesamedvr/auth?token=NonAvailable&qs=$plain_qs&name=smoke-cam&proto=player&dvr=false"
+)"
+printf "%s" "$hidden_player" | grep -q '"allowed_dvr_ranges":\[\]'
+hidden_ranges="$(
+  curl -fsS \
+    "http://127.0.0.1:$PORT/api/sesamedvr/auth?token=NonAvailable&qs=$plain_qs&name=smoke-cam&proto=player&dvr=true"
+)"
+printf "%s" "$hidden_ranges" | grep -q '"allowed_dvr_ranges":\[\]'
+hidden_archive_hls="$(
+  curl -sS -o /dev/null -w '%{http_code}' \
+    "http://127.0.0.1:$PORT/api/sesamedvr/auth?token=NonAvailable&qs=$plain_qs&name=smoke-cam&proto=hls&dvr=true"
+)"
+test "$hidden_archive_hls" = "403"
 archive_uri="$(TOKEN="$TOKEN" php -r 'echo rawurlencode("/smoke-cam/archive-1700000000-60.mp4?token=" . getenv("TOKEN"));')"
 archive_allowed="$(
   curl -sS -o /dev/null -w '%{http_code}' -H 'X-Forwarded-For: 203.0.113.9' \
     "http://127.0.0.1:$PORT/api/sesamedvr/auth?uri=$archive_uri"
 )"
 test "$archive_allowed" = "200"
+hidden_archive_uri="$(php -r 'echo rawurlencode("/smoke-cam/archive-1700000000-60.mp4?token=sp_smoke_user_token");')"
+hidden_archive_allowed="$(
+  curl -sS -o /dev/null -w '%{http_code}' \
+    "http://127.0.0.1:$PORT/api/sesamedvr/auth?uri=$hidden_archive_uri"
+)"
+test "$hidden_archive_allowed" = "403"
 archive_audit_page="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/admin/audit?q=archive.download&action=archive.download&actor=1")"
 printf "%s" "$archive_audit_page" | grep -q "archive.download"
 printf "%s" "$archive_audit_page" | grep -q "camera_id=1"

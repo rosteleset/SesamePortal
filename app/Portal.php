@@ -142,6 +142,7 @@ final class DB
         }
 
         self::ensureColumn('users', 'admin_comment', 'TEXT');
+        self::ensureColumn('users', 'hide_archive', 'INTEGER NOT NULL DEFAULT 0');
         self::ensureColumn('portal_groups', 'parent_group_id', self::driver() === 'mysql' ? 'BIGINT NULL' : 'INTEGER');
         self::dropPortalGroupNameUniqueConstraint();
         self::ensureIndex('camera_groups', 'idx_camera_groups_group', 'group_id');
@@ -242,6 +243,7 @@ final class DB
                 daily_token_date TEXT,
                 static_token_hash TEXT,
                 admin_comment TEXT,
+                hide_archive INTEGER NOT NULL DEFAULT 0,
                 created_at TEXT NOT NULL,
                 last_login_at TEXT
             )',
@@ -342,6 +344,7 @@ final class DB
                 daily_token_date TEXT,
                 static_token_hash TEXT,
                 admin_comment TEXT,
+                hide_archive INTEGER NOT NULL DEFAULT 0,
                 created_at TEXT NOT NULL,
                 last_login_at TEXT
             )",
@@ -443,6 +446,7 @@ final class DB
                 daily_token_date VARCHAR(64),
                 static_token_hash VARCHAR(255),
                 admin_comment TEXT,
+                hide_archive INTEGER NOT NULL DEFAULT 0,
                 created_at VARCHAR(64) NOT NULL,
                 last_login_at VARCHAR(64)
             ){$suffix}",
@@ -2338,6 +2342,26 @@ final class I18n
         ] as $locale => $label) {
             $messages[$locale]['users.adminComment'] = $label;
             $messages[$locale]['column.admin_comment'] = $label;
+        }
+
+        foreach ([
+            'ru' => 'Скрывать архив',
+            'en' => 'Hide archive',
+            'de' => 'Archiv ausblenden',
+            'fr' => 'Masquer l’archive',
+            'es' => 'Ocultar archivo',
+            'it' => 'Nascondi archivio',
+            'pt' => 'Ocultar arquivo',
+            'bg' => 'Скриване на архива',
+            'pl' => 'Ukryj archiwum',
+            'zh' => '隐藏归档',
+            'ja' => 'アーカイブを非表示',
+            'ko' => '아카이브 숨기기',
+            'ar' => 'إخفاء الأرشيف',
+            'hy' => 'Թաքցնել արխիվը',
+        ] as $locale => $label) {
+            $messages[$locale]['users.hideArchive'] = $label;
+            $messages[$locale]['column.hide_archive'] = $label;
         }
 
         foreach ([
@@ -4464,6 +4488,10 @@ final class App
         $password = (string)($input['password'] ?? '');
         $role = ($input['role'] ?? ($current['role'] ?? 'user')) === 'admin' ? 'admin' : 'user';
         $blocked = self::apiBlockedValue($input, $current);
+        $hideArchive =
+            array_key_exists('hideArchive', $input) || array_key_exists('hide_archive', $input)
+                ? (self::apiBool($input['hideArchive'] ?? $input['hide_archive']) ? 1 : 0)
+                : (int)($current['hide_archive'] ?? 0);
         $adminComment = trim((string)($input['adminComment'] ?? $input['admin_comment'] ?? ($current['admin_comment'] ?? '')));
         if ($login === '') {
             self::apiError(422, 'validation_failed', 'login is required');
@@ -4498,15 +4526,15 @@ final class App
                         self::apiError(422, 'validation_failed', 'password must be at least 6 characters');
                         return;
                     }
-                    $pdo->prepare('UPDATE users SET login=?, password_hash=?, role=?, blocked=?, admin_comment=? WHERE id=?')
-                        ->execute([$login, password_hash($password, PASSWORD_DEFAULT), $role, $blocked, $adminComment, $id]);
+                    $pdo->prepare('UPDATE users SET login=?, password_hash=?, role=?, blocked=?, hide_archive=?, admin_comment=? WHERE id=?')
+                        ->execute([$login, password_hash($password, PASSWORD_DEFAULT), $role, $blocked, $hideArchive, $adminComment, $id]);
                 } else {
-                    $pdo->prepare('UPDATE users SET login=?, role=?, blocked=?, admin_comment=? WHERE id=?')
-                        ->execute([$login, $role, $blocked, $adminComment, $id]);
+                    $pdo->prepare('UPDATE users SET login=?, role=?, blocked=?, hide_archive=?, admin_comment=? WHERE id=?')
+                        ->execute([$login, $role, $blocked, $hideArchive, $adminComment, $id]);
                 }
             } else {
-                $pdo->prepare('INSERT INTO users(login, password_hash, role, blocked, admin_comment, daily_token, daily_token_date, created_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?)')
-                    ->execute([$login, password_hash($password, PASSWORD_DEFAULT), $role, $blocked, $adminComment, Util::randomToken(), TokenService::today(), Util::now()]);
+                $pdo->prepare('INSERT INTO users(login, password_hash, role, blocked, hide_archive, admin_comment, daily_token, daily_token_date, created_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)')
+                    ->execute([$login, password_hash($password, PASSWORD_DEFAULT), $role, $blocked, $hideArchive, $adminComment, Util::randomToken(), TokenService::today(), Util::now()]);
                 $id = DB::lastInsertId('users');
             }
             if ($groupIds !== null) {
@@ -4523,7 +4551,7 @@ final class App
             }
             throw $error;
         }
-        $after = self::rowById('users', $id) ?: ['login' => $login, 'role' => $role, 'blocked' => $blocked];
+        $after = self::rowById('users', $id) ?: ['login' => $login, 'role' => $role, 'blocked' => $blocked, 'hide_archive' => $hideArchive];
         $afterGroupIds = self::linkedIds('user_groups', 'user_id', $id, 'group_id');
         self::logUserSaveAudit($actor, $id, $current, $after, $beforeGroupIds, $afterGroupIds);
         self::apiJson(['user' => self::apiUserRow($after, true, true)], $current ? 200 : 201);
@@ -4565,6 +4593,7 @@ final class App
             'login=' . self::auditFieldTransition($before, $after, 'login'),
             'role=' . self::auditFieldTransition($before, $after, 'role'),
             'blocked=' . self::auditFieldTransition($before, $after, 'blocked', true),
+            'hide_archive=' . self::auditFieldTransition($before, $after, 'hide_archive', true),
             'groups=' . self::auditIdList($beforeGroupIds) . '->' . self::auditIdList($afterGroupIds),
             'ip=' . Audit::clientIp(),
         ]);
@@ -5329,6 +5358,7 @@ final class App
             'login' => (string)$user['login'],
             'role' => (string)$user['role'],
             'blocked' => (int)($user['blocked'] ?? 0) === 1,
+            'hideArchive' => (int)($user['hide_archive'] ?? 0) === 1,
             'hasStaticToken' => !empty($user['static_token_hash']),
             'createdAt' => $user['created_at'] ?? null,
             'lastLoginAt' => $user['last_login_at'] ?? null,
@@ -5793,6 +5823,7 @@ final class App
                 $password = (string)Util::post('password');
                 $role = Util::post('role') === 'admin' ? 'admin' : 'user';
                 $blocked = Util::checkbox('blocked');
+                $hideArchive = Util::checkbox('hide_archive');
                 $adminComment = trim((string)Util::post('admin_comment'));
                 $beforeUser = $id > 0 ? self::rowById('users', $id) : null;
                 $beforeGroupIds = $id > 0 ? self::linkedIds('user_groups', 'user_id', $id, 'group_id') : [];
@@ -5810,21 +5841,21 @@ final class App
                             if (strlen($password) < 6) {
                                 $message = self::t('users.passwordShort', 'Пароль должен быть не короче 6 символов');
                             } else {
-                                $pdo->prepare('UPDATE users SET login=?, password_hash=?, role=?, blocked=?, admin_comment=? WHERE id=?')
-                                    ->execute([$login, password_hash($password, PASSWORD_DEFAULT), $role, $blocked, $adminComment, $id]);
+                                $pdo->prepare('UPDATE users SET login=?, password_hash=?, role=?, blocked=?, hide_archive=?, admin_comment=? WHERE id=?')
+                                    ->execute([$login, password_hash($password, PASSWORD_DEFAULT), $role, $blocked, $hideArchive, $adminComment, $id]);
                             }
                         } else {
-                            $pdo->prepare('UPDATE users SET login=?, role=?, blocked=?, admin_comment=? WHERE id=?')
-                                ->execute([$login, $role, $blocked, $adminComment, $id]);
+                            $pdo->prepare('UPDATE users SET login=?, role=?, blocked=?, hide_archive=?, admin_comment=? WHERE id=?')
+                                ->execute([$login, $role, $blocked, $hideArchive, $adminComment, $id]);
                         }
                     } else {
-                        $pdo->prepare('INSERT INTO users(login, password_hash, role, blocked, admin_comment, daily_token, daily_token_date, created_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?)')
-                            ->execute([$login, password_hash($password, PASSWORD_DEFAULT), $role, $blocked, $adminComment, Util::randomToken(), TokenService::today(), Util::now()]);
+                        $pdo->prepare('INSERT INTO users(login, password_hash, role, blocked, hide_archive, admin_comment, daily_token, daily_token_date, created_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)')
+                            ->execute([$login, password_hash($password, PASSWORD_DEFAULT), $role, $blocked, $hideArchive, $adminComment, Util::randomToken(), TokenService::today(), Util::now()]);
                         $id = DB::lastInsertId('users');
                     }
                     if ($message === '') {
                         self::replaceLinks('user_groups', 'user_id', $id, 'group_id', $groupIds);
-                        $afterUser = self::rowById('users', $id) ?: ['login' => $login, 'role' => $role, 'blocked' => $blocked];
+                        $afterUser = self::rowById('users', $id) ?: ['login' => $login, 'role' => $role, 'blocked' => $blocked, 'hide_archive' => $hideArchive];
                         $afterGroupIds = self::linkedIds('user_groups', 'user_id', $id, 'group_id');
                         self::logUserSaveAudit(null, $id, $beforeUser, $afterUser, $beforeGroupIds, $afterGroupIds);
                         $message = self::t('users.saveDone', 'Пользователь сохранён');
@@ -5861,9 +5892,10 @@ final class App
             echo '<label>' . self::t('column.role', 'Роль') . '<select name="role"><option value="user">user</option><option value="admin" ' . (($edit['role'] ?? '') === 'admin' ? 'selected' : '') . '>admin</option></select></label>';
             echo '<label>' . self::t('users.adminComment', 'Комментарий администратора') . '<textarea name="admin_comment" rows="3">' . Util::h($edit['admin_comment'] ?? '') . '</textarea></label>';
             echo '<label class="check"><input type="checkbox" name="blocked" ' . (!empty($edit['blocked']) ? 'checked' : '') . '> ' . self::t('users.blocked', 'Заблокирован') . '</label>';
+            echo '<label class="check"><input type="checkbox" name="hide_archive" ' . (!empty($edit['hide_archive']) ? 'checked' : '') . '> ' . self::t('users.hideArchive', 'Скрывать архив') . '</label>';
             self::groupCheckboxTree(self::t('groups.title', 'Группы'), 'group_ids[]', $groups, $linkedGroups, 'group_ids_json');
             echo '<div class="form-submit-row"><button type="submit" class="primary" data-submit-button>' . self::t('action.save', 'Сохранить') . '</button><div class="submit-progress" data-submit-status hidden role="status" aria-live="polite">' . Util::h($savingLabel) . '</div></div></form></section>';
-            self::table(self::t('users.title', 'Пользователи'), ['login', 'role', 'admin_comment', 'blocked', 'static_token_hash', 'last_login_at'], $users, '/admin/users', false, $list);
+            self::table(self::t('users.title', 'Пользователи'), ['login', 'role', 'admin_comment', 'blocked', 'hide_archive', 'static_token_hash', 'last_login_at'], $users, '/admin/users', false, $list);
             echo '</div>';
         });
     }
@@ -7167,12 +7199,97 @@ final class App
             return;
         }
 
+        if (self::userArchiveHidden($user)) {
+            $restriction = self::authBackendArchiveRestriction();
+            if ($restriction === 'deny') {
+                http_response_code(403);
+                echo "archive_denied\n";
+                return;
+            }
+            if ($restriction === 'capability') {
+                self::authBackendCapabilityResponse(false);
+                return;
+            }
+        }
+
         $audit = self::authBackendAuditEvent($camera);
         if ($audit !== null) {
             Audit::logForUser((int)$user['id'], $audit['action'], $audit['details']);
         }
 
         echo "ok\n";
+    }
+
+    private static function userArchiveHidden(array $user): bool
+    {
+        return (int)($user['hide_archive'] ?? 0) === 1;
+    }
+
+    private static function authBackendArchiveRestriction(): string
+    {
+        $proto = strtolower(self::usableAuthValue($_GET['proto'] ?? ''));
+        $dvr = strtolower(self::usableAuthValue($_GET['dvr'] ?? ''));
+
+        foreach (self::authRequestTargets() as $target) {
+            if (self::authTargetIsArchiveMedia($target)) {
+                return 'deny';
+            }
+            if (self::authTargetIsArchiveMetadata($target)) {
+                return 'capability';
+            }
+        }
+
+        if ($proto === 'player') {
+            return 'capability';
+        }
+
+        if ($dvr === 'true' && in_array($proto, ['hls', 'failover'], true)) {
+            return 'deny';
+        }
+
+        return 'allow';
+    }
+
+    private static function authTargetIsArchiveMetadata(string $target): bool
+    {
+        $file = basename((string)(parse_url($target, PHP_URL_PATH) ?: ''));
+        return in_array($file, [
+            'playback_info.json',
+            'recording_status.json',
+            'timeline_ranges.json',
+            'motion_events.json',
+            'timelapse_segments.json',
+        ], true);
+    }
+
+    private static function authTargetIsArchiveMedia(string $target): bool
+    {
+        $path = '/' . ltrim((string)(parse_url($target, PHP_URL_PATH) ?: ''), '/');
+        $file = basename($path);
+        if (preg_match('/^archive-\d+-\d+\.mp4$/', $file)) {
+            return true;
+        }
+        if (preg_match('~/dvr(?:/|$)~', $path)) {
+            return true;
+        }
+        if (preg_match('/^(index|motion|timelapse)-.+\.m3u8$/', $file)) {
+            return true;
+        }
+        if (in_array($file, ['dvr.m3u8', 'motion_dvr.m3u8', 'timelapse_dvr.m3u8'], true)) {
+            return true;
+        }
+        return false;
+    }
+
+    private static function authBackendCapabilityResponse(bool $allowArchive): void
+    {
+        $payload = $allowArchive ? [] : ['allowed_dvr_ranges' => []];
+
+        header('Content-Type: application/json; charset=utf-8');
+        echo json_encode(
+            $payload,
+            JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES
+        ) . "\n";
     }
 
     private static function authBackendAuditEvent(array $camera): ?array
@@ -8138,6 +8255,13 @@ final class App
             $enabled = (int)$value === 1;
             $label = $enabled ? self::t('agents.yes', 'да') : self::t('agents.no', 'нет');
             echo '<td><span class="pill ' . ($enabled ? 'success' : 'danger') . '">' . Util::h($label) . '</span></td>';
+            return;
+        }
+
+        if ($column === 'hide_archive') {
+            $enabled = (int)$value === 1;
+            $label = $enabled ? self::t('agents.yes', 'да') : self::t('agents.no', 'нет');
+            echo '<td><span class="pill ' . ($enabled ? 'warn' : 'success') . '">' . Util::h($label) . '</span></td>';
             return;
         }
 

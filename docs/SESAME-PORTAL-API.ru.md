@@ -104,6 +104,7 @@ Cache-Control: no-store
     "login": "admin",
     "role": "admin",
     "blocked": false,
+    "hideArchive": false,
     "hasStaticToken": true,
     "groupIds": [1]
   }
@@ -153,6 +154,7 @@ Payload создания/обновления:
   "password": "secret123",
   "role": "user",
   "blocked": false,
+  "hideArchive": false,
   "adminComment": "видно только администраторам",
   "groupIds": [1, 2, 3]
 }
@@ -161,6 +163,9 @@ Payload создания/обновления:
 При обновлении пустой или отсутствующий `password` оставляет текущий пароль.
 `adminComment` сохраняет внутренний комментарий администратора и возвращается
 только из admin-only endpoints `/api/portal/v1/users`.
+`hideArchive=true` запрещает пользователю просмотр архива через SesameDVR
+auth-backend: live/playback остаются доступны, но archive metadata возвращается
+как отключённый архив, а прямой archive HLS/MP4 доступ запрещается.
 Если передан `groupIds`, Portal полностью заменяет список групп пользователя
 указанным массивом id. Если `groupIds` отсутствует, членство пользователя в
 группах не меняется.
@@ -624,7 +629,23 @@ Stream/camera можно передать одним из способов:
 | Условие | HTTP | Body |
 | --- | --- | --- |
 | Доступ разрешён | `200` | `ok\n` |
+| Доступ разрешён, но пользователю скрыт архив | `200` | JSON capability Flussonic с `allowed_dvr_ranges: []` |
+| Пользователю скрыт архив и запрошен прямой archive HLS/MP4 media/export | `403` | `archive_denied\n` |
 | Token пустой/неверный, stream пустой, камера недоступна | `403` | `denied\n` |
+
+Capability body для пользователя с `hideArchive=true`:
+
+```json
+{
+  "allowed_dvr_ranges": []
+}
+```
+
+SesameDVR использует этот ответ для `playback_info.json`,
+`recording_status.json`, `timeline_ranges.json`, `motion_events.json` и
+`timelapse_segments.json`: endpoints остаются `200`, но возвращают пустое
+состояние архива/таймлайна, чтобы embed player не показывал архив и доступный
+time-range.
 
 Если доступ разрешён и оригинальный URI соответствует
 `/<stream>/archive-<from>-<duration>.mp4`, Portal пишет в audit событие

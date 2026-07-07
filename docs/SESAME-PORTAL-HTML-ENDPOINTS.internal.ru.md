@@ -172,6 +172,10 @@ Endpoint специально не вшивает token в HTML надолго: 
 вызывает `/api/sesamedvr/auth` для URL вида
 `/<stream>/archive-<from>-<duration>.mp4`, а Portal пишет событие
 `archive.download` в audit после успешной проверки token и доступа.
+Если у пользователя включён флаг `hide_archive`, Portal разрешает player
+metadata-запросы JSON capability Flussonic `allowed_dvr_ranges=[]`, чтобы DVR
+вернул пустой архивный таймлайн, но запрещает прямой archive media/export
+доступ ответом `403 archive_denied`.
 
 ### POST /favorite/toggle
 
@@ -299,12 +303,13 @@ Actions:
 
 | `action` | Поля | Описание |
 | --- | --- | --- |
-| `save` | `id`, `login`, `password`, `role`, `blocked`, `admin_comment`, `group_ids_json` / `group_ids[]` | Создать или обновить пользователя. Для нового пользователя пароль должен быть не короче 6 символов. При редактировании пустой `password` означает "не менять". `role`: `admin` или `user`. `admin_comment` хранит комментарий, видимый только администраторам. `group_ids_json` полностью заменяет membership пользователя в группах; `group_ids[]` поддерживается как fallback. |
+| `save` | `id`, `login`, `password`, `role`, `blocked`, `hide_archive`, `admin_comment`, `group_ids_json` / `group_ids[]` | Создать или обновить пользователя. Для нового пользователя пароль должен быть не короче 6 символов. При редактировании пустой `password` означает "не менять". `role`: `admin` или `user`. `hide_archive` хранит настройку “Скрывать архив” и заставляет Auth Backend скрывать архивный таймлайн/metadata для пользователя. `admin_comment` хранит комментарий, видимый только администраторам. `group_ids_json` полностью заменяет membership пользователя в группах; `group_ids[]` поддерживается как fallback. |
 | `delete` | `id` | Удалить пользователя. |
 | `issue_static` | `id` | Выпустить static token. Если token уже был, действие заменяет его, старый token сразу перестаёт работать. Новый token показывается один раз в HTML notice. |
 | `revoke_static` | `id` | Отозвать static playback token. |
 
-`blocked` передаётся как checkbox: присутствует = `1`, отсутствует = `0`.
+`blocked` и `hide_archive` передаются как checkbox: присутствует = `1`,
+отсутствует = `0`.
 
 UI показывает кнопку `Выпустить статический токен`, если token отсутствует, и
 `Заменить статический токен`, если token уже есть. Замена требует browser confirm.
