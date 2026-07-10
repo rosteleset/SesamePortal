@@ -114,7 +114,7 @@ $pdo->prepare('INSERT INTO dvr_servers(name, base_url, management_token_enc, las
 $pdo->prepare('INSERT INTO dvr_servers(name, base_url, management_token_enc, last_check_result, created_at) VALUES(?, ?, ?, ?, ?)')
     ->execute(['No Token DVR', 'https://no-token.example.invalid', null, '', $now]);
 $pdo->prepare('INSERT INTO cameras(name, source_url, server_id, server_selection, retention_days, dvr_stream_name, latitude, longitude, direction_deg, created_at, updated_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
-    ->execute(['Smoke Cam', 'rtsp://example.invalid/smoke', 1, 'manual', '1d', 'smoke-cam', 25.2048, 55.2708, 90, $now, $now]);
+    ->execute(['Smoke Cam', 'rtsp://192.0.2.77/smoke', 1, 'manual', '1d', 'smoke-cam', 25.2048, 55.2708, 90, $now, $now]);
 $pdo->exec('UPDATE cameras SET watermark_enabled = 1 WHERE id = 1');
 $pdo->prepare('INSERT INTO cameras(name, source_url, server_id, server_selection, retention_days, dvr_control_mode, dvr_stream_name, created_at, updated_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)')
     ->execute(['Read Only Cam', '', 1, 'manual', '1d', 'read_only', 'readonly-cam', $now, $now]);
@@ -284,6 +284,8 @@ printf "%s" "$admin_users_page" | grep -F -q 'data-submit-progress="Сохран
 printf "%s" "$admin_users_page" | grep -F -q 'data-submit-status'
 printf "%s" "$admin_users_page" | grep -F -q 'name="admin_comment"'
 printf "%s" "$admin_users_page" | grep -F -q 'name="hide_archive"'
+printf "%s" "$admin_users_page" | grep -F -q 'name="group_id"'
+printf "%s" "$admin_users_page" | grep -q "Все группы"
 printf "%s" "$admin_users_page" | grep -F -q '<th>Комментарий администратора</th>'
 printf "%s" "$admin_users_page" | grep -F -q '<th>Скрывать архив</th>'
 ! printf "%s" "$admin_users_page" | grep -F -q '>Удалить</button>'
@@ -300,6 +302,16 @@ user_group_save="$(
 printf "%s" "$user_group_save" | grep -q "admin"
 printf "%s" "$user_group_save" | grep -q "Пользователь сохранён"
 printf "%s" "$user_group_save" | grep -q "admin-only smoke note"
+admin_users_group_filter="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/admin/users?group_id=1")"
+printf "%s" "$admin_users_group_filter" | grep -q "admin"
+printf "%s" "$admin_users_group_filter" | grep -q "plain-user"
+printf "%s" "$admin_users_group_filter" | grep -F -q '<option value="1" selected>'
+admin_users_subgroup_filter="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/admin/users?group_id=2")"
+printf "%s" "$admin_users_subgroup_filter" | grep -q "admin"
+! printf "%s" "$admin_users_subgroup_filter" | grep -q "plain-user"
+api_admin_users_group_filter="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/api/portal/v1/users?groupId=2&pageSize=100")"
+printf "%s" "$api_admin_users_group_filter" | grep -q '"login": "admin"'
+! printf "%s" "$api_admin_users_group_filter" | grep -q '"login": "plain-user"'
 admin_user_edit_page="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/admin/users?q=admin&edit=1")"
 printf "%s" "$admin_user_edit_page" | php -r '$html = stream_get_contents(STDIN); $selected = strpos($html, ">Smoke Group<"); $unselected = strpos($html, ">Moscow<"); exit($selected !== false && $unselected !== false && $selected < $unselected ? 0 : 1);'
 api_admin_user="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/api/portal/v1/users/1")"
@@ -549,6 +561,9 @@ printf "%s" "$unicode_search_page" | grep -q "Двор Камера"
 ! printf "%s" "$unicode_search_page" | grep -q "Smoke Extra 30"
 stream_search_page="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/?q=UNICODE-YARD-CAM")"
 printf "%s" "$stream_search_page" | grep -q "Двор Камера"
+ip_search_page="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/?q=192.0.2.77")"
+printf "%s" "$ip_search_page" | grep -q "Smoke Cam"
+! printf "%s" "$ip_search_page" | grep -q "Smoke Extra 30"
 cols_page="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/?cols=2&page=2")"
 printf "%s" "$cols_page" | grep -q "camera-grid cols-2"
 printf "%s" "$cols_page" | grep -q "Показано 5-8"
@@ -579,6 +594,9 @@ printf "%s" "$map_page" | grep -q "window.SESAME_CSRF"
 map_search_page="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/viewer/map?q=smoke%20cam")"
 printf "%s" "$map_search_page" | grep -q "Smoke Cam"
 ! printf "%s" "$map_search_page" | grep -q "Read Only Cam"
+map_ip_search_page="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/viewer/map?q=192.0.2.77")"
+printf "%s" "$map_ip_search_page" | grep -q "Smoke Cam"
+! printf "%s" "$map_ip_search_page" | grep -q "Двор Камера"
 map_unicode_search_page="$(
   curl -G -fsS -b "$COOKIE_JAR" \
     --data-urlencode "q=дВоР" \

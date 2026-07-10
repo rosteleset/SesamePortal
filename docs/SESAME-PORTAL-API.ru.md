@@ -133,13 +133,21 @@ Admin only.
 
 | Method | Endpoint | Описание |
 | --- | --- | --- |
-| `GET` | `/users` | Список пользователей. Query: `q`, `page`, `pageSize`. |
+| `GET` | `/users` | Список пользователей. Query: `q`, `groupId` / `groupID` / `group_id`, `page`, `pageSize`. |
 | `POST` | `/users` | Создать пользователя. |
 | `GET` | `/users/{id}` | Получить пользователя с `groupIds`. |
 | `PATCH`/`PUT` | `/users/{id}` | Обновить пользователя. |
 | `DELETE` | `/users/{id}` | Удалить пользователя. |
 | `POST` | `/users/{id}/static-token` | Выпустить static token. Token показывается один раз. Если token уже был, он заменяется. |
 | `DELETE` | `/users/{id}/static-token` | Отозвать static token. |
+
+Query для списка:
+
+| Параметр | Описание |
+| --- | --- |
+| `q` | Регистронезависимый поиск по `login`, `role` или `adminComment`. |
+| `groupId`, `groupID`, `group_id` | Фильтрация пользователей по группе. Включает пользователей выбранной группы и всех её подгрупп. |
+| `page`, `pageSize` | Пагинация. |
 
 Операции со static token пишутся в audit: первый выпуск -
 `user.static_token.issue`, замена существующего token -
@@ -383,7 +391,7 @@ Query для списка:
 | `filter` | `all`, `favorites`, `group:<id>`. Фильтр по группе включает её подгруппы и применяется также для admin. Для совместимости можно передать просто числовой id группы как `filter=<id>`. |
 | `groupIds` | CSV-список групп, например `groupIds=123,456,789`. Возвращает камеры, входящие хотя бы в одну из указанных групп или их подгрупп. Имеет приоритет над `groupId` и `filter`. |
 | `groupId`, `groupID`, `group_id` | Альтернатива `filter=group:<id>` для фильтрации камер по группе. Имеет приоритет над `filter`. |
-| `q` | Регистронезависимый поиск по названию камеры (`displayName`/`name`) или техническому имени потока `dvrStreamName`. |
+| `q` | Регистронезависимый поиск по названию камеры (`displayName`/`name`), техническому имени потока `dvrStreamName` или IP/URL источника. |
 | `page`, `pageSize` | Пагинация. |
 
 `id-or-name` ищется так:

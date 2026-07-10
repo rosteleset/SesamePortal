@@ -654,14 +654,17 @@ legend {
 .audit-filters select {
   width: min(280px, 100%);
 }
-.camera-admin-filters {
+.camera-admin-filters,
+.user-admin-filters {
   max-width: min(100%, 1080px);
   justify-content: flex-end;
 }
-.camera-admin-filters input {
+.camera-admin-filters input,
+.user-admin-filters input {
   width: min(260px, 100%);
 }
-.camera-admin-filters select {
+.camera-admin-filters select,
+.user-admin-filters select {
   width: auto;
   max-width: 220px;
 }

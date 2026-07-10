@@ -1021,7 +1021,7 @@ final class I18n
                 'viewer.refreshSeconds' => '%d сек.',
                 'filter.expandGroup' => 'Раскрыть группу %s',
                 'filter.collapseGroup' => 'Свернуть группу %s',
-                'filter.cameraSearchPlaceholder' => 'Название камеры или потока',
+                'filter.cameraSearchPlaceholder' => 'Название, поток или IP',
                 'filter.clearSearch' => 'Сбросить поиск',
                 'action.find' => 'Найти',
                 'js.streamUnavailable' => 'Поток недоступен',
@@ -1167,7 +1167,7 @@ final class I18n
                 'filter.noGroups' => 'No groups found',
                 'filter.expandGroup' => 'Expand group %s',
                 'filter.collapseGroup' => 'Collapse group %s',
-                'filter.cameraSearchPlaceholder' => 'Camera or stream name',
+                'filter.cameraSearchPlaceholder' => 'Camera, stream, or IP',
                 'filter.clearSearch' => 'Clear search',
                 'viewer.openPlayer' => 'Open player',
                 'viewer.columnsPerRow' => 'Cameras per row',
@@ -2033,18 +2033,18 @@ final class I18n
         ];
 
         foreach ([
-            'de' => 'Kamera- oder Streamname',
-            'fr' => 'Nom de caméra ou de flux',
-            'es' => 'Nombre de cámara o stream',
-            'it' => 'Nome camera o stream',
-            'pt' => 'Nome da câmera ou do stream',
-            'bg' => 'Име на камера или поток',
-            'pl' => 'Nazwa kamery lub strumienia',
-            'zh' => '摄像机或流名称',
-            'ja' => 'カメラ名またはストリーム名',
-            'ko' => '카메라 또는 스트림 이름',
-            'ar' => 'اسم الكاميرا أو البث',
-            'hy' => 'Տեսախցիկի կամ հոսքի անունը',
+            'de' => 'Kamera, Stream oder IP',
+            'fr' => 'Caméra, flux ou IP',
+            'es' => 'Cámara, stream o IP',
+            'it' => 'Camera, stream o IP',
+            'pt' => 'Câmera, stream ou IP',
+            'bg' => 'Камера, поток или IP',
+            'pl' => 'Kamera, strumień lub IP',
+            'zh' => '摄像机、流或 IP',
+            'ja' => 'カメラ、ストリーム、またはIP',
+            'ko' => '카메라, 스트림 또는 IP',
+            'ar' => 'الكاميرا أو البث أو IP',
+            'hy' => 'Տեսախցիկ, հոսք կամ IP',
         ] as $locale => $label) {
             $messages[$locale]['filter.cameraSearchPlaceholder'] = $label;
         }
@@ -3981,10 +3981,10 @@ final class Repo
 
         $query = trim($query);
         if ($query !== '') {
-            $where[] = '(' . DB::caseInsensitiveLike('c.name') . ' OR ' . DB::caseInsensitiveLike('c.dvr_stream_name') . ')';
+            $searchColumns = ['c.name', 'c.dvr_stream_name', 'c.source_url'];
+            $where[] = '(' . implode(' OR ', array_map([DB::class, 'caseInsensitiveLike'], $searchColumns)) . ')';
             $needle = '%' . $query . '%';
-            $whereParams[] = $needle;
-            $whereParams[] = $needle;
+            array_push($whereParams, ...array_fill(0, count($searchColumns), $needle));
         }
 
         return [$join, $where, [...$joinParams, ...$whereParams]];
@@ -4421,7 +4421,7 @@ final class App
 
         if (count($parts) === 1) {
             if ($method === 'GET') {
-                $list = self::filteredRows('users', ['login', 'role', 'admin_comment'], 'login ASC', self::apiPageSize());
+                $list = self::filteredUsers(self::apiPageSize());
                 self::apiJson([
                     'users' => array_map(static fn(array $row): array => self::apiUserRow($row, false, true), $list['rows']),
                     'pagination' => self::apiPagination($list),
@@ -5875,7 +5875,7 @@ final class App
         $edit = self::rowById('users', (int)($_GET['edit'] ?? 0));
         $linkedGroups = $edit ? self::linkedIds('user_groups', 'user_id', (int)$edit['id'], 'group_id') : [];
         $groups = self::groupRowsWithDisplayLabels(Repo::all('portal_groups', 'name ASC'));
-        $list = self::filteredRows('users', ['login', 'role', 'admin_comment'], 'login ASC');
+        $list = self::filteredUsers();
         $users = $list['rows'];
         self::layout(self::t('users.title', 'Пользователи'), function () use ($users, $edit, $groups, $linkedGroups, $message, $messageClass, $staticToken, $list) {
             self::notice($message, $messageClass);
@@ -7444,7 +7444,7 @@ final class App
         self::groupTreeFilter($groups, $filter, function (int $groupId) use ($url, $viewParams, $queryParam): string {
             return $url($viewParams(['filter' => 'group:' . $groupId, ...$queryParam]));
         });
-        echo '<input class="camera-search-input" name="q" value="' . Util::h($searchQuery) . '" placeholder="' . Util::h(self::t('filter.cameraSearchPlaceholder', 'Название камеры')) . '">';
+        echo '<input class="camera-search-input" name="q" value="' . Util::h($searchQuery) . '" placeholder="' . Util::h(self::t('filter.cameraSearchPlaceholder', 'Название, поток или IP')) . '">';
         echo '<a class="camera-search-clear" href="' . Util::h($clearHref) . '" title="' . Util::h(self::t('filter.clearSearch', 'Сбросить поиск')) . '" aria-label="' . Util::h(self::t('filter.clearSearch', 'Сбросить поиск')) . '">&times;<span class="sr-only">' . Util::h(self::t('filter.clearSearch', 'Сбросить поиск')) . '</span></a>';
         echo '<button class="group-filter-submit">' . self::t('action.find', 'Найти') . '</button>';
         if ($mode !== 'map') {
@@ -7998,6 +7998,62 @@ final class App
         ];
     }
 
+    private static function filteredUsers(int $pageSize = 25): array
+    {
+        $filters = self::userListFilters();
+        $page = $filters['page'];
+        $where = [];
+        $params = [];
+        $join = '';
+
+        if ($filters['q'] !== '') {
+            $columns = ['u.login', 'u.role', 'u.admin_comment'];
+            $where[] = '(' . implode(' OR ', array_map([DB::class, 'caseInsensitiveLike'], $columns)) . ')';
+            array_push($params, ...array_fill(0, count($columns), '%' . $filters['q'] . '%'));
+        }
+
+        if ($filters['group_id'] > 0) {
+            $join .= ' JOIN user_groups ug_filter ON ug_filter.user_id = u.id';
+            $groupIds = Repo::groupBranchIds([$filters['group_id']], true, true);
+            if (!$groupIds) {
+                $where[] = '1 = 0';
+            } else {
+                $where[] = 'ug_filter.group_id IN (' . self::sqlPlaceholders($groupIds) . ')';
+                array_push($params, ...$groupIds);
+            }
+        }
+
+        $sqlWhere = $where ? ' WHERE ' . implode(' AND ', $where) : '';
+        $pdo = DB::pdo();
+        $count = $pdo->prepare('SELECT COUNT(DISTINCT u.id) FROM users u' . $join . $sqlWhere);
+        $count->execute($params);
+        $total = (int)$count->fetchColumn();
+
+        $stmt = $pdo->prepare('SELECT DISTINCT u.* FROM users u' . $join . $sqlWhere . ' ORDER BY u.login ASC LIMIT ? OFFSET ?');
+        $bind = [...$params, $pageSize, ($page - 1) * $pageSize];
+        foreach ($bind as $idx => $value) {
+            $stmt->bindValue($idx + 1, $value, is_int($value) ? PDO::PARAM_INT : PDO::PARAM_STR);
+        }
+        $stmt->execute();
+
+        return [
+            'rows' => $stmt->fetchAll(),
+            'total' => $total,
+            'page' => $page,
+            'pageSize' => $pageSize,
+            ...$filters,
+        ];
+    }
+
+    private static function userListFilters(): array
+    {
+        return [
+            'q' => trim((string)($_GET['q'] ?? '')),
+            'page' => max(1, (int)($_GET['page'] ?? 1)),
+            'group_id' => max(0, (int)($_GET['group_id'] ?? $_GET['groupId'] ?? $_GET['groupID'] ?? 0)),
+        ];
+    }
+
     private static function cameraListSortColumns(): array
     {
         return [
@@ -8117,6 +8173,8 @@ final class App
         if ($showSearch) {
             if ($base === '/admin/cameras') {
                 self::cameraTableFilters($pager ?? []);
+            } elseif ($base === '/admin/users') {
+                self::userTableFilters($pager ?? []);
             } else {
                 echo '<form method="get" action="' . Util::h($base) . '" class="table-search">';
                 echo '<input name="q" value="' . Util::h($pager['q'] ?? '') . '" placeholder="' . self::t('table.search', 'Поиск') . '">';
@@ -8193,7 +8251,7 @@ final class App
         ];
 
         echo '<form method="get" action="/admin/cameras" class="table-search camera-admin-filters">';
-        echo '<input name="q" value="' . Util::h($pager['q'] ?? '') . '" placeholder="' . Util::h(self::t('filter.cameraSearchPlaceholder', 'Название камеры или потока')) . '">';
+        echo '<input name="q" value="' . Util::h($pager['q'] ?? '') . '" placeholder="' . Util::h(self::t('filter.cameraSearchPlaceholder', 'Название, поток или IP')) . '">';
         echo '<select name="server_id" aria-label="' . Util::h(self::t('cameras.server', 'Сервер')) . '">';
         self::selectOption('', self::t('cameraFilter.allServers', 'Все серверы'), (string)($pager['server_id'] ?? ''));
         self::selectOption('none', self::t('common.noServer', 'Нет сервера'), (string)($pager['server_id'] ?? ''));
@@ -8236,6 +8294,23 @@ final class App
         echo '</select>';
         echo '<button>' . self::t('action.find', 'Найти') . '</button>';
         echo '<a class="camera-filter-reset" href="/admin/cameras">' . self::t('cameraFilter.reset', 'Сбросить') . '</a>';
+        echo '</form>';
+    }
+
+    private static function userTableFilters(array $pager): void
+    {
+        $groups = self::groupRowsWithDisplayLabels(Repo::all('portal_groups', 'name ASC'));
+
+        echo '<form method="get" action="/admin/users" class="table-search user-admin-filters">';
+        echo '<input name="q" value="' . Util::h($pager['q'] ?? '') . '" placeholder="' . self::t('table.search', 'Поиск') . '">';
+        echo '<select name="group_id" aria-label="' . Util::h(self::t('groups.title', 'Группы')) . '">';
+        self::selectOption('0', self::t('cameraFilter.allGroups', 'Все группы'), (string)(int)($pager['group_id'] ?? 0));
+        foreach ($groups as $group) {
+            self::selectOption((string)$group['id'], (string)($group['display_name'] ?? $group['name']), (string)(int)($pager['group_id'] ?? 0));
+        }
+        echo '</select>';
+        echo '<button>' . self::t('action.find', 'Найти') . '</button>';
+        echo '<a class="camera-filter-reset" href="/admin/users">' . self::t('cameraFilter.reset', 'Сбросить') . '</a>';
         echo '</form>';
     }
 
