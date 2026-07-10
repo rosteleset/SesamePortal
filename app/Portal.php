@@ -7102,7 +7102,15 @@ final class App
                 'back' => $settingsBack,
             ]);
         }
-        $embed = self::embedUrl($camera, (string)($user['daily_token'] ?? ''), $back, self::t('action.back', 'Назад'), $settingsUrl, self::t('settings.title', 'Настройки'));
+        $embed = self::embedUrl(
+            $camera,
+            (string)($user['daily_token'] ?? ''),
+            $back,
+            self::t('action.back', 'Назад'),
+            $settingsUrl,
+            self::t('settings.title', 'Настройки'),
+            !self::userArchiveHidden($user)
+        );
         $watermarkLogin = (int)($camera['watermark_enabled'] ?? 0) === 1 ? (string)$user['login'] : '';
         $watermarkAlpha = number_format(self::watermarkIntensity($camera['watermark_intensity'] ?? 16) / 100, 2, '.', '');
         self::layout(self::t('player.title', 'Плеер'), function () use ($embed, $watermarkLogin, $watermarkAlpha) {
@@ -8705,14 +8713,22 @@ final class App
         }
     }
 
-    private static function embedUrl(array $camera, string $token, string $back = '', string $backLabel = '', string $settings = '', string $settingsLabel = ''): string
+    private static function embedUrl(
+        array $camera,
+        string $token,
+        string $back = '',
+        string $backLabel = '',
+        string $settings = '',
+        string $settingsLabel = '',
+        bool $dvr = true
+    ): string
     {
         if (empty($camera['server_url'])) {
             return '#';
         }
 
         $query = [
-            'dvr' => 'true',
+            'dvr' => $dvr ? 'true' : 'false',
             'token' => $token,
         ];
         if ($back !== '') {
