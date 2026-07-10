@@ -4,13 +4,19 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 STATE_DIR="$(mktemp -d)"
 PORT="${SESAME_PORTAL_TEST_PORT:-18089}"
+DVR_PORT="${SESAME_PORTAL_TEST_DVR_PORT:-$((PORT + 1))}"
 COOKIE_JAR="$STATE_DIR/cookies.txt"
 SERVER_LOG="$STATE_DIR/server.log"
+DVR_SERVER_LOG="$STATE_DIR/dvr-server.log"
 
 cleanup() {
   if [[ -n "${SERVER_PID:-}" ]]; then
     kill "$SERVER_PID" 2>/dev/null || true
     wait "$SERVER_PID" 2>/dev/null || true
+  fi
+  if [[ -n "${DVR_SERVER_PID:-}" ]]; then
+    kill "$DVR_SERVER_PID" 2>/dev/null || true
+    wait "$DVR_SERVER_PID" 2>/dev/null || true
   fi
   rm -rf "$STATE_DIR"
 }
@@ -20,6 +26,7 @@ export SESAME_PORTAL_STATE_DIR="$STATE_DIR"
 export SESAME_PORTAL_SECRET="test-secret"
 export SESAME_PORTAL_UPDATE_AUTO_CHECK=0
 export ROOT
+export DVR_PORT
 
 OLD_UNIQUE_STATE="$STATE_DIR/old-unique"
 mkdir -p "$OLD_UNIQUE_STATE"
@@ -113,11 +120,15 @@ $pdo->prepare('INSERT INTO dvr_servers(name, base_url, management_token_enc, las
     ->execute(['Smoke DVR', 'https://dvr.example.invalid', $legacy, 'HTTP 200 {"version":{"sourceCommit":"abcdef1234567890"}}', $now, $metrics, $now]);
 $pdo->prepare('INSERT INTO dvr_servers(name, base_url, management_token_enc, last_check_result, created_at) VALUES(?, ?, ?, ?, ?)')
     ->execute(['No Token DVR', 'https://no-token.example.invalid', null, '', $now]);
+$pdo->prepare('INSERT INTO dvr_servers(name, base_url, management_token_enc, last_check_result, created_at) VALUES(?, ?, ?, ?, ?)')
+    ->execute(['Import DVR', 'http://127.0.0.1:' . getenv('DVR_PORT'), \SesamePortal\Crypto::encrypt('import-management-secret'), '', $now]);
 $pdo->prepare('INSERT INTO cameras(name, source_url, server_id, server_selection, retention_days, dvr_stream_name, latitude, longitude, direction_deg, created_at, updated_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
     ->execute(['Smoke Cam', 'rtsp://192.0.2.77/smoke', 1, 'manual', '1d', 'smoke-cam', 25.2048, 55.2708, 90, $now, $now]);
 $pdo->exec('UPDATE cameras SET watermark_enabled = 1 WHERE id = 1');
 $pdo->prepare('INSERT INTO cameras(name, source_url, server_id, server_selection, retention_days, dvr_control_mode, dvr_stream_name, created_at, updated_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)')
     ->execute(['Read Only Cam', '', 1, 'manual', '1d', 'read_only', 'readonly-cam', $now, $now]);
+$pdo->prepare('INSERT INTO cameras(name, source_url, server_id, server_selection, retention_days, dvr_control_mode, dvr_stream_name, created_at, updated_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)')
+    ->execute(['ZZ Already in Portal', '', 3, 'manual', '1d', 'read_only', 'already-portal', $now, $now]);
 $extraCamera = $pdo->prepare('INSERT INTO cameras(name, source_url, server_id, server_selection, retention_days, dvr_stream_name, created_at, updated_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?)');
 for ($i = 1; $i <= 30; $i++) {
     $extraCamera->execute([sprintf('Smoke Extra %02d', $i), 'rtsp://example.invalid/extra-' . $i, 1, 'manual', '1d', 'extra-cam-' . $i, $now, $now]);
@@ -172,6 +183,8 @@ PHP
 )"
 test "$crypto_check" = "crypto ok"
 
+php -S "127.0.0.1:$DVR_PORT" "$ROOT/tests/fake_dvr_router.php" >"$DVR_SERVER_LOG" 2>&1 &
+DVR_SERVER_PID="$!"
 php -S "127.0.0.1:$PORT" -t "$ROOT/public" >"$SERVER_LOG" 2>&1 &
 SERVER_PID="$!"
 sleep 0.4
@@ -391,6 +404,38 @@ printf "%s" "$admin_cameras_back_form" | grep -F -q 'href="/viewer/player?id=1&a
 admin_cameras_new_form="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/admin/cameras")"
 printf "%s" "$admin_cameras_new_form" | grep -F -q 'data-watermark-dependent hidden'
 printf "%s" "$admin_cameras_new_form" | grep -F -q '<option value="auto" selected>автоматический случайный</option>'
+printf "%s" "$admin_cameras_new_form" | grep -F -q 'href="/admin/cameras/import">Импорт с DVR</a>'
+admin_camera_import="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/admin/cameras/import?server_id=3")"
+printf "%s" "$admin_camera_import" | grep -q "Импорт потоков с DVR"
+printf "%s" "$admin_camera_import" | grep -F -q 'data-dvr-import-form'
+printf "%s" "$admin_camera_import" | grep -F -q 'name="stream_names[]" value="import-cam-1"'
+printf "%s" "$admin_camera_import" | grep -F -q 'name="stream_names[]" value="import-cam-2"'
+! printf "%s" "$admin_camera_import" | grep -F -q 'name="stream_names[]" value="already-portal"'
+printf "%s" "$admin_camera_import" | grep -q "Пропущено потоков с неподдерживаемым техническим именем: 1"
+printf "%s" "$admin_camera_import" | grep -F -q 'data-dvr-import-select-all'
+printf "%s" "$admin_camera_import" | grep -F -q 'data-dvr-import-clear-all'
+printf "%s" "$admin_camera_import" | grep -F -q 'name="group_ids[]"'
+camera_import_csrf="$(printf "%s" "$admin_camera_import" | sed -n 's/.*name="csrf" value="\([^"]*\)".*/\1/p' | head -n 1)"
+test -n "$camera_import_csrf"
+camera_import_result="$(
+  curl -fsS -b "$COOKIE_JAR" -c "$COOKIE_JAR" \
+    -d "csrf=$camera_import_csrf" -d "action=import" -d "server_id=3" \
+    -d "stream_names[]=import-cam-1" -d "stream_names[]=import-cam-2" \
+    -d "group_ids[]=1" \
+    "http://127.0.0.1:$PORT/admin/cameras/import?server_id=3"
+)"
+printf "%s" "$camera_import_result" | grep -F -q '<div class="alert">Добавлено потоков: 2</div>'
+printf "%s" "$camera_import_result" | grep -q "На выбранном DVR нет потоков, отсутствующих в Portal"
+imported_camera_check="$(
+  php <<'PHP'
+<?php
+require getenv('ROOT') . '/app/Portal.php';
+$rows = \SesamePortal\DB::pdo()->query("SELECT c.dvr_stream_name, c.name, c.dvr_control_mode, c.server_id, c.source_url, c.archive_enabled, c.retention_days, COUNT(cg.group_id) AS groups_count FROM cameras c LEFT JOIN camera_groups cg ON cg.camera_id = c.id WHERE c.dvr_stream_name IN ('import-cam-1', 'import-cam-2') GROUP BY c.id ORDER BY c.dvr_stream_name")->fetchAll();
+echo json_encode($rows, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+PHP
+)"
+printf "%s" "$imported_camera_check" | grep -F -q '"dvr_stream_name":"import-cam-1","name":"ZZ Imported Entrance","dvr_control_mode":"read_only","server_id":3,"source_url":"rtsp://example.invalid/import-1","archive_enabled":1,"retention_days":"14d","groups_count":1'
+printf "%s" "$imported_camera_check" | grep -F -q '"dvr_stream_name":"import-cam-2","name":"ZZ Imported Yard","dvr_control_mode":"read_only","server_id":3,"source_url":"push://import-cam-2","archive_enabled":0,"retention_days":"3d","groups_count":1'
 camera_csrf="$(printf "%s" "$admin_cameras_form" | sed -n 's/.*name="csrf" value="\([^"]*\)".*/\1/p' | head -n 1)"
 test -n "$camera_csrf"
 invalid_camera_form="$(

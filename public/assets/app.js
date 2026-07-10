@@ -10,6 +10,7 @@
   initDvrStreamOptions();
   initSubmitProgress();
   initAssignmentPickers();
+  initDvrStreamImport();
   initLocalTimes();
   initPlayerBackBridge();
 
@@ -542,6 +543,55 @@
         update();
       });
       rows.forEach((row) => row.querySelector('input[type="checkbox"]')?.addEventListener("change", update));
+      update();
+    });
+  }
+
+  function initDvrStreamImport(root = document) {
+    root.querySelectorAll("[data-dvr-import-form]").forEach((form) => {
+      if (form.dataset.dvrImportBound === "1") return;
+      form.dataset.dvrImportBound = "1";
+      const rows = Array.from(form.querySelectorAll("[data-dvr-import-row]"));
+      const search = form.querySelector("[data-dvr-import-search]");
+      const count = form.querySelector("[data-dvr-import-count]");
+      const submit = form.querySelector("[data-dvr-import-submit]");
+      const empty = form.querySelector("[data-dvr-import-filter-empty]");
+
+      const update = () => {
+        const query = String(search?.value || "").trim().toLocaleLowerCase();
+        let selected = 0;
+        let visible = 0;
+        rows.forEach((row) => {
+          const checkbox = row.querySelector('input[type="checkbox"]');
+          const haystack = String(row.dataset.search || row.textContent || "").toLocaleLowerCase();
+          const show = query === "" || haystack.includes(query);
+          row.hidden = !show;
+          if (show) visible += 1;
+          if (checkbox?.checked) selected += 1;
+        });
+        if (count) {
+          count.textContent = `${tr("selectedCount", "Выбрано")}: ${selected} / ${rows.length}`;
+        }
+        if (submit) submit.disabled = selected === 0;
+        if (empty) empty.hidden = visible > 0;
+      };
+
+      search?.addEventListener("input", update);
+      rows.forEach((row) => row.querySelector('input[type="checkbox"]')?.addEventListener("change", update));
+      form.querySelector("[data-dvr-import-select-all]")?.addEventListener("click", () => {
+        rows.forEach((row) => {
+          const checkbox = row.querySelector('input[type="checkbox"]');
+          if (checkbox) checkbox.checked = true;
+        });
+        update();
+      });
+      form.querySelector("[data-dvr-import-clear-all]")?.addEventListener("click", () => {
+        rows.forEach((row) => {
+          const checkbox = row.querySelector('input[type="checkbox"]');
+          if (checkbox) checkbox.checked = false;
+        });
+        update();
+      });
       update();
     });
   }

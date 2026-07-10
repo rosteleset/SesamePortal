@@ -2422,6 +2422,60 @@ final class I18n
             $messages[$locale]['cameraFilter.reset'] = $reset;
         }
 
+        foreach ([
+            'ru' => ['Импорт с DVR', 'Импорт потоков с DVR', 'Выберите сервер и добавьте отсутствующие потоки в Portal. Они будут импортированы в безопасном read-only режиме без изменения конфигурации DVR.', 'DVR-сервер', 'Показать потоки', 'Найти поток', 'Выберите DVR-сервер', 'Выберите хотя бы один поток', 'Не удалось загрузить потоки с DVR', 'На выбранном DVR нет потоков, отсутствующих в Portal', 'Пропущено потоков с неподдерживаемым техническим именем: %d', 'Импорт не меняет потоки на DVR. После импорта режим отдельной камеры можно изменить в её настройках.', 'Добавить выбранные потоки', 'Импортируем потоки...', 'Добавлено потоков: %d', 'Не удалось импортировать выбранные потоки'],
+            'en' => ['Import from DVR', 'Import DVR streams', 'Select a server and add streams that are not yet in Portal. They will be imported in safe read-only mode without changing the DVR configuration.', 'DVR server', 'Show streams', 'Find stream', 'Select a DVR server', 'Select at least one stream', 'Could not load streams from DVR', 'The selected DVR has no streams missing from Portal', 'Streams with unsupported technical names skipped: %d', 'Import does not change DVR streams. You can change an individual camera mode in its settings after import.', 'Add selected streams', 'Importing streams...', 'Streams added: %d', 'Could not import the selected streams'],
+            'de' => ['Vom DVR importieren', 'DVR-Streams importieren', 'Wählen Sie einen Server und fügen Sie Streams hinzu, die noch nicht im Portal vorhanden sind. Sie werden im sicheren Read-only-Modus importiert, ohne die DVR-Konfiguration zu ändern.', 'DVR-Server', 'Streams anzeigen', 'Stream suchen', 'DVR-Server auswählen', 'Wählen Sie mindestens einen Stream aus', 'Streams konnten nicht vom DVR geladen werden', 'Auf dem ausgewählten DVR fehlen keine Streams im Portal', 'Streams mit nicht unterstützten technischen Namen übersprungen: %d', 'Der Import ändert keine DVR-Streams. Der Modus einer einzelnen Kamera kann danach in den Einstellungen geändert werden.', 'Ausgewählte Streams hinzufügen', 'Streams werden importiert...', 'Hinzugefügte Streams: %d', 'Die ausgewählten Streams konnten nicht importiert werden'],
+            'fr' => ['Importer depuis le DVR', 'Importer des flux DVR', 'Sélectionnez un serveur et ajoutez les flux absents du Portal. Ils seront importés en mode lecture seule sans modifier la configuration du DVR.', 'Serveur DVR', 'Afficher les flux', 'Rechercher un flux', 'Sélectionnez un serveur DVR', 'Sélectionnez au moins un flux', 'Impossible de charger les flux du DVR', 'Aucun flux du DVR sélectionné ne manque dans le Portal', 'Flux ignorés en raison d’un nom technique non pris en charge : %d', 'L’import ne modifie pas les flux du DVR. Le mode de chaque caméra peut être modifié ensuite dans ses paramètres.', 'Ajouter les flux sélectionnés', 'Import des flux...', 'Flux ajoutés : %d', 'Impossible d’importer les flux sélectionnés'],
+            'es' => ['Importar desde DVR', 'Importar streams DVR', 'Seleccione un servidor y añada los streams que aún no están en el Portal. Se importarán en modo de solo lectura sin cambiar la configuración del DVR.', 'Servidor DVR', 'Mostrar streams', 'Buscar stream', 'Seleccione un servidor DVR', 'Seleccione al menos un stream', 'No se pudieron cargar los streams del DVR', 'El DVR seleccionado no tiene streams ausentes en el Portal', 'Streams omitidos por nombres técnicos no compatibles: %d', 'La importación no cambia los streams del DVR. Después puede cambiar el modo de cada cámara en sus ajustes.', 'Añadir streams seleccionados', 'Importando streams...', 'Streams añadidos: %d', 'No se pudieron importar los streams seleccionados'],
+            'it' => ['Importa da DVR', 'Importa flussi DVR', 'Seleziona un server e aggiungi i flussi non ancora presenti nel Portal. Verranno importati in modalità di sola lettura senza modificare la configurazione DVR.', 'Server DVR', 'Mostra flussi', 'Cerca flusso', 'Seleziona un server DVR', 'Seleziona almeno un flusso', 'Impossibile caricare i flussi dal DVR', 'Nel DVR selezionato non ci sono flussi mancanti nel Portal', 'Flussi ignorati per nomi tecnici non supportati: %d', 'L’importazione non modifica i flussi DVR. In seguito puoi cambiare la modalità di ogni telecamera nelle impostazioni.', 'Aggiungi flussi selezionati', 'Importazione flussi...', 'Flussi aggiunti: %d', 'Impossibile importare i flussi selezionati'],
+            'pt' => ['Importar do DVR', 'Importar streams do DVR', 'Selecione um servidor e adicione os streams que ainda não existem no Portal. Serão importados em modo só de leitura sem alterar a configuração do DVR.', 'Servidor DVR', 'Mostrar streams', 'Procurar stream', 'Selecione um servidor DVR', 'Selecione pelo menos um stream', 'Não foi possível carregar os streams do DVR', 'O DVR selecionado não tem streams ausentes no Portal', 'Streams ignorados por nomes técnicos não suportados: %d', 'A importação não altera os streams do DVR. Depois pode alterar o modo de cada câmara nas respetivas definições.', 'Adicionar streams selecionados', 'A importar streams...', 'Streams adicionados: %d', 'Não foi possível importar os streams selecionados'],
+            'bg' => ['Импорт от DVR', 'Импорт на потоци от DVR', 'Изберете сървър и добавете потоците, които още не са в Portal. Те ще бъдат импортирани в безопасен режим само за четене, без промяна на DVR конфигурацията.', 'DVR сървър', 'Покажи потоците', 'Търсене на поток', 'Изберете DVR сървър', 'Изберете поне един поток', 'Потоците не можаха да се заредят от DVR', 'Избраният DVR няма потоци, липсващи в Portal', 'Пропуснати потоци с неподдържани технически имена: %d', 'Импортът не променя DVR потоците. След това можете да смените режима на отделна камера в настройките ѝ.', 'Добави избраните потоци', 'Импортиране на потоци...', 'Добавени потоци: %d', 'Избраните потоци не можаха да бъдат импортирани'],
+            'pl' => ['Importuj z DVR', 'Import strumieni DVR', 'Wybierz serwer i dodaj strumienie, których nie ma jeszcze w Portalu. Zostaną zaimportowane w bezpiecznym trybie tylko do odczytu bez zmiany konfiguracji DVR.', 'Serwer DVR', 'Pokaż strumienie', 'Znajdź strumień', 'Wybierz serwer DVR', 'Wybierz co najmniej jeden strumień', 'Nie udało się pobrać strumieni z DVR', 'Wybrany DVR nie ma strumieni brakujących w Portalu', 'Pominięte strumienie z nieobsługiwanymi nazwami technicznymi: %d', 'Import nie zmienia strumieni DVR. Po imporcie można zmienić tryb pojedynczej kamery w jej ustawieniach.', 'Dodaj wybrane strumienie', 'Importowanie strumieni...', 'Dodane strumienie: %d', 'Nie udało się zaimportować wybranych strumieni'],
+            'zh' => ['从 DVR 导入', '导入 DVR 视频流', '选择服务器并添加 Portal 中尚不存在的视频流。导入将使用安全的只读模式，不会更改 DVR 配置。', 'DVR 服务器', '显示视频流', '搜索视频流', '选择 DVR 服务器', '请至少选择一个视频流', '无法从 DVR 加载视频流', '所选 DVR 中没有 Portal 尚未包含的视频流', '因技术名称不受支持而跳过的视频流：%d', '导入不会更改 DVR 视频流。导入后可在单个摄像机设置中更改其模式。', '添加所选视频流', '正在导入视频流...', '已添加视频流：%d', '无法导入所选视频流'],
+            'ja' => ['DVR からインポート', 'DVR ストリームをインポート', 'サーバーを選択し、Portal にまだ存在しないストリームを追加します。DVR の設定を変更せず、安全な読み取り専用モードでインポートされます。', 'DVR サーバー', 'ストリームを表示', 'ストリームを検索', 'DVR サーバーを選択', '少なくとも 1 つのストリームを選択してください', 'DVR からストリームを読み込めませんでした', '選択した DVR に Portal 未登録のストリームはありません', '未対応の技術名を持つためスキップしたストリーム：%d', 'インポートは DVR ストリームを変更しません。インポート後、各カメラの設定でモードを変更できます。', '選択したストリームを追加', 'ストリームをインポート中...', '追加したストリーム：%d', '選択したストリームをインポートできませんでした'],
+            'ko' => ['DVR에서 가져오기', 'DVR 스트림 가져오기', '서버를 선택하고 Portal에 아직 없는 스트림을 추가합니다. DVR 구성을 변경하지 않고 안전한 읽기 전용 모드로 가져옵니다.', 'DVR 서버', '스트림 표시', '스트림 검색', 'DVR 서버 선택', '스트림을 하나 이상 선택하세요', 'DVR에서 스트림을 불러올 수 없습니다', '선택한 DVR에 Portal에 없는 스트림이 없습니다', '지원되지 않는 기술 이름으로 건너뛴 스트림: %d', '가져오기는 DVR 스트림을 변경하지 않습니다. 가져온 뒤 각 카메라 설정에서 모드를 변경할 수 있습니다.', '선택한 스트림 추가', '스트림 가져오는 중...', '추가된 스트림: %d', '선택한 스트림을 가져올 수 없습니다'],
+            'ar' => ['استيراد من DVR', 'استيراد تدفقات DVR', 'اختر خادماً وأضف التدفقات غير الموجودة بعد في Portal. ستُستورد في وضع القراءة فقط الآمن من دون تغيير إعدادات DVR.', 'خادم DVR', 'عرض التدفقات', 'البحث عن تدفق', 'اختر خادم DVR', 'اختر تدفقاً واحداً على الأقل', 'تعذر تحميل التدفقات من DVR', 'لا توجد في DVR المحدد تدفقات مفقودة من Portal', 'تم تخطي تدفقات ذات أسماء تقنية غير مدعومة: %d', 'لا يغيّر الاستيراد تدفقات DVR. يمكن تغيير وضع كل كاميرا لاحقاً من إعداداتها.', 'إضافة التدفقات المحددة', 'جارٍ استيراد التدفقات...', 'تمت إضافة التدفقات: %d', 'تعذر استيراد التدفقات المحددة'],
+            'hy' => ['Ներմուծել DVR-ից', 'Ներմուծել DVR հոսքերը', 'Ընտրեք սերվերը և ավելացրեք Portal-ում դեռ չեղած հոսքերը։ Դրանք կներմուծվեն անվտանգ միայն կարդալու ռեժիմով՝ առանց DVR-ի կարգավորումները փոխելու։', 'DVR սերվեր', 'Ցույց տալ հոսքերը', 'Գտնել հոսք', 'Ընտրեք DVR սերվեր', 'Ընտրեք առնվազն մեկ հոսք', 'Չհաջողվեց բեռնել հոսքերը DVR-ից', 'Ընտրված DVR-ում Portal-ից բացակայող հոսքեր չկան', 'Չաջակցվող տեխնիկական անուններով բաց թողնված հոսքեր՝ %d', 'Ներմուծումը չի փոխում DVR հոսքերը։ Հետո յուրաքանչյուր տեսախցիկի ռեժիմը կարելի է փոխել դրա կարգավորումներում։', 'Ավելացնել ընտրված հոսքերը', 'Հոսքերի ներմուծում...', 'Ավելացված հոսքեր՝ %d', 'Չհաջողվեց ներմուծել ընտրված հոսքերը'],
+        ] as $locale => [$fromDvr, $title, $hint, $server, $load, $search, $chooseServer, $noSelection, $loadFailed, $empty, $invalid, $readOnlyHint, $action, $importing, $done, $failed]) {
+            $messages[$locale]['cameras.importFromDvr'] = $fromDvr;
+            $messages[$locale]['cameras.importTitle'] = $title;
+            $messages[$locale]['cameras.importHint'] = $hint;
+            $messages[$locale]['cameras.importServer'] = $server;
+            $messages[$locale]['cameras.loadStreams'] = $load;
+            $messages[$locale]['cameras.importSearch'] = $search;
+            $messages[$locale]['cameras.importChooseServer'] = $chooseServer;
+            $messages[$locale]['cameras.importNoSelection'] = $noSelection;
+            $messages[$locale]['cameras.importLoadFailed'] = $loadFailed;
+            $messages[$locale]['cameras.importEmpty'] = $empty;
+            $messages[$locale]['cameras.importSkippedInvalid'] = $invalid;
+            $messages[$locale]['cameras.importReadOnlyHint'] = $readOnlyHint;
+            $messages[$locale]['cameras.importAction'] = $action;
+            $messages[$locale]['cameras.importing'] = $importing;
+            $messages[$locale]['cameras.importDone'] = $done;
+            $messages[$locale]['cameras.importFailed'] = $failed;
+        }
+
+        foreach ([
+            'ru' => ['Включён', 'Выключен'],
+            'en' => ['Enabled', 'Disabled'],
+            'de' => ['Aktiviert', 'Deaktiviert'],
+            'fr' => ['Activé', 'Désactivé'],
+            'es' => ['Activado', 'Desactivado'],
+            'it' => ['Attivo', 'Disattivo'],
+            'pt' => ['Ativado', 'Desativado'],
+            'bg' => ['Включен', 'Изключен'],
+            'pl' => ['Włączony', 'Wyłączony'],
+            'zh' => ['已启用', '已禁用'],
+            'ja' => ['有効', '無効'],
+            'ko' => ['활성화', '비활성화'],
+            'ar' => ['مفعّل', 'معطّل'],
+            'hy' => ['Միացված', 'Անջատված'],
+        ] as $locale => [$enabled, $disabled]) {
+            $messages[$locale]['cameras.importEnabled'] = $enabled;
+            $messages[$locale]['cameras.importDisabled'] = $disabled;
+        }
+
         $messages['ru'] += [
             'nav.section.view' => 'Просмотр',
             'nav.section.admin' => 'Администрирование',
@@ -3293,6 +3347,11 @@ final class DvrClient
         return ['ok' => $ok, 'message' => $message, 'metrics' => $payload];
     }
 
+    public static function listStreams(int $serverId): array
+    {
+        return self::apiRequest($serverId, 'GET', '/api/streams', null, 20);
+    }
+
     public static function listAgents(int $serverId): array
     {
         return self::apiRequest($serverId, 'GET', '/api/agents');
@@ -4102,6 +4161,7 @@ final class App
             '/admin/agents/snapshot' => self::agentSnapshotProxy(),
             '/admin/agents' => self::agents(),
             '/admin/cameras' => self::cameras(),
+            '/admin/cameras/import' => self::cameraImport(),
             '/admin/audit' => self::audit(),
             '/admin/settings' => self::settings(),
             '/viewer/map' => self::viewer('map'),
@@ -6630,6 +6690,7 @@ final class App
             if ($edit) {
                 echo '<a class="btn" href="' . Util::h(self::tableActionUrl('/admin/cameras', [], $list)) . '">' . self::t('cameras.new', 'Новая камера') . '</a>';
             }
+            echo '<a class="btn" href="/admin/cameras/import">' . self::t('cameras.importFromDvr', 'Импорт с DVR') . '</a>';
             echo '</div>';
             echo '<form method="post" class="form">' . Csrf::field();
             echo '<input type="hidden" name="action" value="save"><input type="hidden" name="id" value="' . Util::h($edit['id'] ?? 0) . '">';
@@ -6695,6 +6756,300 @@ final class App
             self::table(self::t('cameras.title', 'Камеры'), ['name', 'server_name', 'dvr_control_mode', 'agent_id', 'agent_camera_id', 'retention_days', 'archive_enabled', 'last_sync_message'], $cameras, '/admin/cameras', true, $list);
             echo '</div>';
         });
+    }
+
+    private static function cameraImport(): void
+    {
+        Auth::requireAdmin();
+        $servers = Repo::all('dvr_servers', 'name ASC');
+        $selectedServerId = (int)(($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST'
+            ? Util::post('server_id', 0)
+            : ($_GET['server_id'] ?? 0));
+        $message = '';
+
+        if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST' && (string)Util::post('action') === 'import') {
+            $selectedNames = is_array($_POST['stream_names'] ?? null) ? $_POST['stream_names'] : [];
+            if ($selectedServerId <= 0) {
+                $message = self::t('cameras.importChooseServer', 'Выберите DVR-сервер');
+            } elseif ($selectedNames === []) {
+                $message = self::t('cameras.importNoSelection', 'Выберите хотя бы один поток');
+            } else {
+                $available = self::cameraImportAvailableStreams($selectedServerId);
+                if (!$available['ok']) {
+                    $message = self::t('cameras.importLoadFailed', 'Не удалось загрузить потоки с DVR');
+                } else {
+                    $result = self::cameraImportSelectedStreams(
+                        $selectedServerId,
+                        $selectedNames,
+                        $available['streams'],
+                        is_array($_POST['group_ids'] ?? null) ? $_POST['group_ids'] : []
+                    );
+                    $message = $result['message'];
+                }
+            }
+        }
+
+        $available = $selectedServerId > 0
+            ? self::cameraImportAvailableStreams($selectedServerId)
+            : ['ok' => true, 'streams' => [], 'invalidCount' => 0, 'message' => ''];
+        $groups = self::groupRowsWithDisplayLabels(Repo::all('portal_groups', 'name ASC'));
+
+        self::layout(self::t('cameras.importTitle', 'Импорт потоков с DVR'), function () use ($servers, $selectedServerId, $available, $groups, $message) {
+            self::notice($message);
+            echo '<section class="panel camera-import-panel">';
+            echo '<div class="section-head"><div><h2>' . self::t('cameras.importTitle', 'Импорт потоков с DVR') . '</h2><p class="muted">' . self::t('cameras.importHint', 'Выберите сервер и добавьте отсутствующие потоки в Portal. Они будут импортированы в безопасном read-only режиме без изменения конфигурации DVR.') . '</p></div>';
+            echo '<a class="btn" href="/admin/cameras">' . self::t('action.back', 'Назад') . '</a></div>';
+
+            echo '<form method="get" action="/admin/cameras/import" class="camera-import-server-form">';
+            echo '<label>' . self::t('cameras.importServer', 'DVR-сервер') . '<select name="server_id" required><option value="">' . self::t('cameras.importChooseServer', 'Выберите DVR-сервер') . '</option>';
+            foreach ($servers as $server) {
+                $blocked = (int)($server['blocked'] ?? 0) === 1;
+                echo '<option value="' . (int)$server['id'] . '"' . ($selectedServerId === (int)$server['id'] ? ' selected' : '') . ($blocked ? ' disabled' : '') . '>' . Util::h($server['name']) . ($blocked ? ' · ' . self::t('servers.blocked', 'Заблокирован') : '') . '</option>';
+            }
+            echo '</select></label><button>' . self::t('cameras.loadStreams', 'Показать потоки') . '</button></form>';
+
+            if ($selectedServerId > 0 && !$available['ok']) {
+                echo '<div class="alert">' . self::t('cameras.importLoadFailed', 'Не удалось загрузить потоки с DVR') . '</div>';
+                self::technicalResult((string)($available['message'] ?? ''), self::t('agents.details', 'Технические детали'));
+            } elseif ($selectedServerId > 0 && !$available['streams']) {
+                echo '<div class="camera-import-empty">' . self::t('cameras.importEmpty', 'На выбранном DVR нет потоков, отсутствующих в Portal') . '</div>';
+            } elseif ($selectedServerId > 0) {
+                if ((int)($available['invalidCount'] ?? 0) > 0) {
+                    echo '<div class="alert warn">' . sprintf(self::t('cameras.importSkippedInvalid', 'Пропущено потоков с неподдерживаемым техническим именем: %d'), (int)$available['invalidCount']) . '</div>';
+                }
+                echo '<form method="post" action="/admin/cameras/import?server_id=' . $selectedServerId . '" class="camera-import-form" data-dvr-import-form data-submit-progress="' . Util::h(self::t('cameras.importing', 'Импортируем потоки...')) . '">' . Csrf::field();
+                echo '<input type="hidden" name="action" value="import"><input type="hidden" name="server_id" value="' . $selectedServerId . '">';
+                echo '<div class="camera-import-toolbar"><input type="search" data-dvr-import-search placeholder="' . self::t('cameras.importSearch', 'Найти поток') . '">';
+                echo '<button type="button" data-dvr-import-select-all>' . self::t('groups.selectAll', 'Выбрать все') . '</button>';
+                echo '<button type="button" data-dvr-import-clear-all>' . self::t('groups.clearAll', 'Снять все') . '</button>';
+                echo '<span class="camera-import-count" data-dvr-import-count></span></div>';
+                echo '<div class="camera-import-list">';
+                foreach ($available['streams'] as $stream) {
+                    $name = (string)$stream['name'];
+                    $displayName = (string)$stream['displayName'];
+                    $search = trim($displayName . ' ' . $name . ' ' . (string)$stream['sourceType']);
+                    echo '<label class="camera-import-row" data-dvr-import-row data-search="' . Util::h($search) . '">';
+                    echo '<input type="checkbox" name="stream_names[]" value="' . Util::h($name) . '">';
+                    echo '<span class="camera-import-identity"><strong>' . Util::h($displayName) . '</strong><code>' . Util::h($name) . '</code></span>';
+                    echo '<span class="camera-import-meta"><span>' . Util::h((string)$stream['sourceType']) . '</span>';
+                    echo '<span class="pill ' . (!empty($stream['archiveEnabled']) ? 'success' : 'info') . '">' . (!empty($stream['archiveEnabled']) ? self::t('cameraFilter.archiveOn', 'Архив включён') : self::t('cameraFilter.archiveOff', 'Архив выключен')) . '</span>';
+                    echo '<span class="pill ' . (!empty($stream['enabled']) ? 'success' : 'warn') . '">' . (!empty($stream['enabled']) ? self::t('cameras.importEnabled', 'Включён') : self::t('cameras.importDisabled', 'Выключен')) . '</span></span>';
+                    echo '</label>';
+                }
+                echo '<div class="camera-import-filter-empty" data-dvr-import-filter-empty hidden>' . self::t('assignment.empty', 'Ничего не найдено') . '</div></div>';
+                echo '<p class="muted">' . self::t('cameras.importReadOnlyHint', 'Импорт не меняет потоки на DVR. После импорта режим отдельной камеры можно изменить в её настройках.') . '</p>';
+                self::groupCheckboxTree(self::t('cameras.groups', 'Группы'), 'group_ids[]', $groups, []);
+                echo '<div class="camera-import-actions"><button class="primary" data-dvr-import-submit data-submit-button disabled>' . self::t('cameras.importAction', 'Добавить выбранные потоки') . '</button><span class="muted" data-submit-status hidden></span></div>';
+                echo '</form>';
+            }
+            echo '</section>';
+        });
+    }
+
+    private static function cameraImportAvailableStreams(int $serverId): array
+    {
+        $result = DvrClient::listStreams($serverId);
+        if (empty($result['ok'])) {
+            return ['ok' => false, 'streams' => [], 'invalidCount' => 0, 'message' => (string)($result['message'] ?? '')];
+        }
+
+        $data = $result['data'] ?? null;
+        if (!is_array($data) || (!array_is_list($data) && !is_array($data['streams'] ?? null))) {
+            return ['ok' => false, 'streams' => [], 'invalidCount' => 0, 'message' => 'Invalid SesameDVR /api/streams response'];
+        }
+        $rows = array_is_list($data) ? $data : $data['streams'];
+        $stmt = DB::pdo()->prepare('SELECT dvr_stream_name FROM cameras WHERE server_id = ?');
+        $stmt->execute([$serverId]);
+        $existing = [];
+        foreach ($stmt->fetchAll(PDO::FETCH_COLUMN) as $name) {
+            $existing[(string)$name] = true;
+        }
+
+        $streams = [];
+        $seen = [];
+        $invalidCount = 0;
+        foreach ($rows as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            $name = trim((string)($row['name'] ?? ''));
+            if ($name === '' || isset($seen[$name]) || isset($existing[$name])) {
+                continue;
+            }
+            $seen[$name] = true;
+            if (!Util::isDvrStreamName($name)) {
+                $invalidCount++;
+                continue;
+            }
+            $displayName = trim((string)($row['displayName'] ?? $row['title'] ?? '')) ?: $name;
+            $streams[] = [
+                'name' => $name,
+                'displayName' => $displayName,
+                'source' => is_scalar($row['source'] ?? null) ? (string)$row['source'] : '',
+                'sourceType' => trim((string)($row['sourceType'] ?? 'direct')) ?: 'direct',
+                'enabled' => self::cameraImportBool($row['enabled'] ?? true, true),
+                'archiveEnabled' => self::cameraImportBool($row['archiveEnabled'] ?? true, true),
+                'retentionDays' => is_scalar($row['retentionDays'] ?? null) ? (string)$row['retentionDays'] : '7d',
+                'webrtcFastStart' => self::cameraImportBool($row['webrtcFastStart'] ?? false, false),
+                'eventArchiveRetentionEnabled' => self::cameraImportBool($row['eventArchiveRetentionEnabled'] ?? false, false),
+                'eventArchiveMaxBytes' => $row['eventArchiveMaxBytes'] ?? null,
+                'eventArchiveMaxDuration' => $row['eventArchiveMaxDuration'] ?? null,
+                'eventArchiveMaxAge' => $row['eventArchiveMaxAge'] ?? null,
+                'timelapseEnabled' => self::cameraImportBool($row['timelapseEnabled'] ?? false, false),
+                'timelapseFramesPerHour' => $row['timelapseFramesPerHour'] ?? 60,
+                'timelapseRetentionDays' => $row['timelapseRetentionDays'] ?? null,
+                'timelapsePlaybackFps' => $row['timelapsePlaybackFps'] ?? 25,
+                'directArchiveVideoTimelineRepairMode' => $row['directArchiveVideoTimelineRepairMode'] ?? null,
+                'audioCodec' => $row['audioCodec'] ?? 'copy',
+            ];
+        }
+
+        usort($streams, static function (array $left, array $right): int {
+            return strnatcasecmp($left['displayName'], $right['displayName'])
+                ?: strnatcasecmp($left['name'], $right['name']);
+        });
+        return ['ok' => true, 'streams' => $streams, 'invalidCount' => $invalidCount, 'message' => ''];
+    }
+
+    private static function cameraImportSelectedStreams(int $serverId, array $selectedNames, array $availableStreams, array $groupIds): array
+    {
+        $server = Repo::server($serverId);
+        if (!$server || (int)$server['blocked'] === 1) {
+            return ['ok' => false, 'message' => self::t('cameras.importChooseServer', 'Выберите DVR-сервер')];
+        }
+
+        $availableByName = [];
+        foreach ($availableStreams as $stream) {
+            $availableByName[(string)$stream['name']] = $stream;
+        }
+        $selectedNames = array_values(array_unique(array_filter(array_map(
+            static fn(mixed $name): string => is_scalar($name) ? trim((string)$name) : '',
+            $selectedNames
+        ))));
+        $selected = [];
+        foreach ($selectedNames as $name) {
+            if (isset($availableByName[$name])) {
+                $selected[] = $availableByName[$name];
+            }
+        }
+        if (!$selected) {
+            return ['ok' => false, 'message' => self::t('cameras.importNoSelection', 'Выберите хотя бы один поток')];
+        }
+
+        $pdo = DB::pdo();
+        $usedNames = [];
+        foreach ($pdo->query('SELECT name FROM cameras')->fetchAll(PDO::FETCH_COLUMN) as $name) {
+            $usedNames[self::cameraImportNameKey((string)$name)] = true;
+        }
+        $groupIds = array_values(array_unique(array_filter(array_map('intval', $groupIds), static fn(int $id): bool => $id > 0)));
+        $importedNames = [];
+
+        try {
+            $pdo->beginTransaction();
+            $insert = $pdo->prepare('INSERT INTO cameras(name, source_url, server_id, server_selection, latitude, longitude, direction_deg, view_angle_deg, retention_days, archive_enabled, webrtc_fast_start, event_archive_retention_enabled, event_archive_max_bytes, event_archive_max_duration, event_archive_max_age, timelapse_enabled, timelapse_frames_per_hour, timelapse_retention_days, timelapse_playback_fps, direct_archive_video_timeline_repair_mode, audio_codec, dvr_control_mode, agent_id, agent_camera_id, onvif_events_requested, watermark_enabled, watermark_intensity, blocked, dvr_stream_name, last_sync_at, last_sync_ok, last_sync_message, created_at, updated_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+            $exists = $pdo->prepare('SELECT 1 FROM cameras WHERE server_id = ? AND dvr_stream_name = ? LIMIT 1');
+            $syncMessage = self::t('cameras.readOnlySyncSkipped', 'Read-only mode: DVR management skipped');
+            foreach ($selected as $stream) {
+                $exists->execute([$serverId, (string)$stream['name']]);
+                if ($exists->fetchColumn()) {
+                    continue;
+                }
+                $cameraName = self::cameraImportUniqueName((string)$stream['displayName'], (string)$stream['name'], (string)$server['name'], $usedNames);
+                $now = Util::now();
+                $insert->execute([
+                    $cameraName,
+                    (string)$stream['source'],
+                    $serverId,
+                    'manual',
+                    null,
+                    null,
+                    0,
+                    60,
+                    trim((string)$stream['retentionDays']) ?: '7d',
+                    !empty($stream['archiveEnabled']) ? 1 : 0,
+                    !empty($stream['webrtcFastStart']) ? 1 : 0,
+                    !empty($stream['eventArchiveRetentionEnabled']) ? 1 : 0,
+                    self::cameraOptionalNonNegativeInt($stream['eventArchiveMaxBytes']),
+                    self::cameraOptionalString($stream['eventArchiveMaxDuration']),
+                    self::cameraOptionalString($stream['eventArchiveMaxAge']),
+                    !empty($stream['timelapseEnabled']) ? 1 : 0,
+                    self::cameraPositiveInt($stream['timelapseFramesPerHour'], 60),
+                    self::cameraOptionalString($stream['timelapseRetentionDays']),
+                    self::cameraPositiveInt($stream['timelapsePlaybackFps'], 25),
+                    self::cameraTimelineRepairMode($stream['directArchiveVideoTimelineRepairMode']),
+                    self::cameraAudioCodec($stream['audioCodec']),
+                    'read_only',
+                    null,
+                    null,
+                    0,
+                    0,
+                    16,
+                    0,
+                    (string)$stream['name'],
+                    $now,
+                    1,
+                    $syncMessage,
+                    $now,
+                    $now,
+                ]);
+                $cameraId = DB::lastInsertId('cameras');
+                self::replaceLinks('camera_groups', 'camera_id', $cameraId, 'group_id', $groupIds);
+                $importedNames[] = (string)$stream['name'];
+            }
+            $pdo->commit();
+        } catch (\Throwable $error) {
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+            error_log('SesamePortal camera import failed: ' . $error->getMessage());
+            return ['ok' => false, 'message' => self::t('cameras.importFailed', 'Не удалось импортировать выбранные потоки')];
+        }
+
+        Audit::log('camera.import', json_encode([
+            'serverId' => $serverId,
+            'server' => (string)$server['name'],
+            'count' => count($importedNames),
+            'streams' => array_slice($importedNames, 0, 50),
+            'truncated' => count($importedNames) > 50,
+        ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+
+        return [
+            'ok' => true,
+            'message' => sprintf(self::t('cameras.importDone', 'Добавлено потоков: %d'), count($importedNames)),
+        ];
+    }
+
+    private static function cameraImportUniqueName(string $displayName, string $streamName, string $serverName, array &$usedNames): string
+    {
+        $base = trim($displayName) ?: $streamName;
+        $candidate = $base;
+        $suffix = trim($serverName) ?: 'DVR';
+        $number = 1;
+        while (isset($usedNames[self::cameraImportNameKey($candidate)])) {
+            $candidate = $base . ' · ' . $suffix . ($number > 1 ? ' ' . $number : '');
+            $number++;
+        }
+        $usedNames[self::cameraImportNameKey($candidate)] = true;
+        return $candidate;
+    }
+
+    private static function cameraImportNameKey(string $name): string
+    {
+        return function_exists('mb_strtolower') ? mb_strtolower($name, 'UTF-8') : strtolower($name);
+    }
+
+    private static function cameraImportBool(mixed $value, bool $default): bool
+    {
+        if ($value === null || $value === '') {
+            return $default;
+        }
+        if (is_bool($value)) {
+            return $value;
+        }
+        if (is_int($value) || is_float($value)) {
+            return $value != 0;
+        }
+        return in_array(strtolower(trim((string)$value)), ['1', 'true', 'yes', 'on'], true);
     }
 
     private static function cameraControlMode(mixed $value): string
@@ -7360,7 +7715,7 @@ final class App
                 self::navLink('/admin/dashboard', self::t('nav.dashboard', 'Dashboard'), 'dashboard');
                 self::navLink('/admin/users', self::t('nav.users', 'Пользователи'), 'user');
                 self::navLink('/admin/groups', self::t('nav.groups', 'Группы'), 'group');
-                self::navLink('/admin/cameras', self::t('nav.cameras', 'Камеры'), 'camera');
+                self::navLink('/admin/cameras', self::t('nav.cameras', 'Камеры'), 'camera', str_starts_with(Util::path(), '/admin/cameras'));
                 self::navLink('/admin/servers', self::t('nav.dvr', 'DVR'), 'server');
                 self::navLink('/admin/agents', self::t('nav.agents', 'Edge Agents'), 'agent');
                 self::navLink('/admin/audit', self::t('nav.audit', 'Журнал'), 'audit');
