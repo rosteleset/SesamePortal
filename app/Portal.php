@@ -7191,7 +7191,8 @@ final class App
     {
         $token = self::playbackTokenFromAuthRequest();
         $cameraName = self::cameraNameFromAuthRequest();
-        $user = TokenService::userByToken($token);
+        $staticUser = TokenService::userByStaticToken($token);
+        $user = $staticUser ?: TokenService::userByToken($token);
         if (!$user || $cameraName === '') {
             http_response_code(403);
             echo "denied\n";
@@ -7201,7 +7202,13 @@ final class App
         $stmt = DB::pdo()->prepare('SELECT id, name, dvr_stream_name FROM cameras WHERE (dvr_stream_name = ? OR name = ?) AND blocked = 0 LIMIT 1');
         $stmt->execute([$cameraName, $cameraName]);
         $camera = $stmt->fetch();
-        if (!$camera || !Repo::cameraAllowedForUser($user, (int)$camera['id'])) {
+        if (!$camera && !self::authBackendAllowsUnknownCamera($staticUser)) {
+            http_response_code(403);
+            echo "denied\n";
+            return;
+        }
+
+        if ($camera && !Repo::cameraAllowedForUser($user, (int)$camera['id'])) {
             http_response_code(403);
             echo "denied\n";
             return;
@@ -7220,12 +7227,17 @@ final class App
             }
         }
 
-        $audit = self::authBackendAuditEvent($camera);
+        $audit = $camera ? self::authBackendAuditEvent($camera) : null;
         if ($audit !== null) {
             Audit::logForUser((int)$user['id'], $audit['action'], $audit['details']);
         }
 
         echo "ok\n";
+    }
+
+    private static function authBackendAllowsUnknownCamera(?array $staticUser): bool
+    {
+        return $staticUser !== null && ($staticUser['role'] ?? '') === 'admin';
     }
 
     private static function userArchiveHidden(array $user): bool

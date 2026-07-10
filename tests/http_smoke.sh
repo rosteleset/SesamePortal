@@ -1005,6 +1005,28 @@ denied="$(
     "http://127.0.0.1:$PORT/api/sesamedvr/auth?token=bad&camera=missing"
 )"
 test "$denied" = "403"
+unknown_plain="$(
+  curl -sS -o /dev/null -w '%{http_code}' \
+    "http://127.0.0.1:$PORT/api/sesamedvr/auth?token=sp_smoke_user_token&name=rbt-only-stream"
+)"
+test "$unknown_plain" = "403"
+daily_token_qs="$(TOKEN="$TOKEN" php -r 'echo rawurlencode(getenv("TOKEN"));')"
+unknown_daily="$(
+  curl -sS -o /dev/null -w '%{http_code}' \
+    "http://127.0.0.1:$PORT/api/sesamedvr/auth?token=$daily_token_qs&name=rbt-only-stream"
+)"
+test "$unknown_daily" = "403"
+authbackend_admin_static="$(
+  curl -fsS -b "$COOKIE_JAR" -X POST "http://127.0.0.1:$PORT/api/portal/v1/users/1/static-token"
+)"
+admin_authbackend_token="$(printf "%s" "$authbackend_admin_static" | php -r '$d=json_decode(stream_get_contents(STDIN), true); echo $d["token"] ?? "";')"
+test -n "$admin_authbackend_token"
+admin_authbackend_token_qs="$(TOKEN="$admin_authbackend_token" php -r 'echo rawurlencode(getenv("TOKEN"));')"
+unknown_admin="$(
+  curl -sS -o /dev/null -w '%{http_code}' \
+    "http://127.0.0.1:$PORT/api/sesamedvr/auth?token=$admin_authbackend_token_qs&name=rbt-only-stream"
+)"
+test "$unknown_admin" = "200"
 
 qs="$(TOKEN="$TOKEN" php -r 'echo rawurlencode("token=" . getenv("TOKEN"));')"
 allowed="$(
