@@ -9098,6 +9098,9 @@ final class App
             'dvr' => $dvr ? 'true' : 'false',
             'token' => $token,
         ];
+        if ((int)($camera['watermark_enabled'] ?? 0) === 1) {
+            $query['screenshot'] = 'false';
+        }
         if ($back !== '') {
             $query['back_url'] = self::absolutePortalUrl($back);
             $query['back_label'] = $backLabel !== '' ? $backLabel : self::t('action.back', 'Назад');
