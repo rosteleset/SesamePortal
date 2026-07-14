@@ -171,8 +171,8 @@ More details are in
 
 Additional SesameDVR documentation:
 
-- [SesameDVR feature and product description (RU)](docs/SESAME-DVR-PRODUCT-DESCRIPTION.ru.md)
-- [SesameDVR user guide (RU)](docs/sesame-dvr-user-guide.ru.md)
+- [SesameDVR feature and product description](docs/SESAME-DVR-PRODUCT-DESCRIPTION.en.md)
+- [SesameDVR user guide](docs/sesame-dvr-user-guide.en.md)
 - [SesameDVR HTTP API reference (RU)](docs/sesame-dvr-api.ru.md)
 - [SesameDVR storage configuration (RU)](docs/dvr-storage-configuration.ru.md)
 - [SesameDVR Prometheus / OpenMetrics endpoint (RU)](docs/prometheus-metrics-endpoint.ru.md)
