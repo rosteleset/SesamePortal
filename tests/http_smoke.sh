@@ -28,6 +28,25 @@ export SESAME_PORTAL_UPDATE_AUTO_CHECK=0
 export ROOT
 export DVR_PORT
 
+cat >"$STATE_DIR/config.php" <<'PHP'
+<?php
+return [
+    'hidden_archive_player_overlays' => [[
+        'type' => 'imageLink',
+        'href' => 'https://apsny.camera',
+        'imageUrl' => 'https://apsny.camera/player/logo.png',
+        'target' => '_blank',
+        'alt' => 'Apsny Camera',
+        'position' => [
+            'top' => '0px',
+            'right' => '200px',
+            'width' => '20vw',
+            'maxWidth' => '500px',
+        ],
+    ]],
+];
+PHP
+
 OLD_UNIQUE_STATE="$STATE_DIR/old-unique"
 mkdir -p "$OLD_UNIQUE_STATE"
 sqlite_duplicate_group_migration="$(
@@ -1091,11 +1110,14 @@ hidden_player="$(
     "http://127.0.0.1:$PORT/api/sesamedvr/auth?token=NonAvailable&qs=$plain_qs&name=smoke-cam&proto=player&dvr=false"
 )"
 printf "%s" "$hidden_player" | grep -q '"allowed_dvr_ranges":\[\]'
+printf "%s" "$hidden_player" | grep -q '"playerOverlays":\['
+printf "%s" "$hidden_player" | grep -q '"imageUrl":"https://apsny.camera/player/logo.png"'
 hidden_ranges="$(
   curl -fsS \
     "http://127.0.0.1:$PORT/api/sesamedvr/auth?token=NonAvailable&qs=$plain_qs&name=smoke-cam&proto=player&dvr=true"
 )"
 printf "%s" "$hidden_ranges" | grep -q '"allowed_dvr_ranges":\[\]'
+printf "%s" "$hidden_ranges" | grep -q '"playerOverlays":\['
 hidden_archive_hls="$(
   curl -sS -o /dev/null -w '%{http_code}' \
     "http://127.0.0.1:$PORT/api/sesamedvr/auth?token=NonAvailable&qs=$plain_qs&name=smoke-cam&proto=hls&dvr=true"

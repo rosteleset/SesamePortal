@@ -653,6 +653,32 @@ Capability body для пользователя с `hideArchive=true`:
 }
 ```
 
+Для конкретного deployment можно дополнительно настроить структурированные
+overlay-элементы плеера. По умолчанию параметр отсутствует, поэтому обычная
+установка Portal не меняет внешний вид SesameDVR player. Настройка задаётся
+только в локальном `config.php`, который installer/updater не заменяет:
+
+```php
+'hidden_archive_player_overlays' => [[
+    'type' => 'imageLink',
+    'href' => 'https://apsny.camera',
+    'imageUrl' => 'https://apsny.camera/player/logo.png',
+    'target' => '_blank',
+    'alt' => 'Apsny Camera',
+    'position' => [
+        'top' => '0px',
+        'right' => '200px',
+        'width' => '20vw',
+        'maxWidth' => '500px',
+    ],
+]],
+```
+
+Portal добавляет `playerOverlays` только в `proto=player` capability-ответ и
+только когда у авторизованного пользователя включён `hideArchive`. Произвольный
+HTML backend не передаёт: SesameDVR создаёт разрешённые элементы из
+структурированного описания.
+
 SesameDVR использует этот ответ для `playback_info.json`,
 `recording_status.json`, `timeline_ranges.json`, `motion_events.json` и
 `timelapse_segments.json`: endpoints остаются `200`, но возвращают пустое

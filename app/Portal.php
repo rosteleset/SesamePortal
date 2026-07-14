@@ -7660,11 +7660,33 @@ final class App
     {
         $payload = $allowArchive ? [] : ['allowed_dvr_ranges' => []];
 
+        if (!$allowArchive && self::authBackendPlayerRequest()) {
+            $overlays = self::hiddenArchivePlayerOverlays();
+            if ($overlays !== []) {
+                $payload['playerOverlays'] = $overlays;
+            }
+        }
+
         header('Content-Type: application/json; charset=utf-8');
         echo json_encode(
             $payload,
             JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES
         ) . "\n";
+    }
+
+    private static function authBackendPlayerRequest(): bool
+    {
+        return strtolower(self::usableAuthValue($_GET['proto'] ?? '')) === 'player';
+    }
+
+    private static function hiddenArchivePlayerOverlays(): array
+    {
+        $configured = Config::get('hidden_archive_player_overlays', []);
+        if (!is_array($configured)) {
+            return [];
+        }
+
+        return array_values(array_filter($configured, static fn(mixed $overlay): bool => is_array($overlay)));
     }
 
     private static function authBackendAuditEvent(array $camera): ?array
