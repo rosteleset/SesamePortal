@@ -666,9 +666,9 @@ overlay-элементы плеера. По умолчанию параметр 
     'target' => '_blank',
     'alt' => 'Apsny Camera',
     'position' => [
-        'top' => '0px',
-        'right' => '200px',
-        'width' => '20vw',
+        'top' => '0%',
+        'right' => '10%',
+        'width' => '20%',
         'maxWidth' => '500px',
     ],
 ]],
@@ -677,7 +677,9 @@ overlay-элементы плеера. По умолчанию параметр 
 Portal добавляет `playerOverlays` только в `proto=player` capability-ответ и
 только когда у авторизованного пользователя включён `hideArchive`. Произвольный
 HTML backend не передаёт: SesameDVR создаёт разрешённые элементы из
-структурированного описания.
+структурированного описания. Процентные координаты и размеры считаются от
+фактического прямоугольника видеокадра, поэтому сохраняются при повороте экрана
+и не включают чёрные поля `object-fit: contain`.
 
 SesameDVR использует этот ответ для `playback_info.json`,
 `recording_status.json`, `timeline_ranges.json`, `motion_events.json` и

@@ -38,9 +38,9 @@ return [
         'target' => '_blank',
         'alt' => 'Apsny Camera',
         'position' => [
-            'top' => '0px',
-            'right' => '200px',
-            'width' => '20vw',
+            'top' => '0%',
+            'right' => '10%',
+            'width' => '20%',
             'maxWidth' => '500px',
         ],
     ]],
