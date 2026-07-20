@@ -1,5 +1,7 @@
 # Sesame DVR: Product Description
 
+[Русская версия](SESAME-DVR-PRODUCT-DESCRIPTION.ru.md)
+
 Sesame DVR is a server-side video recording and viewing system for IP cameras.
 The product is installed on a Linux server, connects to cameras and other video
 sources over RTSP/HTTP URLs and UDP multicast, accepts push delivery over
@@ -15,16 +17,23 @@ or archived video through a browser, API, or embedded player.
 - recording video from IP cameras, RTSP/HTTP sources, UDP multicast, and push
   streams;
 - SRT/MPEG-TS delivery from an Edge Agent or external publisher to Sesame DVR;
+- ingesting HLS and UDP multicast without unnecessary transcoding, as well as
+  looped local video files and static images for live publishing;
 - remote live video viewing through a browser;
 - archive playback on a timeline;
 - accelerated review of long periods using the timelapse archive;
 - exporting a selected archive fragment as MP4;
+- storing and playing encrypted archives, including end-to-end encryption at
+  the Edge Agent;
 - publishing cameras and archives to customers, operators, or external systems;
 - embedding the video player into third-party web applications;
 - monitoring cameras, ingest processes, the server, and connected clients;
 - exposing OpenMetrics/Prometheus metrics for external monitoring and alerting;
 - collecting ONVIF motion events and correlating motion with the video archive;
+- retaining only archive intervals protected by events;
 - storing archives in SingleVolume or MultiVolume mode with per-volume catalogs;
+- DVR server redundancy with automatic backup recording and recovery of missing
+  archive intervals;
 - centralized management of large camera deployments within license and server
   capacity limits.
 
@@ -32,11 +41,16 @@ or archived video through a browser, API, or embedded player.
 
 ### Camera Ingest and Recording
 
-Sesame DVR accepts video streams from IP cameras and other sources available via
-RTSP or compatible HTTP URLs, local UDP multicast/MPEG-TS streams, and push
-streams delivered over RTMP/FLV or SRT/MPEG-TS. Each camera can have its own
-name, source, recording parameters, archive retention period, playback
-authorization mode, and additional ingest settings.
+Sesame DVR accepts video from IP cameras and other sources over RTSP or a
+compatible HTTP URL, local UDP multicast/MPEG-TS, and push delivery over
+RTMP/FLV or SRT/MPEG-TS. It supports direct ingest, HLS and UDP multicast
+passthrough, uploaded looped video files, and static JPEG sources.
+
+Each stream can configure its source, TCP/UDP transport for RTSP, archive and
+retention settings, audio mode (`copy`, disabled, or AAC transcoding), WebRTC,
+playback authorization, and additional ingest options. An ordered list of
+fallback sources can also be configured. Sesame DVR automatically switches to
+the next URL when input or video disappears from the active source.
 
 For UDP multicast sources, set `sourceType=udp_multicast` and use a source such
 as `udp://@239.10.10.10:5000?localaddr=192.168.0.1...` to explicitly select the
@@ -49,6 +63,10 @@ streams, records them, and provides live and archive playback through HLS,
 WebRTC, and the embedded player. SRT uses one shared UDP port and routes streams
 by `streamid=sesame:stream=<streamName>`, so a separate public port is not
 required for every camera.
+
+Compatible direct-ingest streams can simultaneously publish an additional
+MPEG-TS UDP multicast output. It uses its own bounded queue, so a failure of the
+extra relay does not stop archive recording, Live HLS, or WebRTC.
 
 The service starts enabled cameras automatically, monitors their runtime state,
 and can restart a stream when archive recording stops advancing. In the
@@ -64,10 +82,16 @@ Browser playback options include:
 - live HLS streams;
 - native WebRTC/WHEP for H.264 and browser-supported HEVC;
 - optional G.711 audio passthrough for compatible streams;
+- a multi-bitrate HLS master playlist for preconfigured variants of one stream;
 - HLS fallback when WebRTC is unavailable for a particular stream or browser.
 
 This allows Sesame DVR to serve as a live video source for an operator console,
 customer portal, or standalone camera page.
+
+WebRTC can be enabled or disabled independently for each stream. When long-term
+recording is not required, Sesame DVR keeps only a short bounded live buffer for
+Live HLS and other live use cases. Depending on configuration, the buffer can
+reside on disk or in memory; this does not change the playback contract.
 
 ### Video Archive
 
@@ -80,6 +104,11 @@ For cameras with ONVIF events, the embedded player can play archive video in a
 motion-only mode. Intervals without motion events are skipped while the
 timeline remains tied to the actual archive time.
 
+A separate event archive retention mode can retain only intervals protected by
+events, with configurable padding before and after an event, maximum age, total
+duration, and byte quota. Regular and event-based retention use the same current
+archive map and do not require scanning the file system.
+
 When timelapse is enabled for a camera, Sesame DVR stores a separate accelerated
 video archive. Raw timelapse frames are used as staging data; a background task
 then packages them into HLS/fMP4 chunks and updates the materialized timelapse
@@ -91,6 +120,11 @@ to the real archive time.
 Each camera can have its own retention period. Old recordings are removed
 automatically according to retention settings and license limits.
 
+Native ingest can also create periodic MP4 and JPEG previews. For archived
+cameras, previews are stored next to the hourly data on the corresponding volume
+and follow the same retention policy. For live-buffer streams, the server keeps
+only the latest MP4 and JPEG previews and replaces them with newer ones.
+
 ### Storage and Scaling
 
 A standard installation uses `SingleVolume`; the default archive is located at
@@ -99,19 +133,16 @@ storage volumes remain online at the same time and new segments are distributed
 using the `single`, `round_robin`, `weighted_round_robin`, or `least_used`
 policy.
 
-Each volume has its own catalog and hour indexes. If one volume goes offline,
-archive playback shows gaps only for ranges stored on that volume, while the
-remaining volumes stay available. Public MultiVolume archive URLs use the
-`/dvr/v/<volume_id>/<camera>/...` form. The managed nginx site serves these
+Each volume has its own compact archive and preview indexes. If one volume goes
+offline, archive playback shows gaps only for ranges stored on that volume,
+while the remaining volumes stay available. Public MultiVolume archive URLs use
+the `/dvr/v/<volume_id>/<camera>/...` form. The managed nginx site serves these
 segments directly from disk and is maintained by the standard updater.
 
-Archive lookup uses three index levels: `HourIndex`, `CameraIndex`, and
-`VolumeIndex`. In the current protected edition, the primary index formats are
-`*.hidx` for hourly indexes and `*.cidx` for camera indexes. They are designed
-for inexpensive append/patch updates instead of rewriting large `.term`
-snapshots in full. Updates propagate asynchronously: committing a segment
-updates `HourIndex`, the materializer then updates `CameraIndex`, followed by
-`VolumeIndex`.
+During normal operation, Sesame DVR trusts its indexes and does not locate media
+by enumerating directories. Current state is updated as media is created or
+deleted, and background native processes persist it to disk. A full file-system
+scan is reserved for explicitly requested repair or recovery operations.
 
 Segment writes, commits, index updates, and physical deletion all pass through
 the shared Native IO / Disk IO scheduler. This provides priorities and per-work
@@ -124,6 +155,50 @@ Users can select an archive interval and export it as an MP4 file. This is usefu
 for providing footage to a customer, security team, or technical support, or for
 preserving evidence of an event.
 
+### Encrypted Streams
+
+With the `encryption` license feature, Sesame DVR can store Live HLS and archive
+video as SAMPLE-AES/CBCS `1:9`. The owner's key pair is generated in the browser:
+the server stores only the public key, while the private key is offered to the
+user as a download and is never stored in Sesame DVR. Losing the private key
+means losing access to the encrypted archive.
+
+Two recording modes are supported:
+
+- Sesame DVR receives a clear stream, generates content encryption keys on a
+  configurable rotation schedule, and encrypts H.264/H.265 CMAF before storage;
+- a trusted Edge Agent next to the camera receives RTSP, packages and encrypts
+  CMAF without transcoding, and sends it over SRT together with key identifiers
+  and wrapped keys. While receiving, recording, and storing such a passthrough
+  stream, Sesame DVR never receives clear video, clear content keys, or the
+  owner's private key.
+
+In compatible Chromium clients, the embedded player unwraps content keys locally
+and uses ClearKey/EME without sending clear keys to the server. Safari uses an
+explicitly confirmed compatibility mode: the browser temporarily supplies only
+the keys required by a short-lived playback session, and Sesame DVR decrypts the
+requested fragments in memory. The same confirmed mechanism is used to export a
+selected encrypted interval as a regular MP4 file. Temporary keys and clear
+fragments are not written to disk or shared cache.
+
+WebRTC remains a separate live channel and can be disabled per stream. It is not
+available for end-to-end encrypted Edge Agent passthrough because Sesame DVR has
+no clear video stream. Content-key records that are no longer referenced are
+removed as the associated archive expires under retention.
+
+### Redundancy and Archive Recovery
+
+With the `dvr_failover` feature, two Sesame DVR servers can be linked as Master
+and Backup. The Backup monitors Master freshness and starts recording after a
+sustained failure. An optional short hot buffer can preserve several minutes
+before the failure is detected.
+
+After recovery, the Master can download missing segments from the Backup, verify
+the ranges already present, and acknowledge a successful transfer. The Backup
+removes acknowledged data after a grace period and applies its own age and byte
+limits. The API also exposes health, manual start and stop, repair, and dry-run
+stream placement planning across nodes.
+
 ### Administrator Web Interface
 
 The built-in admin panel allows the system to be managed without editing
@@ -135,6 +210,8 @@ configuration files manually. The UI can be used to:
 - open live and archive playback;
 - inspect the selected stream log and the global runtime log;
 - run ffprobe diagnostics for a camera;
+- configure RTSP transport, fallback sources, audio, WebRTC, timelapse, event
+  retention, archive volume, and stream encryption;
 - manage playback authorization;
 - inspect active playback client users, active WebRTC clients, and recent HLS
   clients;
@@ -161,7 +238,9 @@ locate moments where motion was detected.
 
 Each camera has an embedded player that can be integrated into a third-party
 interface. It supports live video, a DVR timeline, seeking to archive time,
-motion-only archive playback, and MP4 fragment export.
+motion-only archive playback, timelapse, MP4 range selection and export,
+current-frame capture, mouse/touch zoom, and private-key input for encrypted
+streams.
 
 HTTP endpoints are also available for live HLS, archive HLS playlists, MP4
 export, previews, recording status, WebRTC/WHEP, and the management API. This
@@ -210,6 +289,8 @@ of cameras, expiration date, maximum retention, and maximum number of active
 playback client users. A playback client user is identified by the combination
 of the client IP address and `User-Agent`; the limit applies to both HLS and
 WebRTC access.
+Additional capabilities, including encrypted archives and DVR failover, are
+enabled by separate license features.
 
 Use the standard command to update an installed system:
 
@@ -258,14 +339,15 @@ system:
 - configuration and license state in `/var/lib/sesame-dvr`;
 - the default video archive in `/var/dvr/segments`;
 - additional archive volumes under the roots configured for storage volumes;
-- preview files in `/var/dvr/previews`;
+- preview files next to the camera's hourly data on the corresponding archive or
+  disk live-buffer volume, or in the native memory live buffer;
 - ONVIF events in `/var/dvr/onvif-events`;
 - the application in `/opt/sesame-dvr/current`.
 
-The archive does not require a database. The file system with video segments
-and primary `*.hidx` hour indexes remains the source of truth. Derived `*.cidx`
-CameraIndex and VolumeIndex data can be rebuilt from HourIndex, while obsolete
-legacy `.term` indexes are read only for compatibility during migration.
+The archive does not require a database. Sesame DVR maintains the current map of
+segments, previews, and encryption-key references in the native runtime and
+persists compact indexes next to each volume's data. Repairing from media files
+is a separate administrative operation, not part of the normal read path.
 
 ## Important Limitations
 
@@ -276,6 +358,11 @@ integrations.
 WebRTC playback does not transcode video and therefore depends on the codec
 support of the particular stream and browser. HLS playback is available when a
 WebRTC scenario is not supported.
+
+Encrypted H.265 support depends on the media capabilities of the browser and
+operating system. Chromium uses ClearKey/EME, while Safari requires an explicitly
+confirmed temporary server-decryption mode. Sesame DVR has no recovery copy of
+the owner's private key.
 
 Performance and maximum camera count depend on CPU, storage, network, camera
 codec profiles, bitrate, archive retention, and the features enabled for the
