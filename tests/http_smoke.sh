@@ -607,6 +607,12 @@ printf "%s" "$mosaic_page" | grep -q 'data-cols="6"'
 printf "%s" "$mosaic_page" | grep -q "cols=6"
 printf "%s" "$mosaic_page" | grep -q "pager"
 ! printf "%s" "$mosaic_page" | grep -q "group_q"
+curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/?cols=5" >/dev/null
+curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/admin/dashboard" >/dev/null
+remembered_columns_page="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/")"
+grep -q "camera-grid cols-5" <<<"$remembered_columns_page"
+grep -q "Показано 1-15" <<<"$remembered_columns_page"
+grep -F -q 'class="active" href="/?cols=5"' <<<"$remembered_columns_page"
 search_page="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/?q=smoke%20extra%2030&cols=5")"
 printf "%s" "$search_page" | grep -q "camera-grid cols-5"
 printf "%s" "$search_page" | grep -q "Smoke Extra 30"
@@ -706,6 +712,9 @@ plain_login_status="$(
     "http://127.0.0.1:$PORT/login"
 )"
 test "$plain_login_status" = "303"
+plain_mosaic_page="$(curl -fsS -b "$PLAIN_COOKIE_JAR" "http://127.0.0.1:$PORT/")"
+grep -q "camera-grid cols-3" <<<"$plain_mosaic_page"
+grep -F -q 'class="active" href="/?cols=3"' <<<"$plain_mosaic_page"
 plain_player_page="$(curl -fsS -b "$PLAIN_COOKIE_JAR" "http://127.0.0.1:$PORT/viewer/player?id=1")"
 ! printf "%s" "$plain_player_page" | grep -q "settings_url="
 ! printf "%s" "$plain_player_page" | grep -q "admin%2Fcameras"

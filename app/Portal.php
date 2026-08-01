@@ -143,6 +143,7 @@ final class DB
 
         self::ensureColumn('users', 'admin_comment', 'TEXT');
         self::ensureColumn('users', 'hide_archive', 'INTEGER NOT NULL DEFAULT 0');
+        self::ensureColumn('users', 'mosaic_columns', 'INTEGER NOT NULL DEFAULT 3');
         self::ensureColumn('portal_groups', 'parent_group_id', self::driver() === 'mysql' ? 'BIGINT NULL' : 'INTEGER');
         self::dropPortalGroupNameUniqueConstraint();
         self::ensureIndex('camera_groups', 'idx_camera_groups_group', 'group_id');
@@ -244,6 +245,7 @@ final class DB
                 static_token_hash TEXT,
                 admin_comment TEXT,
                 hide_archive INTEGER NOT NULL DEFAULT 0,
+                mosaic_columns INTEGER NOT NULL DEFAULT 3,
                 created_at TEXT NOT NULL,
                 last_login_at TEXT
             )',
@@ -345,6 +347,7 @@ final class DB
                 static_token_hash TEXT,
                 admin_comment TEXT,
                 hide_archive INTEGER NOT NULL DEFAULT 0,
+                mosaic_columns INTEGER NOT NULL DEFAULT 3,
                 created_at TEXT NOT NULL,
                 last_login_at TEXT
             )",
@@ -447,6 +450,7 @@ final class DB
                 static_token_hash VARCHAR(255),
                 admin_comment TEXT,
                 hide_archive INTEGER NOT NULL DEFAULT 0,
+                mosaic_columns INTEGER NOT NULL DEFAULT 3,
                 created_at VARCHAR(64) NOT NULL,
                 last_login_at VARCHAR(64)
             ){$suffix}",
@@ -7305,7 +7309,7 @@ final class App
         $filter = (string)($_GET['filter'] ?? 'all');
         $searchQuery = self::viewerSearchQuery();
         $groups = self::groupRowsWithTreeLabels(Repo::groupsForUser($user));
-        $cols = self::viewerColumns();
+        $cols = self::viewerColumns($user, $mode !== 'map');
         $previewRefresh = self::viewerPreviewRefresh();
         $cameraPager = null;
         if ($mode === 'map') {
@@ -7327,10 +7331,24 @@ final class App
         });
     }
 
-    private static function viewerColumns(): int
+    private static function viewerColumns(array $user, bool $saveQueryValue): int
     {
-        $cols = (int)($_GET['cols'] ?? 3);
-        return min(6, max(2, $cols));
+        $stored = self::normalizeViewerColumns($user['mosaic_columns'] ?? 3);
+        if (!$saveQueryValue || !array_key_exists('cols', $_GET)) {
+            return $stored;
+        }
+
+        $cols = self::normalizeViewerColumns($_GET['cols']);
+        if ($cols !== $stored) {
+            DB::pdo()->prepare('UPDATE users SET mosaic_columns = ? WHERE id = ?')
+                ->execute([$cols, (int)$user['id']]);
+        }
+        return $cols;
+    }
+
+    private static function normalizeViewerColumns(mixed $cols): int
+    {
+        return min(6, max(2, (int)$cols));
     }
 
     private static function viewerSearchQuery(): string
