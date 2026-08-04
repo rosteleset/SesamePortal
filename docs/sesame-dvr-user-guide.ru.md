@@ -34,15 +34,18 @@
 ## Назначение Sesame DVR
 
 Sesame DVR - серверная система видеозаписи и просмотра IP-камер. Сервер
-принимает RTSP/URL-потоки, пишет архив на диск, отдаёт live-видео, архивные HLS
-плейлисты, preview, MP4 export и предоставляет web-интерфейс администратора.
+принимает RTSP/HTTP-источники, UDP multicast, RTMP/SRT push, HLS passthrough,
+статические JPEG и зацикленные видеофайлы, пишет архив на диск, отдаёт
+live-видео, архивные HLS плейлисты, preview, MP4 export и предоставляет
+web-интерфейс администратора.
 
 Основные задачи:
 
-- подключение RTSP-камер, push-потоков, статических JPEG-источников и других
-  видеоисточников;
+- подключение RTSP/HTTP-камер, UDP multicast, RTMP/SRT push, HLS passthrough,
+  статических JPEG-источников и зацикленных видеофайлов;
 - запись архива с настраиваемым сроком хранения;
 - live-просмотр через embed-плеер, HLS и WebRTC/WHEP;
+- публикация multi-bitrate HLS из нескольких существующих потоков;
 - просмотр архива по временной шкале;
 - выгрузка фрагментов архива в MP4;
 - сбор ONVIF motion events;
@@ -86,6 +89,7 @@ license-панели. Команда содержит activation key и пара
 curl -fsSL https://license.sesameware.com/sesame-dvr-artifacts/bootstrap-protected-install.sh \
   | sudo bash -s -- \
       --license-key '<activation-key>' \
+      --locale ru \
       --server-name "$(hostname -f)" \
       --publish-service \
       --publish-server-name dvr.example.com \
@@ -105,10 +109,14 @@ curl -fsSL https://license.sesameware.com/sesame-dvr-artifacts/bootstrap-protect
 curl -fsSL https://license.sesameware.com/sesame-dvr-artifacts/bootstrap-protected-install.sh \
   | sudo bash -s -- \
       --license-key '<activation-key>' \
+      --locale ru \
       --server-name "$(hostname -f)" \
       --publish-service \
       --publish-server-name dvr.example.com
 ```
+
+`--locale` задаёт начальный язык web-интерфейса (`interfaceLanguage` в
+`config.json`). Если параметр не передан, используется язык по умолчанию.
 
 ### Что делает инсталлятор
 
@@ -177,9 +185,10 @@ https://<domain>/admin?token=...
 - `Клиенты` - активные playback client users, WebRTC-сессии и недавние
   HLS-клиенты.
 - `ONVIF` - список ONVIF-устройств, проверка capabilities, подписка на events.
-- `Агенты` - удалённые SesameDVR Edge Agents: enrollment, статус подключения,
-  список камер агента, ONVIF scan на стороне объекта, diagnostics/logs, команды
-  агенту и создание потоков из камер агента.
+- `Агенты` - удалённые инстансы SesameAgent: одноразовые pairing-приглашения,
+  статус подключения, анонсированные агентом камеры, явные bindings потоков,
+  diagnostics/logs и, после отдельной managed-авторизации, разрешённые команды
+  агенту.
 - `Настройки` - лицензия, обновления, хранилище, tokens, orphan cleanup и
   global config.
 
@@ -189,36 +198,79 @@ https://<domain>/admin?token=...
 
 - `Имя` - стабильный идентификатор камеры в URL и архиве. Используйте латиницу,
   цифры, дефис или подчёркивание.
-- `Тип источника` - `direct` для RTSP/HTTP URL, `udp_multicast` для UDP
-  multicast/MPEG-TS, `push` для потока, который публикуется в SesameDVR извне
-  по RTMP или SRT, или `image` для статического JPEG-источника.
-- `Source` - адрес или путь источника. Для `direct` это RTSP/HTTP URL, например
+- `Тип источника` - `direct` для RTSP/HTTP, `udp_multicast` для UDP multicast,
+  `udp_multicast_passthrough` для TS/UDP multicast без перекодирования,
+  `push` для RTMP/SRT push, `image` для статического JPEG-источника,
+  `video_file` для зацикленного MP4/WebM или `hls_passthrough` для HLS без
+  обычного archive transcode pipeline.
+- `Source` - RTSP/URL источника, например
   `rtsp://user:password@10.0.0.10:554/stream1`. Для `udp_multicast` используйте
   URL вида
   `udp://@239.10.10.10:5000?localaddr=192.168.0.1&overrun_nonfatal=1&fifo_size=5000000`.
-  Для `push` это логический ingest endpoint. Для `image` это путь к
-  загруженному JPEG в `dvrRoot/static-sources`; после загрузки к пути может
-  добавляться version query, чтобы running-поток перезапустился при замене
-  файла.
-- `JPEG файл` - файл, который web UI загружает на сервер для `sourceType=image`.
-  Из него `ffmpeg_nif` формирует статический H.264/fMP4 видеопоток для live HLS,
-  WHEP/WebRTC, preview и embed-плеера.
+  Для `udp_multicast_passthrough` используйте такой же UDP multicast URL; сервер
+  принимает MPEG-TS, режет его в TS/HLS сегменты без изменения A/V кодеков и
+  хранит/отдаёт их тем же HLS passthrough path. Для `hls_passthrough` укажите
+  HLS URL со схемой `http://`, `https://` или `hls://`. Для `image` и
+  `video_file` это путь к загруженному файлу в `dvrRoot/static-sources`; после
+  загрузки к нему может добавляться version query, чтобы running-поток
+  перезапустился при замене файла.
+- `JPEG файл` - файл, который web UI загружает на сервер для `sourceType=image`;
+  из него `ffmpeg_nif` формирует статический H.264/fMP4 видеопоток для
+  live HLS и WHEP.
+- `Видео-файл` - MP4 или WebM размером до 250 MB, который web UI загружает для
+  `sourceType=video_file`. Сервер воспроизводит файл по кругу как live-источник;
+  долговременный архив для такого типа не создаётся.
 - `Писать архив` - включает долговременное хранение сегментов потока. Если
   выключить, сервер оставляет только минимальный live-buffer для live playback и
-  сразу удаляет старые сегменты этого потока из storage/catalog. Для JPEG
-  источников архив по умолчанию выключен, но live-buffer всё равно держит
-  последние `liveWindow` fMP4-сегментов, чтобы HLS-плееры стартовали без ожидания
-  накопления нескольких обновлений playlist.
+  сразу удаляет старые сегменты этого потока из storage/catalog. Для JPEG и
+  зацикленных видеофайлов архив принудительно выключен, но live-buffer всё равно
+  держит последние `liveWindow` fMP4-сегментов, чтобы HLS-плееры стартовали без
+  ожидания накопления нескольких обновлений playlist.
+- `Запускать по запросу` - доступно для `direct` и `udp_multicast`, только когда
+  `Писать архив` выключено. Ingest не запускается при старте сервиса, а
+  включается после авторизованного запроса HLS, LL-HLS или WebRTC-зрителя. После
+  ухода последнего зрителя runtime останавливается через 60 секунд. Preview
+  запросы поток не запускают.
 - `Retention` - срок хранения архива. Можно задавать числа в днях или строки
-  `7d`, `6h`, `180m`. Строковое значение сохраняется в конфиге и затем
-  отображается в интерфейсе как было введено; числовое значение считается днями
-  для совместимости со старыми конфигами.
+  `7d`, `6h`, `180m`, `2M`. Заглавная `M` означает целое число календарных
+  месяцев: `1M` равно числу дней в текущем месяце, `2M` - сумме дней в текущем
+  и предыдущем месяцах, `3M` - в текущем и двух предыдущих. Строчная `m`
+  означает минуты. Строковое значение сохраняется в конфиге и затем
+  отображается в интерфейсе как было введено; числовое значение интерпретируется
+  как количество дней.
 - `Authorization`:
   - `none` - playback endpoints доступны без token;
   - `static` - playback требует query `?token=<token>`;
   - `auth backend` - доступ проверяется внешним backend URL из global config.
 - `Disable audio` - отключает аудио в ingest/playback для потока.
 - `Enabled` - поток включён в config и должен запускаться после старта сервиса.
+
+### Multi-bitrate HLS
+
+Multi-bitrate поток объединяет несколько уже существующих потоков с разным
+bitrate или разрешением в один HLS master playlist. HLS-плеер получает список
+вариантов и может автоматически переключать качество в зависимости от сети и
+возможностей устройства.
+
+В разделе `Потоки` multi-bitrate поток создаётся отдельно от обычной камеры.
+Для каждого варианта укажите существующий canonical stream. Sesame DVR берёт
+`bandwidth`, resolution, frame rate и codecs из cached ffprobe metadata; при
+необходимости эти значения можно задать вручную. Если metadata ещё нет, для
+включения варианта в master playlist обязательно задайте `bandwidth`.
+
+Multi-bitrate поток не является `sourceType` камеры и не создаёт собственный
+архив: его варианты читают live media playlists существующих потоков. Имя
+занимает общее playback namespace, а live HLS доступен по
+`/<name>/index.m3u8` и обычным aliases `live.m3u8` и `video.m3u8`. Настройки
+доступа (`none`, `static` или `authBackend`) задаются для самого multi-bitrate
+потока.
+
+Для внешнего RTMP publisher выберите `Тип источника = push`,
+`Publisher = external`, сохраните поток и нажмите
+`Сгенерировать publish URL`. Если local RTMP listener не готов, панель потока
+показывает `RTMP frontend недоступен` вместо бесконечного ожидания publisher-а.
+Установка, URL, firewall и серверная диагностика описаны в
+[external-push-ingest.ru.md](external-push-ingest.ru.md).
 
 В protected-версии producer не выбирается на уровне отдельного потока:
 используется global/default `ffmpeg_nif`. Он пишет self-initializing fMP4
@@ -271,50 +323,11 @@ cluster planner: SesameDVR только считает и, через
 `POST /api/failover/placement/apply`, может применить patches для своей
 локальной ноды.
 
-Эксплуатационные проверки, ручной старт Backup, repair и cleanup описаны в
-[runbook DVR-side failover](dvr-cluster-failover-runbook.ru.md).
-
-### JPEG-источник
-
-`sourceType=image` нужен для статической картинки, которую SesameDVR показывает
-как обычный поток. Типовые сценарии: тестовый источник, placeholder вместо
-камеры, демонстрационный экран или интеграция, которая периодически обновляет
-один JPEG.
-
-Настройка через UI:
-
-1. Создайте или откройте поток в разделе `Потоки`.
-2. Укажите `Тип источника` = `image`.
-3. Загрузите JPEG-файл в поле `JPEG файл`.
-4. Сохраните поток и включите его.
-
-Сервер сохраняет файл в `dvrRoot/static-sources` и использует его как вход для
-`ffmpeg_nif`. При повторной загрузке JPEG поток получает новую версию source и
-перезапускается, чтобы viewers увидели обновлённое изображение.
-
-### UDP multicast-источник
-
-`sourceType=udp_multicast` используется, когда SesameDVR должен принимать
-локальный multicast MPEG-TS поток напрямую из сети. Такой источник обычно
-публикуется сетевым оборудованием, IPTV headend или другим медиасервером внутри
-LAN.
-
-Пример source:
-
-```text
-udp://@239.10.10.10:5000?localaddr=192.168.0.1&overrun_nonfatal=1&fifo_size=5000000
-```
-
-`localaddr` указывает локальный IP интерфейса, через который сервер должен
-подписаться на multicast group. Это важно для серверов с несколькими сетевыми
-интерфейсами или несколькими VLAN. Параметры `overrun_nonfatal` и `fifo_size`
-уменьшают риск остановки ingest при кратковременных всплесках входящего потока.
-
 ### SRT-доставка push-потоков
 
 SRT поддерживается как транспорт доставки для потоков с `sourceType=push`.
 Типовой сценарий - камера находится за NAT или в нестабильной сети, локальный
-Edge Agent читает её по RTSP/ONVIF и публикует media в SesameDVR по SRT/MPEG-TS.
+SesameAgent читает её по RTSP/ONVIF и публикует media в SesameDVR по SRT/MPEG-TS.
 Также SRT может использовать внешний publisher, если он отправляет MPEG-TS и
 указывает правильный stream id.
 
@@ -355,6 +368,11 @@ SesameDVR, но не является локальным store-and-forward бу�
 В левой панели можно выбирать несколько потоков и выполнять bulk-действия:
 `Старт`, `Стоп`, `Вкл`, `Выкл`, `Удалить`.
 
+Для on-demand потока `Старт` принудительно оставляет runtime включённым, а
+`Стоп` запрещает автоматический запуск от нового зрителя. Действие `Вкл`
+сбрасывает ручное состояние и снова переводит поток в обычное on-demand
+ожидание.
+
 ### Статусы потока
 
 В карточке и заголовке выбранного потока отображаются:
@@ -365,6 +383,7 @@ SesameDVR, но не является локальным store-and-forward бу�
 - готовность WebRTC;
 - статус ONVIF;
 - состояние архива и задержка последнего сегмента;
+- состояние on-demand: ожидание зрителя или активный ingest;
 - срок хранения.
 
 Если поток включён, но не пишет архив, в первую очередь проверьте вкладки
@@ -402,6 +421,16 @@ https://dvr.example.com/cam1/embed.html?dvr=true&archive_playlist=sliding
 при быстрых скоростях `8x`/`16x`. В браузерах с native HLS режим автоматически
 не используется: они остаются на обычном VOD playlist.
 
+Видимость нижней панели управления задаётся query-параметром `hidecontrols`.
+Без параметра или при `hidecontrols=false` player работает как раньше.
+`hidecontrols=true` и `hidecontrols=0` всегда скрывают панель. Положительное
+число задаёт задержку скрытия в секундах; движение указателя над player или
+касание снова показывает панель:
+
+```text
+https://dvr.example.com/cam1/embed.html?hidecontrols=3
+```
+
 Кнопка режима движения включает воспроизведение архива только по ONVIF
 motion=true участкам. Плеер строит специальный HLS playlist из событий движения,
 добавляет запас по краям события и пропускает промежутки без движения без
@@ -410,13 +439,16 @@ motion=true участкам. Плеер строит специальный HLS
 индикатор тоже перескакивает на следующий архивный участок.
 
 Если в настройках потока включена `Писать timelapse`, рядом с обычным архивом
-появляется режим `Timelapse`. Сервер сохраняет raw timelapse frames как staging,
-фоново собирает из них HLS/fMP4 chunks и отдаёт готовый materialized manifest
-через `/<camera>/timelapse.m3u8`. С `start=...&end=...` playlist
-ограничивается реальным окном архива. Плеер показывает длительность ускоренного
-media отдельно, а timeline и seek остаются привязаны к реальному archive time.
-Частота сохранения задаётся настройкой `Кадров в час`, глубина хранения задаётся
-в формате `d`/`h`/`m`, а скорость итогового HLS - через `FPS воспроизведения`.
+появляется режим `Timelapse`. Он использует отдельный endpoint
+`/<camera>/timelapse.m3u8`: без параметров сервер отдаёт весь сохранённый
+timelapse, а с `start=...&end=...` ограничивает playlist окном архива. В
+playlist попадают только заранее собранные timelapse chunks. Плеер показывает
+две системы времени: длительность ускоренного timelapse-файла и реальное время
+архивного кадра. Timeline и курсор в режиме `Timelapse` привязаны к реальному
+времени архива, как в обычном DVR-режиме, а строка `Timelapse 0:48 / 0:48`
+показывает позицию внутри ускоренного media-файла. Частота сохранения задаётся
+настройкой `Кадров в час`, глубина хранения задаётся в формате `d`/`h`/`m`, а
+скорость итогового HLS - через `FPS воспроизведения`.
 
 Если у потока выключено `Писать архив`, embed-плеер работает как live-only:
 не показывает режим `Archive`, не рисует archive timeline и не предлагает MP4
@@ -441,6 +473,18 @@ https://dvr.example.com/cam1/embed.html
 - H.264 обычно поддерживается браузерами лучше всего;
 - HEVC зависит от браузера, ОС и аппаратной поддержки;
 - если WebRTC недоступен, используйте HLS/embed fallback.
+
+Для agent push-потоков со сквозным `passthrough_cbcs` плеер использует E2EE
+WebRTC. Agent создаёт один дополнительный зашифрованный SRT uplink на камеру, а
+SesameDVR обслуживает все browser peer connections и пересылает media, не
+расшифровывая её. При первом открытии плеер попросит private key recipient; файл
+остаётся в памяти browser tab. Этот режим сейчас video-only и использует generic
+WebRTC Encoded Transform (`RTCRtpScriptTransform`) в актуальных Chrome/Edge,
+Firefox и Safari. При отсутствии этого API player автоматически использует
+encrypted HLS.
+
+Новый WebRTC viewer ждёт ближайший keyframe. Сейчас WHEP PLI не передаётся
+обратно Agent, поэтому начальная задержка может достигать длины GOP камеры.
 
 HLS и WebRTC также учитывают лицензионный лимит активных playback client users.
 Если лимит исчерпан, новый клиент получит ошибку `max_client_users_exceeded`,
@@ -469,11 +513,9 @@ HLS и WebRTC также учитывают лицензионный лимит 
 
 Sesame DVR может генерировать короткие preview MP4, а также JPG frames, если это
 включено в настройках. Preview является cache: его можно потерять и
-пересоздать из сегментов.
-
-Если `previewMp4CacheEnabled=false`, отдельные MP4 preview-файлы не создаются:
-MP4 preview endpoints используют ближайший архивный сегмент, а
-`previewDuration` относится только к режиму отдельного MP4 cache.
+пересоздать из сегментов. Если `previewMp4CacheEnabled=false`, отдельные MP4
+preview-файлы не создаются: MP4 preview endpoints используют ближайший архивный
+сегмент, а `previewDuration` относится только к режиму отдельного MP4 cache.
 
 ## ONVIF и события движения
 
@@ -516,26 +558,48 @@ ONVIF events хранятся отдельно от видеоархива, по
 
 Раздел `Агенты` используется для удалённых объектов, где SesameDVR не имеет
 прямого доступа к локальным RTSP/ONVIF-камерам или где удобнее поставить
-небольшой Edge Agent внутри локальной сети объекта.
+небольшой SesameAgent внутри локальной сети объекта.
 
 В разделе можно:
 
-- создать агента и выдать enrollment password;
-- включить, отключить, удалить агента, отозвать или ротировать agent secret;
+- создать одноразовое pairing invitation и передать его владельцу агента;
+- включить, отключить, удалить агента или полностью отозвать pairing;
 - проверить online/offline статус, capabilities и последнюю активность агента;
-- посмотреть камеры, которые агент нашёл или передал в SesameDVR;
-- получить snapshot камеры через агента;
-- запустить ONVIF scan на стороне агента;
-- запросить diagnostics/log tail и отправить команду агенту;
-- создать поток SesameDVR из камеры агента.
+- посмотреть потоки, которые агент сам настроил и анонсировал;
+- явно связать announced stream с заранее созданным push stream SesameDVR;
+- проверить transport и точное совпадение encryption policy/recipients;
+- отдельно сохранить management credential и повысить текущую session до
+  `managed`;
+- только в `managed` получить snapshot, запустить ONVIF scan, запросить
+  diagnostics/log tail или изменить локальный stream.
 
-После enrollment агент сам подключается к SesameDVR по WebSocket, получает
-команды и публикует media через push ingest: RTMP/FLV или SRT/MPEG-TS. Для таких
-камер поток SesameDVR обычно имеет `sourceType=push`: агент читает локальный
-RTSP/ONVIF источник, а SesameDVR принимает опубликованный поток и дальше пишет
-архив, отдаёт live, preview, HLS/WebRTC и API так же, как для обычной камеры.
+Владелец агента импортирует invitation через локальный UI и сверяет
+TLS/SPKI fingerprint. После pairing агент сам подключается к SesameDVR по
+`/agent/v2/connect`. Каждое соединение начинается в базовом режиме:
+SesameDVR принимает inventory, ONVIF events и publish requests, но не управляет
+локальной конфигурацией. Remote management включается владельцем агента
+отдельно и действует только после дополнительной авторизации текущей session.
 
-Функциональность Edge Agent включается лицензией. Если feature не включена,
+Локально enabled stream сам запрашивает short-lived scoped grant и публикует
+media через RTMP/FLV или SRT/MPEG-TS. Grant выдаётся только при наличии явного
+binding `agentId + localStreamId -> serverStreamName` и совпадении revision,
+transport и encryption policy. Для encrypted stream downgrade в clear mode
+запрещён. RTSP/ONVIF credentials, private recipient keys и clear CEK не
+передаются SesameDVR.
+
+Подробная процедура настройки и модель безопасности описаны в
+[`sesame-agent-architecture.ru.md`](sesame-agent-architecture.ru.md), wire/API
+contract - в [`edge-agent-api.ru.md`](edge-agent-api.ru.md).
+
+Если для SRT agent stream включён `archiveEncryption.mode=passthrough_cbcs` и
+WebRTC, Agent не устанавливает отдельное соединение с каждым viewer. Он шифрует
+encoded frames один раз и отправляет один дополнительный stream
+`<streamName>~frame-e2ee`; fan-out, ICE и SRTP для всех browser clients выполняет
+SesameDVR. Поэтому рост числа зрителей не увеличивает количество media uplinks
+с объекта. Native SFrame RTP path можно выбрать отдельно через
+`SESAME_DVR_LIVE_WEBRTC_E2EE_MODE=sframe`.
+
+Функциональность SesameAgent включается лицензией. Если feature не включена,
 раздел `Агенты` и соответствующие API будут недоступны.
 
 ## Клиенты
@@ -552,8 +616,7 @@ RTSP/ONVIF источник, а SesameDVR принимает опубликов�
 Playback client user считается по сочетанию IP-адреса клиента и `User-Agent`.
 Для HLS активность держится коротким TTL после последних playlist/segment
 запросов, для WebRTC используется live registry активных WHEP-сессий. Лицензия
-может задавать лимит `maxClientUsers`; для старых лицензий также учитывается
-legacy поле `maxClientConnections`.
+может задавать лимит `maxClientUsers`.
 
 ## Мониторинг и журналы
 
@@ -567,7 +630,15 @@ legacy поле `maxClientConnections`.
 - диски и storage volumes;
 - сеть;
 - ingest-процессы;
-- BEAM profile и top runtime consumers.
+- BEAM profile и top runtime consumers;
+- Native IO Gateway, RawFileIO, Disk IO pressure и DeleteQueue;
+- backlog/lag внутренних HIDX/CIDX/PIDX materializer-ов;
+- статистику hot caches для индексов, recording status и timelapse ranges.
+
+Обычный polling Dashboard должен оставаться дешёвым. Расширенные storage/BEAM
+диагностические секции обновляются через debug diagnostics/manual snapshot:
+это позволяет смотреть Native IO, RawFileIO, BEAM dirty schedulers и подробные
+кеши без постоянной нагрузки на production-сервер.
 
 Если CPU вырос, сначала проверьте:
 
@@ -576,6 +647,17 @@ legacy поле `maxClientConnections`.
 - нет ли частых ошибок в логах;
 - не идёт ли rebuild/audit catalog;
 - не перегружен ли диск.
+
+На крупных RTSP/TCP инсталляциях также проверьте системный `irqbalance`.
+Для узлов с сотнями native ingest-потоков он должен быть установлен, включён
+и активен. На `sesamedvr-node1` включённый `irqbalance` не убрал все пики
+ingest CPU, но улучшил ровность нагрузки после стабилизации, перераспределив
+сетевые IRQ между CPU:
+
+```bash
+systemctl is-active irqbalance
+systemctl is-enabled irqbalance
+```
 
 ### Prometheus и Grafana
 
@@ -675,16 +757,10 @@ scrape_configs:
 Кнопки:
 
 - `Проверить` - запросить актуальную доступную версию;
-- `Обновить` - запустить штатное full release обновление через
-  `sesame-dvr-update.service`;
-- `Обновить без перезапуска` - применить совместимый BEAM hot patch, если
-  license server опубликовал `beam_hot_patch` для текущего `buildId`.
+- `Обновить` - запустить штатное обновление через `sesame-dvr-update.service`.
 
 Во время обновления UI показывает журнал. На этапе рестарта сервиса страница
 должна дождаться возврата API и затем показать новую версию или ошибку.
-Hot patch не перезапускает service и применим только к ограниченному набору
-BEAM-модулей; формат manifest описан в
-[beam-hot-patch-manifest.ru.md](./beam-hot-patch-manifest.ru.md).
 
 ## Хранилище архива
 
@@ -693,8 +769,8 @@ Sesame DVR поддерживает два режима:
 - `SingleVolume` - один архивный root;
 - `MultiVolume` - несколько томов хранения.
 
-Legacy config без блока `storage` автоматически работает как `SingleVolume` с
-volume `default`, root равным `dvrRoot`.
+При отсутствии блока `storage` система работает как `SingleVolume` с volume
+`default` и root, равным `dvrRoot`.
 
 ### Основные каталоги на volume
 
@@ -703,30 +779,24 @@ volume `default`, root равным `dvrRoot`.
 - `segments` - архивные self-initializing fMP4 сегменты;
 - `segments/<camera>/<YYYY>/<MM>/<DD>/<HH>/.hour_index*.hidx` - primary
   per-hour индекс сегментов для конкретного часа;
-- `segments/<camera>/<YYYY>/<MM>/<DD>/<HH>/.hour_index*.term` - legacy fallback
-  для чтения старых индексов во время runtime-миграции;
 - `previews` - cache preview, а также per-hour preview рядом с segment shard;
 - `timelapse` - готовые timelapse HLS/fMP4 chunks и manifest;
 - `.sesame-dvr/camera_indexes/.../*.cidx` - производные индексы камеры;
-- `.sesame-dvr/volume_index*` - производный индекс volume;
 - `.sesame-dvr/volume_write_state.term` - состояние cursor записи.
 
-Источником истины остаются segment files и primary `HourIndex` в формате
-`*.hidx`. `CameraIndex` (`*.cidx`) и `VolumeIndex` являются производными
-индексами: они ускоряют поиск архива, status endpoints и retention planner, но
-могут быть пересобраны из `HourIndex`.
+Runtime source of truth — Actual HIDX/CIDX/PIDX; `*.hidx`, `*.cidx` и `*.pidx`
+являются их disk mirrors. Отдельного volume-level index file нет. Для admin
+storage map сводка строится transient из списка настроенных камер и CIDX Actual.
 
 ### Индексы и материализация
 
-Обновление индексов идёт каскадом:
+Обновление индексов идёт внутри Actual:
 
-1. Commit нового сегмента обновляет `HourIndex` для `{volume, camera, hour}`.
-2. `CameraIndexMaterializer` асинхронно применяет изменения часов к
-   `CameraIndex`.
-3. `VolumeIndexMaterializer` асинхронно применяет изменения камер к
-   `VolumeIndex`.
+1. Commit нового сегмента атомарно обновляет HIDX Actual и CIDX Actual.
+2. HIDX materializer применяет HIDX Actual vs DiskMirror diff.
+3. CIDX materializer независимо применяет CIDX Actual vs DiskMirror diff.
 
-Такой каскад отделяет запись сегмента от более тяжёлых производных индексов.
+Такой pipeline отделяет запись сегмента от durable index IO.
 На Dashboard в debug diagnostics можно смотреть pending/lag materializer-ов и
 максимальное отставание materialization pipeline от физической записи сегмента.
 
@@ -821,7 +891,7 @@ segments переходят на другой writable volume. Сводка arch
 В разделе `Настройки -> Global config` доступны:
 
 - `Interface language` - язык UI;
-- `DVR root` - корневой каталог архива для legacy/single-volume режима;
+- `DVR root` - корневой каталог архива для режима `SingleVolume`;
 - `Ingest producer` - глобальный producer по умолчанию. В protected-установке
   должен оставаться `ffmpeg_nif`; внешний `ffmpeg` предназначен только для
   unprotected/dev-сборок и будет отклонён protected runtime.
@@ -925,7 +995,7 @@ data.
 - `/var/lib/sesame-dvr/license.json` - лицензия;
 - `/var/lib/sesame-dvr/license-lease.json` - online lease;
 - `/var/lib/sesame-dvr/current_anchor.so` - текущий per-instance anchor;
-- `/var/dvr/segments` - видеоархив legacy/default layout;
+- `/var/dvr/segments` - видеоархив default SingleVolume layout;
 - `/var/dvr/previews` - preview cache;
 - `/var/dvr/onvif-events` - ONVIF events;
 - `/var/dvr/tmp` - временные файлы installer/update/debug;
@@ -990,8 +1060,9 @@ https://dvr.example.com/cam1/live.m3u8?token=<token>
 3. Добавьте volume с уникальным `ID` и абсолютным `Root`.
 4. Убедитесь, что volume online и доступен для записи.
 5. Выберите policy, например `round_robin` или `weighted_round_robin`.
-6. Оставьте `Scope = по камерам`, если цель - равномерная потеря `1/n`
-   архива каждой камеры при отказе одного диска.
+6. Выберите `Scope = сегменты камеры`, если цель - распределять segments каждой
+   камеры по всем writable volumes. `Scope = камеры по дискам` закрепляет камеры
+   за томами и меньше размазывает архив одной камеры по всем дискам.
 7. Нажмите `Сохранить хранилище`.
 8. Запустите `Проверить` или `Пересобрать каталог` для перенесённых данных.
 9. Проверьте, что новые сегменты появляются на нужных volumes.
@@ -1216,11 +1287,11 @@ embed-плееру для режима просмотра по событиям:
 сегментам с движением, а UI timeline остаётся привязан к настоящему времени
 архива.
 
-`/<camera>/timelapse.m3u8` отдаёт HLS VOD из готовых timelapse chunks, если для
-потока включена запись timelapse. Если передать `start=...&end=...`, playlist
-ограничивается этим реальным окном архива. Playback path читает
-материализованный manifest; сборка chunks и обновление manifest выполняются
-фоновыми задачами при записи timelapse. Файлы хранятся под
+`/<camera>/timelapse.m3u8` отдаёт HLS VOD из всех сохранённых отдельных
+timelapse chunks, если для потока включена запись timelapse. Если передать
+`start=...&end=...`, playlist ограничивается этим реальным окном архива.
+Playback path читает материализованный manifest; сборка chunks и обновление
+manifest выполняются фоновыми задачами при записи timelapse. Файлы хранятся под
 `timelapse/<camera>/YYYY/MM/DD/HH/` на storage volume и чистятся по отдельной
 настройке глубины хранения timelapse.
 
@@ -1233,41 +1304,64 @@ GET /dvr/<camera>/...
 GET /dvr/v/<volume_id>/<camera>/...
 ```
 
-Management API используется admin UI и требует management token/session:
+Ниже приведена не исчерпывающая выдержка часто используемых административных
+endpoints. Большинство методов `/api/...` требует management token или активную
+admin session; точные требования авторизации и полный список методов приведены
+в [API-справочнике](./sesame-dvr-api.ru.md).
 
 ```text
+GET /api/i18n
 GET /api/system/status
+GET /api/system/features
 GET /api/system/version
 GET /api/system/license
 POST /api/system/license/renew
 GET /api/system/update/status
 POST /api/system/update/check
 POST /api/system/update/start
+GET /api/system/update/hot-patch/status
 POST /api/system/update/hot-patch/start
+POST /api/system/update/rollback
+GET /api/config
+GET /api/config/multi-bitrate-streams
+PATCH /api/config
 GET /api/streams
 POST /api/streams
 PUT /api/streams/<name>
 PUT /api/streams/<name>/static-image
+PUT /api/streams/<name>/static-video
 DELETE /api/streams/<name>
+GET /api/push-ingest/sessions
 GET /api/agents
-POST /api/agents
-POST /api/agents/enroll
+GET /api/agents/pairing-invitations
+POST /api/agents/pairing-invitations
+GET /api/agents/pairing-invitations/<invitation_id>
+DELETE /api/agents/pairing-invitations/<invitation_id>
 GET /api/agents/<id>
 PATCH /api/agents/<id>
 DELETE /api/agents/<id>
-POST /api/agents/<id>/enrollment-password
-POST /api/agents/<id>/rotate-secret
 POST /api/agents/<id>/revoke
-GET /api/agents/<id>/cameras
-GET /api/agents/<id>/cameras/<camera_id>/snapshot.jpg
-POST /api/agents/<id>/cameras/scan
+GET /api/agents/<id>/streams
+GET /api/agents/<id>/streams/<stream_id>/snapshot.jpg
+GET /api/agents/<id>/streams/<stream_id>/onvif/events
+GET /api/agents/<id>/bindings
+GET /api/agents/<id>/bindings/<stream_id>
+PUT /api/agents/<id>/bindings/<stream_id>
+DELETE /api/agents/<id>/bindings/<stream_id>
+PUT /api/agents/<id>/management-credential
+DELETE /api/agents/<id>/management-credential
+POST /api/agents/<id>/management-auth
 POST /api/agents/<id>/diagnostics
 GET /api/agents/<id>/logs
 GET /api/agents/<id>/commands
 POST /api/agents/<id>/commands
+POST /api/agent/v2/pair
+GET /agent/v2/connect
+GET /streamer/api/v3/config/stats
 GET /streamer/api/v3/streams
 GET /streamer/api/v3/streams/<name>
 PUT /streamer/api/v3/streams/<name>
+POST /streamer/api/v3/streams/<name>/dvr/export
 GET /metrics
 GET /api/storage/volumes
 GET /api/storage/catalog-jobs/<job_id>
@@ -1284,8 +1378,10 @@ POST /api/onvif/devices/scan
 POST /api/onvif/devices/scan-stream
 ```
 
-Совместимый с Flussonic слой `/streamer/api/v3/streams` использует тот же
-management token. Для заголовка авторизации принимаются варианты
+Совместимый с Flussonic слой доступен по префиксам `/streamer/api/v3/...` и
+`/flussonic/api/v3/...`; оба набора aliases используют тот же management token.
+Реализованы `config/stats`, список и карточка потоков, обновление потока через
+`PUT` и запуск DVR export. Для заголовка авторизации принимаются варианты
 `Authorization: Bearer <token>`, `Authorization: <token>` и
 `X-Management-Token: <token>`. `PUT /streamer/api/v3/streams/<name>` принимает
 Flussonic body, где `inputs[0].url` становится `source`, `disabled` становится
@@ -1293,6 +1389,11 @@ Flussonic body, где `inputs[0].url` становится `source`, `disabled`
 `retentionDays`, а `on_play.url` задаёт глобальный `authBackendUrl` и
 `authMode=authBackend` для потока. Удаление в этом слое выполняется только через
 `PUT` с `disabled=true`; Flussonic `DELETE` намеренно не используется.
+
+Endpoints `POST /api/push-ingest/rtmp/publish`,
+`POST /api/push-ingest/rtmp/update` и `POST /api/push-ingest/rtmp/done`
+используются управляемым RTMP/SRT frontend для регистрации lifecycle внешнего
+publisher. Обычным playback-клиентам вызывать их не требуется.
 
 `stats.bytes_in` в совместимом API берётся из native ingest счётчика входных
 байтов. Значение становится `0`, если поток остановлен или за последние 30
