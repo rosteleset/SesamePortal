@@ -66,17 +66,75 @@ web-интерфейс администратора.
 - достаточная пропускная способность сети до камер;
 - отдельный диск или раздел под архив желательно монтировать в `/var/dvr`.
 
-Для публичного доступа через домен:
-
-- DNS A/AAAA запись домена должна указывать на сервер;
-- входящий TCP `80`;
-- для HTTPS и Let's Encrypt также входящий TCP `443`;
-- если используется cloud firewall/security group, эти порты нужно открыть там
-  отдельно.
+Для публичного доступа DNS A/AAAA запись домена должна указывать на сервер. Все
+необходимые правила firewall перечислены в следующем разделе.
 
 Производительность зависит от числа камер, codec, bitrate, длительности
 хранения, скорости дисков, CPU и включённых функций. WebRTC работает без
 транскодирования, поэтому зависит от поддержки codec в браузере.
+
+## Сетевые порты и firewall
+
+Минимальная публичная установка с HTTPS использует следующие входящие порты:
+
+| Порт | Протокол | Когда нужен |
+| --- | --- | --- |
+| `80` | TCP | HTTP, redirect на HTTPS и Let's Encrypt HTTP-01. |
+| `443` | TCP | Admin UI, management API, HLS/LL-HLS, архив, preview, WHEP signaling и подключения SesameAgent. |
+| Диапазон `webrtcUdpPortRange`, например `40000-40100` | UDP | WebRTC media: ICE, DTLS, SRTP и RTCP. |
+
+Для WebRTC рекомендуется явно задать `webrtcUdpPortRange` в Global config и
+открыть тот же UDP-диапазон в локальном firewall, cloud security group и NAT.
+Без явного диапазона native WebRTC использует динамические UDP-порты ОС, что
+делает правила firewall непредсказуемыми. Если DVR находится за NAT,
+`webrtcExternalIp` и `webrtcExternalUdpPortRange` должны описывать реально
+настроенное внешнее отображение; внутренний и внешний диапазоны должны иметь
+одинаковый размер.
+
+Дополнительные входящие порты открываются только для включённых функций:
+
+| Порт | Протокол | Когда нужен |
+| --- | --- | --- |
+| `1935` | TCP | Приём RTMP push. Порт меняется через `SESAME_DVR_RTMP_PORT`. |
+| `10080` | UDP | Приём SRT push. Порт меняется через `SESAME_DVR_SRT_BASE_PORT`. Один порт обслуживает все SRT push-потоки. |
+| Настроенный порт потока | UDP | UDP multicast или другой явно настроенный UDP ingest. |
+| `22` | TCP | SSH-администрирование; доступ следует ограничивать доверенными IP. |
+| `8443`, `5443` или другой опубликованный порт | TCP | Только если reverse proxy намеренно публикует HTTPS на нестандартном порту. |
+
+HLS, LL-HLS, архив, preview и WHEP signaling работают через один публичный
+HTTP/HTTPS-порт и не требуют отдельных TCP listeners. Приложение SesameDVR по
+умолчанию слушает TCP `3000`, а ONVIF sidecar - TCP `3001`; при штатной установке
+они обслуживаются локально за nginx и не должны быть открыты наружу. Если nginx
+не используется и SesameDVR публикуется напрямую, вместо `80/443` открывается
+фактический порт приложения.
+
+Пример минимальных правил UFW для HTTPS и WebRTC:
+
+```bash
+sudo ufw allow 80/tcp
+sudo ufw allow 443/tcp
+sudo ufw allow 40000:40100/udp
+
+# Только при использовании соответствующего push transport:
+sudo ufw allow 1935/tcp
+sudo ufw allow 10080/udp
+```
+
+Кроме локального firewall те же входящие порты необходимо разрешить в cloud
+firewall/security group и пробросить на маршрутизаторе, если сервер находится за
+NAT.
+
+Для исходящих соединений серверу обычно требуются:
+
+- TCP `443` к license/update/auth backend/S3 endpoints;
+- TCP `554` или фактические RTSP-порты камер;
+- TCP `80`, `8080` или другие настроенные ONVIF-порты камер;
+- DNS `53` (UDP/TCP) и NTP `123` (UDP);
+- порты настроенных restream destinations.
+
+При `rtspTransport=tcp` media камеры идёт внутри RTSP TCP-соединения. RTSP over
+UDP дополнительно использует динамические UDP-порты, поэтому для предсказуемой
+работы firewall рекомендуется TCP transport.
 
 ## Установка
 
@@ -349,10 +407,10 @@ srt://dvr.example.com:10080?mode=caller&transtype=live&pkt_size=1316&streamid=se
 - `SESAME_DVR_SRT_PASSPHRASE` - опциональный общий passphrase для защиты SRT
   порта.
 
-Для работы SRT нужно открыть входящий UDP-порт `SESAME_DVR_SRT_BASE_PORT` в
-firewall/security group. SRT защищает участок доставки publisher/agent ->
-SesameDVR, но не является локальным store-and-forward буфером и не исправляет
-проблемы RTSP-участка камера -> agent.
+Правило firewall для SRT приведено в разделе
+[Сетевые порты и firewall](#сетевые-порты-и-firewall). SRT защищает участок
+доставки publisher/agent -> SesameDVR, но не является локальным
+store-and-forward буфером и не исправляет проблемы RTSP-участка камера -> agent.
 
 ### Действия с потоком
 
