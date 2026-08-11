@@ -308,19 +308,23 @@ grep -F -q 'name="map_yandex_api_key"' <<<"$settings_page"
 grep -F -q 'name="map_google_api_key"' <<<"$settings_page"
 grep -F -q 'name="map_default_latitude"' <<<"$settings_page"
 grep -F -q 'name="map_default_longitude"' <<<"$settings_page"
+grep -F -q 'name="map_default_zoom"' <<<"$settings_page"
 grep -F -q 'value="25.2048"' <<<"$settings_page"
 grep -F -q 'value="55.2708"' <<<"$settings_page"
+grep -F -q 'value="10"' <<<"$settings_page"
 settings_csrf="$(sed -n 's/.*name="csrf" value="\([^"]*\)".*/\1/p' <<<"$settings_page" | head -n 1)"
 test -n "$settings_csrf"
 settings_saved="$(
   curl -fsS -b "$COOKIE_JAR" -c "$COOKIE_JAR" \
     -d "csrf=$settings_csrf" -d "action=save_map_settings" -d "map_provider=osm" \
     -d "map_default_latitude=43.1234567" -d "map_default_longitude=41.7654321" \
+    -d "map_default_zoom=12" \
     "http://127.0.0.1:$PORT/admin/settings?lang=ru"
 )"
 grep -F -q "Настройки карты сохранены" <<<"$settings_saved"
 grep -F -q 'value="43.1234567"' <<<"$settings_saved"
 grep -F -q 'value="41.7654321"' <<<"$settings_saved"
+grep -F -q 'value="12"' <<<"$settings_saved"
 settings_invalid="$(
   curl -fsS -b "$COOKIE_JAR" -c "$COOKIE_JAR" \
     -d "csrf=$settings_csrf" -d "action=save_map_settings" -d "map_provider=osm" \
@@ -331,6 +335,17 @@ grep -F -q "Укажите широту от -90 до 90 и долготу от 
 settings_after_invalid="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/admin/settings?lang=ru")"
 grep -F -q 'value="43.1234567"' <<<"$settings_after_invalid"
 grep -F -q 'value="41.7654321"' <<<"$settings_after_invalid"
+grep -F -q 'value="12"' <<<"$settings_after_invalid"
+settings_zoom_invalid="$(
+  curl -fsS -b "$COOKIE_JAR" -c "$COOKIE_JAR" \
+    -d "csrf=$settings_csrf" -d "action=save_map_settings" -d "map_provider=osm" \
+    -d "map_default_latitude=43.1234567" -d "map_default_longitude=41.7654321" \
+    -d "map_default_zoom=20" \
+    "http://127.0.0.1:$PORT/admin/settings?lang=ru"
+)"
+grep -F -q "Укажите масштаб от 0 до 19." <<<"$settings_zoom_invalid"
+settings_after_zoom_invalid="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/admin/settings?lang=ru")"
+grep -F -q 'value="12"' <<<"$settings_after_zoom_invalid"
 settings_yandex_missing_key="$(
   curl -fsS -b "$COOKIE_JAR" -c "$COOKIE_JAR" \
     -d "csrf=$settings_csrf" -d "action=save_map_settings" -d "map_provider=yandex" \
@@ -351,6 +366,7 @@ grep -F -q "API key настроен" <<<"$settings_yandex_saved"
 ! grep -F -q "smoke-yandex-map-key" <<<"$settings_yandex_saved"
 yandex_map_page="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/viewer/map?lang=ru")"
 grep -F -q '"provider":"yandex"' <<<"$yandex_map_page"
+grep -F -q '"defaultZoom":12' <<<"$yandex_map_page"
 grep -F -q 'tiles.api-maps.yandex.ru' <<<"$yandex_map_page"
 grep -F -q 'yandex-map-logo-ru.png' <<<"$yandex_map_page"
 settings_google_saved="$(

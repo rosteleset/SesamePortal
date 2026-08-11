@@ -771,11 +771,15 @@ final class PortalSettings
 {
     public const DEFAULT_MAP_LATITUDE = 25.2048;
     public const DEFAULT_MAP_LONGITUDE = 55.2708;
+    public const DEFAULT_MAP_ZOOM = 10;
+    public const MIN_MAP_ZOOM = 0;
+    public const MAX_MAP_ZOOM = 19;
     public const DEFAULT_MAP_PROVIDER = 'osm';
     public const MAP_PROVIDERS = ['osm', 'yandex', 'google'];
 
     private const MAP_LATITUDE_KEY = 'map_default_latitude';
     private const MAP_LONGITUDE_KEY = 'map_default_longitude';
+    private const MAP_ZOOM_KEY = 'map_default_zoom';
     private const MAP_PROVIDER_KEY = 'map_provider';
     private const MAP_YANDEX_API_KEY = 'map_yandex_api_key_enc';
     private const MAP_GOOGLE_API_KEY = 'map_google_api_key_enc';
@@ -795,6 +799,7 @@ final class PortalSettings
         $values = self::values([
             self::MAP_LATITUDE_KEY,
             self::MAP_LONGITUDE_KEY,
+            self::MAP_ZOOM_KEY,
             self::MAP_PROVIDER_KEY,
             self::MAP_YANDEX_API_KEY,
             self::MAP_GOOGLE_API_KEY,
@@ -813,6 +818,12 @@ final class PortalSettings
                 180.0,
                 self::DEFAULT_MAP_LONGITUDE
             ),
+            'zoom' => self::storedInteger(
+                $values[self::MAP_ZOOM_KEY] ?? null,
+                self::MIN_MAP_ZOOM,
+                self::MAX_MAP_ZOOM,
+                self::DEFAULT_MAP_ZOOM
+            ),
             'provider' => self::normalizeMapProvider($values[self::MAP_PROVIDER_KEY] ?? null),
             'yandexApiKey' => Crypto::decrypt($values[self::MAP_YANDEX_API_KEY] ?? null),
             'googleApiKey' => Crypto::decrypt($values[self::MAP_GOOGLE_API_KEY] ?? null),
@@ -822,6 +833,7 @@ final class PortalSettings
     public static function setMapConfiguration(
         float $latitude,
         float $longitude,
+        int $zoom,
         string $provider,
         ?string $yandexApiKey = null,
         ?string $googleApiKey = null
@@ -832,6 +844,9 @@ final class PortalSettings
         }
         if (!is_finite($longitude) || $longitude < -180.0 || $longitude > 180.0) {
             throw new \InvalidArgumentException('Invalid map longitude');
+        }
+        if ($zoom < self::MIN_MAP_ZOOM || $zoom > self::MAX_MAP_ZOOM) {
+            throw new \InvalidArgumentException('Invalid map zoom');
         }
 
         $provider = self::normalizeMapProvider($provider, false);
@@ -849,6 +864,7 @@ final class PortalSettings
         $settings = [
             self::MAP_LATITUDE_KEY => self::formatCoordinate($latitude),
             self::MAP_LONGITUDE_KEY => self::formatCoordinate($longitude),
+            self::MAP_ZOOM_KEY => (string)$zoom,
             self::MAP_PROVIDER_KEY => $provider,
         ];
         if ($yandexApiKey !== null && trim($yandexApiKey) !== '') {
@@ -864,7 +880,12 @@ final class PortalSettings
     public static function setMapCenter(float $latitude, float $longitude): void
     {
         $current = self::mapConfiguration();
-        self::setMapConfiguration($latitude, $longitude, (string)$current['provider']);
+        self::setMapConfiguration(
+            $latitude,
+            $longitude,
+            (int)$current['zoom'],
+            (string)$current['provider']
+        );
     }
 
     public static function normalizeMapProvider(?string $provider, bool $fallback = true): string
@@ -944,6 +965,16 @@ final class PortalSettings
         return is_finite($coordinate) && $coordinate >= $min && $coordinate <= $max
             ? $coordinate
             : $fallback;
+    }
+
+    private static function storedInteger(?string $value, int $min, int $max, int $fallback): int
+    {
+        if ($value === null || filter_var($value, FILTER_VALIDATE_INT) === false) {
+            return $fallback;
+        }
+
+        $integer = (int)$value;
+        return $integer >= $min && $integer <= $max ? $integer : $fallback;
     }
 }
 
@@ -6123,8 +6154,18 @@ final class App
             } elseif ($action === 'save_map_settings' || $action === 'save_map_center') {
                 $latitudeInput = trim((string)Util::post('map_default_latitude'));
                 $longitudeInput = trim((string)Util::post('map_default_longitude'));
+                $zoomInput = $action === 'save_map_settings'
+                    ? trim((string)Util::post('map_default_zoom'))
+                    : (string)$mapSettings['zoom'];
+                if ($zoomInput === '') {
+                    $zoomInput = (string)$mapSettings['zoom'];
+                }
                 $latitude = self::coordinateFromInput($latitudeInput, -90.0, 90.0);
                 $longitude = self::coordinateFromInput($longitudeInput, -180.0, 180.0);
+                $zoom = filter_var($zoomInput, FILTER_VALIDATE_INT);
+                $zoomValid = $zoom !== false
+                    && $zoom >= PortalSettings::MIN_MAP_ZOOM
+                    && $zoom <= PortalSettings::MAX_MAP_ZOOM;
                 $providerInput = $action === 'save_map_settings'
                     ? trim((string)Util::post('map_provider'))
                     : (string)$mapSettings['provider'];
@@ -6141,6 +6182,14 @@ final class App
                     $messageClass = 'danger';
                     $mapSettings['latitude'] = $latitudeInput;
                     $mapSettings['longitude'] = $longitudeInput;
+                    $mapSettings['zoom'] = $zoomValid ? $zoom : $zoomInput;
+                    $mapSettings['provider'] = $provider ?? PortalSettings::DEFAULT_MAP_PROVIDER;
+                } elseif (!$zoomValid) {
+                    $message = self::t('settings.mapZoomInvalid', 'Укажите масштаб от 0 до 19.');
+                    $messageClass = 'danger';
+                    $mapSettings['latitude'] = $latitude;
+                    $mapSettings['longitude'] = $longitude;
+                    $mapSettings['zoom'] = $zoomInput;
                     $mapSettings['provider'] = $provider ?? PortalSettings::DEFAULT_MAP_PROVIDER;
                 } elseif ($provider === null) {
                     $message = self::t('settings.mapProviderInvalid', 'Выберите поддерживаемого провайдера карт.');
@@ -6156,6 +6205,7 @@ final class App
                         PortalSettings::setMapConfiguration(
                             $latitude,
                             $longitude,
+                            $zoom,
                             $provider,
                             $yandexApiKey,
                             $googleApiKey
@@ -6168,6 +6218,7 @@ final class App
                             'provider=' . $provider
                             . ' latitude=' . PortalSettings::formatCoordinate($latitude)
                             . ' longitude=' . PortalSettings::formatCoordinate($longitude)
+                            . ' zoom=' . $zoom
                             . ' yandex_key=' . ($mapSettings['yandexApiKey'] !== '' ? 'configured' : 'missing')
                             . ' google_key=' . ($mapSettings['googleApiKey'] !== '' ? 'configured' : 'missing')
                             . ' ip=' . Audit::clientIp()
@@ -6250,13 +6301,18 @@ final class App
             'settings.mapCenterHint',
             'Эти координаты используются как центр карты при добавлении камеры без заданного положения.'
         )) . '</p>';
-        echo '<div class="form-row">';
+        echo '<div class="form-row portal-map-center-fields">';
         echo '<label>' . self::t('settings.mapLatitude', 'Начальная широта')
             . '<input name="map_default_latitude" type="number" inputmode="decimal" min="-90" max="90" step="any" required value="'
             . Util::h($mapSettings['latitude'] ?? PortalSettings::DEFAULT_MAP_LATITUDE) . '"></label>';
         echo '<label>' . self::t('settings.mapLongitude', 'Начальная долгота')
             . '<input name="map_default_longitude" type="number" inputmode="decimal" min="-180" max="180" step="any" required value="'
             . Util::h($mapSettings['longitude'] ?? PortalSettings::DEFAULT_MAP_LONGITUDE) . '"></label>';
+        echo '<label>' . self::t('settings.mapZoom', 'Начальный масштаб')
+            . '<input name="map_default_zoom" type="number" inputmode="numeric" min="'
+            . PortalSettings::MIN_MAP_ZOOM . '" max="' . PortalSettings::MAX_MAP_ZOOM
+            . '" step="1" required value="'
+            . Util::h($mapSettings['zoom'] ?? PortalSettings::DEFAULT_MAP_ZOOM) . '"></label>';
         echo '</div><div class="form-actions"><button class="primary" type="submit">'
             . self::t('settings.mapSave', 'Сохранить настройки карты') . '</button></div></form></section>';
     }
@@ -8013,6 +8069,7 @@ final class App
                 'lat' => (float)$settings['latitude'],
                 'lng' => (float)$settings['longitude'],
             ],
+            'defaultZoom' => (int)$settings['zoom'],
         ];
 
         if ($provider === 'yandex' && $settings['yandexApiKey'] !== '') {

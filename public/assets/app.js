@@ -24,7 +24,7 @@
     const map = L.map(container, { zoomControl: true });
     setPlainLeafletAttribution(map);
     const center = configuredMapCenter();
-    map.setView([center.lat, center.lng], 10);
+    map.setView([center.lat, center.lng], configuredMapZoom());
     void addBaseMapLayer(map, container);
 
     const markerLayer = cameraMarkerLayer();
@@ -67,7 +67,10 @@
     const defaultLatitude = mapDefaultCoordinate(container.dataset.defaultLat, 25.2048, -90, 90);
     const defaultLongitude = mapDefaultCoordinate(container.dataset.defaultLng, 55.2708, -180, 180);
     const start = hasPoint(committed) ? [committed.lat, committed.lng] : [defaultLatitude, defaultLongitude];
-    const editorMap = L.map(container, { zoomControl: true }).setView(start, hasPoint(committed) ? 16 : 4);
+    const editorMap = L.map(container, { zoomControl: true }).setView(
+      start,
+      hasPoint(committed) ? 16 : configuredMapZoom()
+    );
     setPlainLeafletAttribution(editorMap);
     const confirmBar = createMapConfirmBar(container);
     let cameraMarker = null;
@@ -338,6 +341,11 @@
       lat: mapDefaultCoordinate(center.lat, 25.2048, -90, 90),
       lng: mapDefaultCoordinate(center.lng, 55.2708, -180, 180)
     };
+  }
+
+  function configuredMapZoom() {
+    const zoom = Number(mapProviderConfig().defaultZoom);
+    return Number.isInteger(zoom) && zoom >= 0 && zoom <= 19 ? zoom : 10;
   }
 
   async function addBaseMapLayer(map, container) {

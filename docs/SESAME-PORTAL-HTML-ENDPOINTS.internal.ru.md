@@ -270,8 +270,8 @@ Actions:
 
 | `action` | Поля | Описание |
 | --- | --- | --- |
-| `save_map_settings` | `map_provider`, `map_default_latitude`, `map_default_longitude`, `map_yandex_api_key`, `map_google_api_key` | Сохранить провайдера и начальный центр карты. Допустимые провайдеры: `osm`, `yandex`, `google`. Для Yandex/Google соответствующий API key обязателен; пустое поле сохраняет ранее настроенный ключ. |
-| `save_map_center` | `map_default_latitude`, `map_default_longitude` | Legacy-совместимое сохранение только центра карты без смены провайдера. |
+| `save_map_settings` | `map_provider`, `map_default_latitude`, `map_default_longitude`, `map_default_zoom`, `map_yandex_api_key`, `map_google_api_key` | Сохранить провайдера, начальный центр и масштаб карты. Масштаб — целое число `0-19`. Допустимые провайдеры: `osm`, `yandex`, `google`. Для Yandex/Google соответствующий API key обязателен; пустое поле сохраняет ранее настроенный ключ. |
+| `save_map_center` | `map_default_latitude`, `map_default_longitude` | Legacy-совместимое сохранение только центра карты без смены провайдера и масштаба. |
 | `check_update` | - | Принудительно проверить последний commit на GitHub и обновить cache `/var/lib/sesame-portal/portal-update-status.json`. |
 | `run_update` | - | Запустить configured update command, по умолчанию `sudo -n /usr/local/sbin/sesame-portal-update`. |
 
