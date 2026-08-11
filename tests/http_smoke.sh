@@ -299,7 +299,13 @@ printf "%s" "$settings_page" | grep -q "Доступная версия на Git
 printf "%s" "$settings_page" | grep -q "Smoke available update"
 printf "%s" "$settings_page" | grep -q "Проверить обновления"
 printf "%s" "$settings_page" | grep -q "Обновить Portal"
-grep -F -q "Начальная позиция карты" <<<"$settings_page"
+grep -F -q "Настройки карты" <<<"$settings_page"
+grep -F -q 'name="map_provider"' <<<"$settings_page"
+grep -F -q '<option value="osm" selected>OpenStreetMap (OSM)</option>' <<<"$settings_page"
+grep -F -q '<option value="yandex" >Yandex Maps</option>' <<<"$settings_page"
+grep -F -q '<option value="google" >Google Maps</option>' <<<"$settings_page"
+grep -F -q 'name="map_yandex_api_key"' <<<"$settings_page"
+grep -F -q 'name="map_google_api_key"' <<<"$settings_page"
 grep -F -q 'name="map_default_latitude"' <<<"$settings_page"
 grep -F -q 'name="map_default_longitude"' <<<"$settings_page"
 grep -F -q 'value="25.2048"' <<<"$settings_page"
@@ -308,16 +314,16 @@ settings_csrf="$(sed -n 's/.*name="csrf" value="\([^"]*\)".*/\1/p' <<<"$settings
 test -n "$settings_csrf"
 settings_saved="$(
   curl -fsS -b "$COOKIE_JAR" -c "$COOKIE_JAR" \
-    -d "csrf=$settings_csrf" -d "action=save_map_center" \
+    -d "csrf=$settings_csrf" -d "action=save_map_settings" -d "map_provider=osm" \
     -d "map_default_latitude=43.1234567" -d "map_default_longitude=41.7654321" \
     "http://127.0.0.1:$PORT/admin/settings?lang=ru"
 )"
-grep -F -q "Начальные координаты карты сохранены" <<<"$settings_saved"
+grep -F -q "Настройки карты сохранены" <<<"$settings_saved"
 grep -F -q 'value="43.1234567"' <<<"$settings_saved"
 grep -F -q 'value="41.7654321"' <<<"$settings_saved"
 settings_invalid="$(
   curl -fsS -b "$COOKIE_JAR" -c "$COOKIE_JAR" \
-    -d "csrf=$settings_csrf" -d "action=save_map_center" \
+    -d "csrf=$settings_csrf" -d "action=save_map_settings" -d "map_provider=osm" \
     -d "map_default_latitude=91" -d "map_default_longitude=41" \
     "http://127.0.0.1:$PORT/admin/settings?lang=ru"
 )"
@@ -325,6 +331,63 @@ grep -F -q "Укажите широту от -90 до 90 и долготу от 
 settings_after_invalid="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/admin/settings?lang=ru")"
 grep -F -q 'value="43.1234567"' <<<"$settings_after_invalid"
 grep -F -q 'value="41.7654321"' <<<"$settings_after_invalid"
+settings_yandex_missing_key="$(
+  curl -fsS -b "$COOKIE_JAR" -c "$COOKIE_JAR" \
+    -d "csrf=$settings_csrf" -d "action=save_map_settings" -d "map_provider=yandex" \
+    -d "map_default_latitude=43.1234567" -d "map_default_longitude=41.7654321" \
+    "http://127.0.0.1:$PORT/admin/settings?lang=ru"
+)"
+grep -F -q "Для провайдера Yandex Maps необходимо указать API key." <<<"$settings_yandex_missing_key"
+settings_yandex_saved="$(
+  curl -fsS -b "$COOKIE_JAR" -c "$COOKIE_JAR" \
+    -d "csrf=$settings_csrf" -d "action=save_map_settings" -d "map_provider=yandex" \
+    -d "map_yandex_api_key=smoke-yandex-map-key" \
+    -d "map_default_latitude=43.1234567" -d "map_default_longitude=41.7654321" \
+    "http://127.0.0.1:$PORT/admin/settings?lang=ru"
+)"
+grep -F -q "Настройки карты сохранены" <<<"$settings_yandex_saved"
+grep -F -q '<option value="yandex" selected>Yandex Maps</option>' <<<"$settings_yandex_saved"
+grep -F -q "API key настроен" <<<"$settings_yandex_saved"
+! grep -F -q "smoke-yandex-map-key" <<<"$settings_yandex_saved"
+yandex_map_page="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/viewer/map?lang=ru")"
+grep -F -q '"provider":"yandex"' <<<"$yandex_map_page"
+grep -F -q 'tiles.api-maps.yandex.ru' <<<"$yandex_map_page"
+grep -F -q 'yandex-map-logo-ru.png' <<<"$yandex_map_page"
+settings_google_saved="$(
+  curl -fsS -b "$COOKIE_JAR" -c "$COOKIE_JAR" \
+    -d "csrf=$settings_csrf" -d "action=save_map_settings" -d "map_provider=google" \
+    -d "map_google_api_key=smoke-google-map-key" \
+    -d "map_default_latitude=43.1234567" -d "map_default_longitude=41.7654321" \
+    "http://127.0.0.1:$PORT/admin/settings?lang=ru"
+)"
+grep -F -q '<option value="google" selected>Google Maps</option>' <<<"$settings_google_saved"
+! grep -F -q "smoke-google-map-key" <<<"$settings_google_saved"
+google_map_page="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/viewer/map?lang=en")"
+grep -F -q '"provider":"google"' <<<"$google_map_page"
+grep -F -q '"sessionUrl":"/viewer/map/google-session"' <<<"$google_map_page"
+! grep -F -q "smoke-google-map-key" <<<"$google_map_page"
+php <<'PHP'
+<?php
+require getenv('ROOT') . '/app/Portal.php';
+$rows = \SesamePortal\DB::pdo()->query(
+    "SELECT setting_key, setting_value FROM portal_settings WHERE setting_key IN ('map_yandex_api_key_enc', 'map_google_api_key_enc')"
+)->fetchAll(PDO::FETCH_KEY_PAIR);
+$expected = [
+    'map_yandex_api_key_enc' => 'smoke-yandex-map-key',
+    'map_google_api_key_enc' => 'smoke-google-map-key',
+];
+foreach ($expected as $key => $plain) {
+    $encoded = (string)($rows[$key] ?? '');
+    if (!str_starts_with($encoded, 'v2:') || str_contains($encoded, $plain)
+        || \SesamePortal\Crypto::decrypt($encoded) !== $plain) {
+        exit(1);
+    }
+}
+PHP
+curl -fsS -b "$COOKIE_JAR" -c "$COOKIE_JAR" \
+  -d "csrf=$settings_csrf" -d "action=save_map_settings" -d "map_provider=osm" \
+  -d "map_default_latitude=43.1234567" -d "map_default_longitude=41.7654321" \
+  "http://127.0.0.1:$PORT/admin/settings?lang=ru" >/dev/null
 admin_users_page="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/admin/users?q=admin&lang=ru")"
 printf "%s" "$admin_users_page" | grep -q "admin"
 printf "%s" "$admin_users_page" | grep -q "Статический токен"

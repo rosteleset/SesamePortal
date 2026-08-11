@@ -498,6 +498,26 @@ button:disabled {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
 }
+.map-provider-key {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 6px 14px;
+}
+.map-provider-key[hidden] {
+  display: none;
+}
+.map-provider-key label {
+  grid-column: 1 / -1;
+}
+.field-hint {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+.map-center-hint {
+  margin: 4px 0 0;
+}
 .camera-stream-options,
 .camera-location-options {
   border: 1px solid var(--line);
@@ -1355,6 +1375,35 @@ tr:last-child td {
   height: calc(100vh - 138px);
   min-height: 520px;
   background: #F2EFE8;
+}
+.map-provider-warning {
+  position: absolute;
+  z-index: 1000;
+  top: 12px;
+  left: 50%;
+  max-width: calc(100% - 120px);
+  transform: translateX(-50%);
+  padding: 8px 12px;
+  border: 1px solid #DEBD78;
+  border-radius: 8px;
+  background: rgba(255, 248, 232, .96);
+  color: #7A520D;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, .14);
+  font-size: 12px;
+  font-weight: 800;
+  text-align: center;
+}
+.map-provider-logo {
+  margin: 0 !important;
+  background: transparent;
+}
+.map-provider-logo a,
+.map-provider-logo img {
+  display: block;
+}
+.map-provider-logo img {
+  width: 68.5px;
+  height: 36px;
 }
 .camera-marker-icon {
   overflow: visible;

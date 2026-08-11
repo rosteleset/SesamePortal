@@ -116,7 +116,20 @@ Query parameters:
 | `q` | Регистронезависимый поиск по названию камеры, `dvr_stream_name` или IP/URL источника. |
 
 Ответ: HTML. Список камер для карты встраивается в страницу как
-`window.SESAME_CAMERAS`.
+`window.SESAME_CAMERAS`, а выбранный провайдер и его клиентская конфигурация —
+как `window.SESAME_MAP_CONFIG`.
+
+### GET /viewer/map/google-session
+
+Создаёт или возвращает кэшированную сессию Google Map Tiles API для текущей
+локали. Ответ содержит tile URL и не должен кэшироваться браузером. Требует
+login и выбранный в настройках провайдер `google` с настроенным API key.
+
+### GET /viewer/map/google-attribution
+
+Возвращает обязательную строку copyright Google для текущего viewport.
+Параметры: `north`, `south`, `east`, `west`, `zoom`. Требует login и выбранный
+провайдер `google`.
 
 ### GET /viewer/player
 
@@ -257,7 +270,8 @@ Actions:
 
 | `action` | Поля | Описание |
 | --- | --- | --- |
-| `save_map_center` | `map_default_latitude`, `map_default_longitude` | Сохранить начальный центр карты. Широта должна находиться в диапазоне от `-90` до `90`, долгота — от `-180` до `180`. |
+| `save_map_settings` | `map_provider`, `map_default_latitude`, `map_default_longitude`, `map_yandex_api_key`, `map_google_api_key` | Сохранить провайдера и начальный центр карты. Допустимые провайдеры: `osm`, `yandex`, `google`. Для Yandex/Google соответствующий API key обязателен; пустое поле сохраняет ранее настроенный ключ. |
+| `save_map_center` | `map_default_latitude`, `map_default_longitude` | Legacy-совместимое сохранение только центра карты без смены провайдера. |
 | `check_update` | - | Принудительно проверить последний commit на GitHub и обновить cache `/var/lib/sesame-portal/portal-update-status.json`. |
 | `run_update` | - | Запустить configured update command, по умолчанию `sudo -n /usr/local/sbin/sesame-portal-update`. |
 
@@ -271,10 +285,15 @@ updater-а для production установки хранятся в root-owned
 
 Audit actions:
 
-- `settings.map_center.save`;
+- `settings.map.save`;
 - `portal.update.start`;
 - `portal.update.complete`;
 - `portal.update.failed`.
+
+API keys шифруются через `Crypto` перед записью в `portal_settings` и не
+выводятся обратно в форме настроек. Tile API являются браузерными API, поэтому
+ключ выбранного провайдера всё равно доступен клиенту в tile-запросах; ключи
+нужно ограничивать доменом Portal в кабинете провайдера.
 
 В audit пишутся repo, ref, return code и IP. Полный stdout/stderr updater-а
 показывается только в HTML notice/details текущему admin.

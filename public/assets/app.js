@@ -1,5 +1,6 @@
 (function () {
   const messages = window.SESAME_I18N || {};
+  initMapProviderSettings();
   initMap();
   initCameraPositionEditor();
   initPlayer();
@@ -19,14 +20,12 @@
 
     const cameras = window.SESAME_CAMERAS || [];
     const visibleCameras = cameras.filter((camera) => Number.isFinite(camera.lat) && Number.isFinite(camera.lng));
-    const map = L.map("map", { zoomControl: true });
+    const container = document.getElementById("map");
+    const map = L.map(container, { zoomControl: true });
     setPlainLeafletAttribution(map);
-    map.setView([25.2048, 55.2708], 10);
-
-    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-      maxZoom: 19,
-      attribution: "&copy; OpenStreetMap"
-    }).addTo(map);
+    const center = configuredMapCenter();
+    map.setView([center.lat, center.lng], 10);
+    void addBaseMapLayer(map, container);
 
     const markerLayer = cameraMarkerLayer();
     visibleCameras.forEach((camera) => {
@@ -75,10 +74,7 @@
     let directionMarker = null;
     let directionLine = null;
 
-    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-      maxZoom: 19,
-      attribution: "&copy; OpenStreetMap"
-    }).addTo(editorMap);
+    void addBaseMapLayer(editorMap, container);
 
     const stageChange = (next, pan = false) => {
       pending = normalizeEditorState(next);
@@ -315,6 +311,177 @@
     map.attributionControl?.setPrefix('<a href="https://leafletjs.com" title="A JavaScript library for interactive maps">Leaflet</a>');
   }
 
+  function initMapProviderSettings() {
+    document.querySelectorAll("[data-map-provider-settings]").forEach((form) => {
+      const select = form.querySelector("[data-map-provider-select]");
+      if (!select) return;
+
+      const sync = () => {
+        form.querySelectorAll("[data-map-provider-key]").forEach((field) => {
+          field.hidden = field.dataset.mapProviderKey !== select.value;
+        });
+      };
+      select.addEventListener("change", sync);
+      sync();
+    });
+  }
+
+  function mapProviderConfig() {
+    return window.SESAME_MAP_CONFIG && typeof window.SESAME_MAP_CONFIG === "object"
+      ? window.SESAME_MAP_CONFIG
+      : { provider: "osm" };
+  }
+
+  function configuredMapCenter() {
+    const center = mapProviderConfig().defaultCenter || {};
+    return {
+      lat: mapDefaultCoordinate(center.lat, 25.2048, -90, 90),
+      lng: mapDefaultCoordinate(center.lng, 55.2708, -180, 180)
+    };
+  }
+
+  async function addBaseMapLayer(map, container) {
+    const config = mapProviderConfig();
+    if (config.provider === "yandex" && config.tileUrl) {
+      const layer = L.tileLayer(config.tileUrl, {
+        maxZoom: Number(config.maxZoom) || 20
+      }).addTo(map);
+      const logo = addYandexMapLogo(map, config);
+      layer.once("tileerror", () => fallbackToOsm(map, container, layer, logo));
+      return;
+    }
+
+    if (config.provider === "google" && config.sessionUrl) {
+      try {
+        const response = await fetch(config.sessionUrl, {
+          credentials: "same-origin",
+          headers: { Accept: "application/json" }
+        });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const session = await response.json();
+        if (!session.tileUrl) throw new Error("Missing tile URL");
+
+        const layer = L.tileLayer(session.tileUrl, {
+          maxZoom: Number(session.maxZoom) || 22,
+          attribution: '<a href="https://maps.google.com/" target="_blank" rel="noopener">Google Maps</a>'
+        }).addTo(map);
+        const stopAttribution = installGoogleMapAttribution(map, config.attributionUrl);
+        layer.once("tileerror", () => {
+          stopAttribution();
+          fallbackToOsm(map, container, layer);
+        });
+        return;
+      } catch (_error) {
+        fallbackToOsm(map, container);
+        return;
+      }
+    }
+
+    addOsmBaseLayer(map);
+    if (config.provider && config.provider !== "osm") {
+      showMapProviderWarning(container);
+    }
+  }
+
+  function addOsmBaseLayer(map) {
+    return L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      maxZoom: 19,
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>'
+    }).addTo(map);
+  }
+
+  function fallbackToOsm(map, container, providerLayer = null, providerControl = null) {
+    if (container.dataset.mapProviderFallback === "1") return;
+    container.dataset.mapProviderFallback = "1";
+    if (providerLayer && map.hasLayer(providerLayer)) {
+      map.removeLayer(providerLayer);
+    }
+    if (providerControl) {
+      map.removeControl(providerControl);
+    }
+    addOsmBaseLayer(map);
+    showMapProviderWarning(container);
+  }
+
+  function showMapProviderWarning(container) {
+    if (container.querySelector(".map-provider-warning")) return;
+    const warning = document.createElement("div");
+    warning.className = "map-provider-warning";
+    warning.setAttribute("role", "status");
+    warning.textContent = tr("mapProviderUnavailable", "Провайдер карт недоступен. Используется OpenStreetMap.");
+    container.appendChild(warning);
+  }
+
+  function addYandexMapLogo(map, config) {
+    const control = L.control({ position: "bottomleft" });
+    control.onAdd = () => {
+      const wrapper = L.DomUtil.create("div", "map-provider-logo yandex-map-logo");
+      const link = document.createElement("a");
+      link.href = config.mapsUrl || "https://yandex.com/maps/";
+      link.target = "_blank";
+      link.rel = "noopener";
+      const logo = document.createElement("img");
+      logo.src = config.logoUrl;
+      logo.alt = "Yandex Maps";
+      link.appendChild(logo);
+      wrapper.appendChild(link);
+      L.DomEvent.disableClickPropagation(wrapper);
+      return wrapper;
+    };
+    control.addTo(map);
+    return control;
+  }
+
+  function installGoogleMapAttribution(map, endpoint) {
+    if (!endpoint) return () => {};
+    let timer = null;
+    let activeAttribution = "";
+    let activeAttributionMarkup = "";
+    let stopped = false;
+
+    const update = async () => {
+      if (stopped) return;
+      const bounds = map.getBounds();
+      const params = new URLSearchParams({
+        north: String(bounds.getNorth()),
+        south: String(bounds.getSouth()),
+        east: String(bounds.getEast()),
+        west: String(bounds.getWest()),
+        zoom: String(Math.round(map.getZoom()))
+      });
+      try {
+        const response = await fetch(`${endpoint}?${params}`, {
+          credentials: "same-origin",
+          headers: { Accept: "application/json" }
+        });
+        if (!response.ok) return;
+        const payload = await response.json();
+        const nextAttribution = String(payload.copyright || "").trim();
+        if (nextAttribution === activeAttribution) return;
+        if (activeAttributionMarkup) map.attributionControl?.removeAttribution(activeAttributionMarkup);
+        activeAttribution = nextAttribution;
+        activeAttributionMarkup = nextAttribution ? escapeHtml(nextAttribution) : "";
+        if (activeAttributionMarkup) map.attributionControl?.addAttribution(activeAttributionMarkup);
+      } catch (_error) {
+        // The permanent Google Maps attribution remains visible on network errors.
+      }
+    };
+
+    const schedule = () => {
+      window.clearTimeout(timer);
+      timer = window.setTimeout(update, 250);
+    };
+    map.on("moveend zoomend", schedule);
+    schedule();
+
+    return () => {
+      stopped = true;
+      window.clearTimeout(timer);
+      map.off("moveend zoomend", schedule);
+      if (activeAttributionMarkup) map.attributionControl?.removeAttribution(activeAttributionMarkup);
+    };
+  }
+
   function cameraMarkerLayer() {
     if (typeof L.markerClusterGroup !== "function") {
       return L.layerGroup();
@@ -351,7 +518,7 @@
   }
 
   function mapDefaultCoordinate(value, fallback, min, max) {
-    const raw = String(value || "").trim();
+    const raw = String(value ?? "").trim();
     const coordinate = raw === "" ? Number.NaN : Number(raw);
     return Number.isFinite(coordinate) && coordinate >= min && coordinate <= max ? coordinate : fallback;
   }

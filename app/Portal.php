@@ -771,21 +771,34 @@ final class PortalSettings
 {
     public const DEFAULT_MAP_LATITUDE = 25.2048;
     public const DEFAULT_MAP_LONGITUDE = 55.2708;
+    public const DEFAULT_MAP_PROVIDER = 'osm';
+    public const MAP_PROVIDERS = ['osm', 'yandex', 'google'];
 
     private const MAP_LATITUDE_KEY = 'map_default_latitude';
     private const MAP_LONGITUDE_KEY = 'map_default_longitude';
+    private const MAP_PROVIDER_KEY = 'map_provider';
+    private const MAP_YANDEX_API_KEY = 'map_yandex_api_key_enc';
+    private const MAP_GOOGLE_API_KEY = 'map_google_api_key_enc';
 
     public static function mapCenter(): array
     {
-        $stmt = DB::pdo()->prepare(
-            'SELECT setting_key, setting_value FROM portal_settings WHERE setting_key IN (?, ?)'
-        );
-        $stmt->execute([self::MAP_LATITUDE_KEY, self::MAP_LONGITUDE_KEY]);
+        $settings = self::mapConfiguration();
 
-        $values = [];
-        foreach ($stmt->fetchAll() as $row) {
-            $values[(string)$row['setting_key']] = (string)$row['setting_value'];
-        }
+        return [
+            'latitude' => $settings['latitude'],
+            'longitude' => $settings['longitude'],
+        ];
+    }
+
+    public static function mapConfiguration(): array
+    {
+        $values = self::values([
+            self::MAP_LATITUDE_KEY,
+            self::MAP_LONGITUDE_KEY,
+            self::MAP_PROVIDER_KEY,
+            self::MAP_YANDEX_API_KEY,
+            self::MAP_GOOGLE_API_KEY,
+        ]);
 
         return [
             'latitude' => self::storedCoordinate(
@@ -800,16 +813,97 @@ final class PortalSettings
                 180.0,
                 self::DEFAULT_MAP_LONGITUDE
             ),
+            'provider' => self::normalizeMapProvider($values[self::MAP_PROVIDER_KEY] ?? null),
+            'yandexApiKey' => Crypto::decrypt($values[self::MAP_YANDEX_API_KEY] ?? null),
+            'googleApiKey' => Crypto::decrypt($values[self::MAP_GOOGLE_API_KEY] ?? null),
         ];
     }
 
-    public static function setMapCenter(float $latitude, float $longitude): void
+    public static function setMapConfiguration(
+        float $latitude,
+        float $longitude,
+        string $provider,
+        ?string $yandexApiKey = null,
+        ?string $googleApiKey = null
+    ): void
     {
         if (!is_finite($latitude) || $latitude < -90.0 || $latitude > 90.0) {
             throw new \InvalidArgumentException('Invalid map latitude');
         }
         if (!is_finite($longitude) || $longitude < -180.0 || $longitude > 180.0) {
             throw new \InvalidArgumentException('Invalid map longitude');
+        }
+
+        $provider = self::normalizeMapProvider($provider, false);
+        $current = self::mapConfiguration();
+        $nextYandexApiKey = self::replacementSecret($yandexApiKey, (string)$current['yandexApiKey']);
+        $nextGoogleApiKey = self::replacementSecret($googleApiKey, (string)$current['googleApiKey']);
+
+        if ($provider === 'yandex' && $nextYandexApiKey === '') {
+            throw new \InvalidArgumentException('Yandex Maps API key is required');
+        }
+        if ($provider === 'google' && $nextGoogleApiKey === '') {
+            throw new \InvalidArgumentException('Google Maps API key is required');
+        }
+
+        $settings = [
+            self::MAP_LATITUDE_KEY => self::formatCoordinate($latitude),
+            self::MAP_LONGITUDE_KEY => self::formatCoordinate($longitude),
+            self::MAP_PROVIDER_KEY => $provider,
+        ];
+        if ($yandexApiKey !== null && trim($yandexApiKey) !== '') {
+            $settings[self::MAP_YANDEX_API_KEY] = (string)Crypto::encrypt(trim($yandexApiKey));
+        }
+        if ($googleApiKey !== null && trim($googleApiKey) !== '') {
+            $settings[self::MAP_GOOGLE_API_KEY] = (string)Crypto::encrypt(trim($googleApiKey));
+        }
+
+        self::storeValues($settings);
+    }
+
+    public static function setMapCenter(float $latitude, float $longitude): void
+    {
+        $current = self::mapConfiguration();
+        self::setMapConfiguration($latitude, $longitude, (string)$current['provider']);
+    }
+
+    public static function normalizeMapProvider(?string $provider, bool $fallback = true): string
+    {
+        $provider = strtolower(trim((string)$provider));
+        if (in_array($provider, self::MAP_PROVIDERS, true)) {
+            return $provider;
+        }
+        if ($fallback) {
+            return self::DEFAULT_MAP_PROVIDER;
+        }
+        throw new \InvalidArgumentException('Invalid map provider');
+    }
+
+    private static function values(array $keys): array
+    {
+        $stmt = DB::pdo()->prepare(
+            'SELECT setting_key, setting_value FROM portal_settings WHERE setting_key IN ('
+            . implode(',', array_fill(0, count($keys), '?')) . ')'
+        );
+        $stmt->execute($keys);
+
+        $values = [];
+        foreach ($stmt->fetchAll() as $row) {
+            $values[(string)$row['setting_key']] = (string)$row['setting_value'];
+        }
+        return $values;
+    }
+
+    private static function replacementSecret(?string $replacement, string $current): string
+    {
+        $replacement = $replacement === null ? '' : trim($replacement);
+        return $replacement !== '' ? $replacement : $current;
+    }
+
+    private static function storeValues(array $settings): void
+    {
+        if ($settings === []) {
+            return;
         }
 
         $pdo = DB::pdo();
@@ -824,8 +918,9 @@ final class PortalSettings
 
         $pdo->beginTransaction();
         try {
-            $stmt->execute([self::MAP_LATITUDE_KEY, self::formatCoordinate($latitude), $now]);
-            $stmt->execute([self::MAP_LONGITUDE_KEY, self::formatCoordinate($longitude), $now]);
+            foreach ($settings as $key => $value) {
+                $stmt->execute([(string)$key, (string)$value, $now]);
+            }
             $pdo->commit();
         } catch (\Throwable $error) {
             $pdo->rollBack();
@@ -849,6 +944,163 @@ final class PortalSettings
         return is_finite($coordinate) && $coordinate >= $min && $coordinate <= $max
             ? $coordinate
             : $fallback;
+    }
+}
+
+final class MapTilesService
+{
+    private const GOOGLE_CREATE_SESSION_URL = 'https://tile.googleapis.com/v1/createSession';
+    private const GOOGLE_TILE_URL = 'https://tile.googleapis.com/v1/2dtiles/{z}/{x}/{y}';
+    private const GOOGLE_VIEWPORT_URL = 'https://tile.googleapis.com/tile/v1/viewport';
+
+    public static function googleSessionPayload(string $apiKey, string $language, string $region): array
+    {
+        $session = self::googleSession($apiKey, $language, $region);
+        $query = http_build_query([
+            'session' => $session['session'],
+            'key' => $apiKey,
+        ], '', '&', PHP_QUERY_RFC3986);
+
+        return [
+            'tileUrl' => self::GOOGLE_TILE_URL . '?' . $query,
+            'maxZoom' => 22,
+            'expiresAt' => gmdate('c', (int)$session['expiry']),
+        ];
+    }
+
+    public static function googleAttribution(
+        string $apiKey,
+        string $language,
+        string $region,
+        float $north,
+        float $south,
+        float $east,
+        float $west,
+        int $zoom
+    ): string {
+        $session = self::googleSession($apiKey, $language, $region);
+        $url = self::GOOGLE_VIEWPORT_URL . '?' . http_build_query([
+            'session' => $session['session'],
+            'key' => $apiKey,
+            'zoom' => $zoom,
+            'north' => PortalSettings::formatCoordinate($north),
+            'south' => PortalSettings::formatCoordinate($south),
+            'east' => PortalSettings::formatCoordinate($east),
+            'west' => PortalSettings::formatCoordinate($west),
+        ], '', '&', PHP_QUERY_RFC3986);
+        $payload = self::requestJson($url);
+
+        return trim((string)($payload['copyright'] ?? ''));
+    }
+
+    private static function googleSession(string $apiKey, string $language, string $region): array
+    {
+        if ($apiKey === '') {
+            throw new RuntimeException('google_map_api_key_missing');
+        }
+
+        $cacheDir = Config::stateDir() . '/cache/map-tiles';
+        if (!is_dir($cacheDir) && !mkdir($cacheDir, 0750, true) && !is_dir($cacheDir)) {
+            throw new RuntimeException('map_tile_cache_unavailable');
+        }
+
+        $cacheKey = hash('sha256', $apiKey . "\0" . $language . "\0" . $region);
+        $cachePath = $cacheDir . '/google-session-' . $cacheKey . '.json';
+        $lock = fopen($cachePath . '.lock', 'c');
+        if ($lock === false) {
+            throw new RuntimeException('map_tile_cache_unavailable');
+        }
+
+        try {
+            if (!flock($lock, LOCK_EX)) {
+                throw new RuntimeException('map_tile_cache_unavailable');
+            }
+
+            $cached = self::readCachedGoogleSession($cachePath);
+            if ($cached !== null) {
+                return $cached;
+            }
+
+            $url = self::GOOGLE_CREATE_SESSION_URL . '?key=' . rawurlencode($apiKey);
+            $payload = self::requestJson($url, [
+                'mapType' => 'roadmap',
+                'language' => $language,
+                'region' => $region,
+            ]);
+            $session = trim((string)($payload['session'] ?? ''));
+            $expiry = (int)($payload['expiry'] ?? 0);
+            if ($session === '' || $expiry <= time() + 60) {
+                throw new RuntimeException('google_map_session_invalid');
+            }
+
+            $cached = ['session' => $session, 'expiry' => $expiry];
+            if (file_put_contents(
+                $cachePath,
+                json_encode($cached, JSON_UNESCAPED_SLASHES),
+                LOCK_EX
+            ) === false) {
+                throw new RuntimeException('map_tile_cache_unavailable');
+            }
+            chmod($cachePath, 0600);
+            return $cached;
+        } finally {
+            flock($lock, LOCK_UN);
+            fclose($lock);
+        }
+    }
+
+    private static function readCachedGoogleSession(string $path): ?array
+    {
+        if (!is_file($path)) {
+            return null;
+        }
+
+        $payload = json_decode((string)file_get_contents($path), true);
+        if (!is_array($payload)) {
+            return null;
+        }
+        $session = trim((string)($payload['session'] ?? ''));
+        $expiry = (int)($payload['expiry'] ?? 0);
+        if ($session === '' || $expiry <= time() + 300) {
+            return null;
+        }
+
+        return ['session' => $session, 'expiry' => $expiry];
+    }
+
+    private static function requestJson(string $url, ?array $postBody = null): array
+    {
+        $ch = curl_init($url);
+        if ($ch === false) {
+            throw new RuntimeException('map_provider_request_failed');
+        }
+
+        $options = [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_CONNECTTIMEOUT => 5,
+            CURLOPT_TIMEOUT => 12,
+            CURLOPT_HTTPHEADER => ['Accept: application/json'],
+        ];
+        if ($postBody !== null) {
+            $options[CURLOPT_POST] = true;
+            $options[CURLOPT_POSTFIELDS] = json_encode($postBody, JSON_UNESCAPED_SLASHES);
+            $options[CURLOPT_HTTPHEADER][] = 'Content-Type: application/json';
+        }
+        curl_setopt_array($ch, $options);
+
+        $body = curl_exec($ch);
+        $status = (int)curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
+        $error = curl_error($ch);
+        curl_close($ch);
+        if (!is_string($body) || $body === '' || $status < 200 || $status >= 300) {
+            throw new RuntimeException('map_provider_request_failed' . ($error !== '' ? ': ' . $error : ''));
+        }
+
+        $payload = json_decode($body, true);
+        if (!is_array($payload)) {
+            throw new RuntimeException('map_provider_response_invalid');
+        }
+        return $payload;
     }
 }
 
@@ -1025,6 +1277,10 @@ final class I18n
             'previewUnavailable' => self::t('js.previewUnavailable', 'Превью недоступно'),
             'streamUnavailable' => self::t('js.streamUnavailable', 'Поток недоступен'),
             'mapChangePending' => self::t('js.mapChangePending', 'Подтвердите изменение на карте'),
+            'mapProviderUnavailable' => self::t(
+                'js.mapProviderUnavailable',
+                'Провайдер карт недоступен. Используется OpenStreetMap.'
+            ),
             'favorite' => self::t('filter.favorites', 'Избранное'),
             'addFavorite' => self::t('js.addFavorite', 'Добавить в избранное'),
             'removeFavorite' => self::t('js.removeFavorite', 'Удалить из избранного'),
@@ -4269,6 +4525,8 @@ final class App
             '/admin/audit' => self::audit(),
             '/admin/settings' => self::settings(),
             '/viewer/map' => self::viewer('map'),
+            '/viewer/map/google-session' => self::googleMapSession(),
+            '/viewer/map/google-attribution' => self::googleMapAttribution(),
             '/viewer/preview' => self::previewProxy(),
             '/viewer/player' => self::player(),
             '/favorite/toggle' => self::toggleFavorite(),
@@ -4356,6 +4614,82 @@ final class App
     private static function apiError(int $status, string $code, string $message, array $extra = []): void
     {
         self::apiJson(['error' => ['code' => $code, 'message' => $message] + $extra], $status);
+    }
+
+    private static function googleMapSession(): void
+    {
+        Auth::requireLogin();
+        $settings = PortalSettings::mapConfiguration();
+        if ($settings['provider'] !== 'google' || $settings['googleApiKey'] === '') {
+            self::apiError(409, 'map_provider_not_configured', 'Google Maps is not configured');
+        }
+
+        try {
+            self::apiJson(MapTilesService::googleSessionPayload(
+                (string)$settings['googleApiKey'],
+                I18n::htmlLocale(),
+                self::googleMapRegion()
+            ));
+        } catch (\Throwable $error) {
+            error_log('SesamePortal Google Maps session failed: ' . $error->getMessage());
+            self::apiError(502, 'map_provider_unavailable', 'Google Maps is temporarily unavailable');
+        }
+    }
+
+    private static function googleMapAttribution(): void
+    {
+        Auth::requireLogin();
+        $settings = PortalSettings::mapConfiguration();
+        if ($settings['provider'] !== 'google' || $settings['googleApiKey'] === '') {
+            self::apiError(409, 'map_provider_not_configured', 'Google Maps is not configured');
+        }
+
+        $north = self::coordinateFromInput($_GET['north'] ?? null, -90.0, 90.0);
+        $south = self::coordinateFromInput($_GET['south'] ?? null, -90.0, 90.0);
+        $east = self::coordinateFromInput($_GET['east'] ?? null, -180.0, 180.0);
+        $west = self::coordinateFromInput($_GET['west'] ?? null, -180.0, 180.0);
+        $zoom = filter_var($_GET['zoom'] ?? null, FILTER_VALIDATE_INT);
+        if ($north === null || $south === null || $east === null || $west === null
+            || $north < $south || $zoom === false || $zoom < 0 || $zoom > 22) {
+            self::apiError(400, 'invalid_viewport', 'Invalid map viewport');
+        }
+
+        try {
+            $copyright = MapTilesService::googleAttribution(
+                (string)$settings['googleApiKey'],
+                I18n::htmlLocale(),
+                self::googleMapRegion(),
+                $north,
+                $south,
+                $east,
+                $west,
+                $zoom
+            );
+            self::apiJson(['copyright' => $copyright]);
+        } catch (\Throwable $error) {
+            error_log('SesamePortal Google Maps attribution failed: ' . $error->getMessage());
+            self::apiError(502, 'map_provider_unavailable', 'Google Maps attribution is temporarily unavailable');
+        }
+    }
+
+    private static function googleMapRegion(): string
+    {
+        return match (I18n::locale()) {
+            'ru' => 'RU',
+            'de' => 'DE',
+            'fr' => 'FR',
+            'es' => 'ES',
+            'it' => 'IT',
+            'pt' => 'PT',
+            'bg' => 'BG',
+            'pl' => 'PL',
+            'zh' => 'CN',
+            'ja' => 'JP',
+            'ko' => 'KR',
+            'ar' => 'AE',
+            'hy' => 'AM',
+            default => 'US',
+        };
     }
 
     private static function apiUser(): ?array
@@ -5773,7 +6107,7 @@ final class App
         $messageClass = '';
         $updateResult = null;
         $forceCheck = false;
-        $mapCenter = PortalSettings::mapCenter();
+        $mapSettings = PortalSettings::mapConfiguration();
 
         if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
             $action = (string)Util::post('action');
@@ -5786,29 +6120,71 @@ final class App
                     ? self::t('settings.updateDone', 'Обновление Portal выполнено')
                     : self::t('settings.updateFailed', 'Обновление Portal не выполнено');
                 $messageClass = !empty($updateResult['ok']) ? 'success' : 'danger';
-            } elseif ($action === 'save_map_center') {
+            } elseif ($action === 'save_map_settings' || $action === 'save_map_center') {
                 $latitudeInput = trim((string)Util::post('map_default_latitude'));
                 $longitudeInput = trim((string)Util::post('map_default_longitude'));
                 $latitude = self::coordinateFromInput($latitudeInput, -90.0, 90.0);
                 $longitude = self::coordinateFromInput($longitudeInput, -180.0, 180.0);
+                $providerInput = $action === 'save_map_settings'
+                    ? trim((string)Util::post('map_provider'))
+                    : (string)$mapSettings['provider'];
+                try {
+                    $provider = PortalSettings::normalizeMapProvider($providerInput, false);
+                } catch (\InvalidArgumentException) {
+                    $provider = null;
+                }
                 if ($latitude === null || $longitude === null) {
                     $message = self::t(
                         'settings.mapInvalid',
                         'Укажите широту от -90 до 90 и долготу от -180 до 180.'
                     );
                     $messageClass = 'danger';
-                    $mapCenter = ['latitude' => $latitudeInput, 'longitude' => $longitudeInput];
+                    $mapSettings['latitude'] = $latitudeInput;
+                    $mapSettings['longitude'] = $longitudeInput;
+                    $mapSettings['provider'] = $provider ?? PortalSettings::DEFAULT_MAP_PROVIDER;
+                } elseif ($provider === null) {
+                    $message = self::t('settings.mapProviderInvalid', 'Выберите поддерживаемого провайдера карт.');
+                    $messageClass = 'danger';
                 } else {
-                    PortalSettings::setMapCenter($latitude, $longitude);
-                    $mapCenter = ['latitude' => $latitude, 'longitude' => $longitude];
-                    $message = self::t('settings.mapSaved', 'Начальные координаты карты сохранены');
-                    $messageClass = 'success';
-                    Audit::log(
-                        'settings.map_center.save',
-                        'latitude=' . PortalSettings::formatCoordinate($latitude)
-                        . ' longitude=' . PortalSettings::formatCoordinate($longitude)
-                        . ' ip=' . Audit::clientIp()
-                    );
+                    $yandexApiKey = $action === 'save_map_settings'
+                        ? trim((string)Util::post('map_yandex_api_key'))
+                        : null;
+                    $googleApiKey = $action === 'save_map_settings'
+                        ? trim((string)Util::post('map_google_api_key'))
+                        : null;
+                    try {
+                        PortalSettings::setMapConfiguration(
+                            $latitude,
+                            $longitude,
+                            $provider,
+                            $yandexApiKey,
+                            $googleApiKey
+                        );
+                        $mapSettings = PortalSettings::mapConfiguration();
+                        $message = self::t('settings.mapSaved', 'Настройки карты сохранены');
+                        $messageClass = 'success';
+                        Audit::log(
+                            'settings.map.save',
+                            'provider=' . $provider
+                            . ' latitude=' . PortalSettings::formatCoordinate($latitude)
+                            . ' longitude=' . PortalSettings::formatCoordinate($longitude)
+                            . ' yandex_key=' . ($mapSettings['yandexApiKey'] !== '' ? 'configured' : 'missing')
+                            . ' google_key=' . ($mapSettings['googleApiKey'] !== '' ? 'configured' : 'missing')
+                            . ' ip=' . Audit::clientIp()
+                        );
+                    } catch (\InvalidArgumentException) {
+                        $mapSettings['latitude'] = $latitude;
+                        $mapSettings['longitude'] = $longitude;
+                        $mapSettings['provider'] = $provider;
+                        $message = sprintf(
+                            self::t(
+                                'settings.mapProviderKeyRequired',
+                                'Для провайдера %s необходимо указать API key.'
+                            ),
+                            $provider === 'yandex' ? 'Yandex Maps' : 'Google Maps'
+                        );
+                        $messageClass = 'danger';
+                    }
                 }
             }
         }
@@ -5821,32 +6197,68 @@ final class App
             $messageClass = empty($status['checkError']) ? 'success' : 'danger';
         }
 
-        self::layout(self::t('settings.title', 'Настройки'), function () use ($message, $messageClass, $status, $updateResult, $mapCenter) {
+        self::layout(self::t('settings.title', 'Настройки'), function () use ($message, $messageClass, $status, $updateResult, $mapSettings) {
             self::notice($message, $messageClass);
-            self::portalMapSettingsPanel($mapCenter);
+            self::portalMapSettingsPanel($mapSettings);
             self::portalUpdatePanel($status, $updateResult);
         });
     }
 
-    private static function portalMapSettingsPanel(array $mapCenter): void
+    private static function portalMapSettingsPanel(array $mapSettings): void
     {
+        $provider = PortalSettings::normalizeMapProvider((string)($mapSettings['provider'] ?? ''));
+        $yandexConfigured = trim((string)($mapSettings['yandexApiKey'] ?? '')) !== '';
+        $googleConfigured = trim((string)($mapSettings['googleApiKey'] ?? '')) !== '';
+        $keyPlaceholder = self::t(
+            'settings.mapApiKeyPlaceholder',
+            'Оставьте пустым, чтобы сохранить текущий ключ'
+        );
         echo '<section class="panel portal-map-settings-panel">';
-        echo '<div class="section-head"><div><h2>' . self::t('settings.mapCenter', 'Начальная позиция карты') . '</h2>';
+        echo '<div class="section-head"><div><h2>' . self::t('settings.mapTitle', 'Настройки карты') . '</h2>';
         echo '<p class="muted">' . Util::h(self::t(
+            'settings.mapProviderHint',
+            'Провайдер используется на карте камер и в редакторе положения камеры.'
+        )) . '</p></div></div>';
+        echo '<form method="post" action="/admin/settings" class="form portal-map-settings-form" data-map-provider-settings>' . Csrf::field();
+        echo '<input type="hidden" name="action" value="save_map_settings">';
+        echo '<label>' . self::t('settings.mapProvider', 'Провайдер карт') . '<select name="map_provider" data-map-provider-select>';
+        foreach ([
+            'osm' => 'OpenStreetMap (OSM)',
+            'yandex' => 'Yandex Maps',
+            'google' => 'Google Maps',
+        ] as $value => $label) {
+            echo '<option value="' . $value . '" ' . ($provider === $value ? 'selected' : '') . '>' . $label . '</option>';
+        }
+        echo '</select></label>';
+        echo '<div class="map-provider-key" data-map-provider-key="yandex"' . ($provider === 'yandex' ? '' : ' hidden') . '>';
+        echo '<label>' . self::t('settings.mapYandexApiKey', 'API key Yandex Tiles')
+            . '<input type="password" name="map_yandex_api_key" autocomplete="new-password" value="" placeholder="'
+            . Util::h($yandexConfigured ? $keyPlaceholder : '') . '"></label>';
+        if ($yandexConfigured) {
+            echo '<span class="field-hint success-text">' . self::t('settings.mapApiKeyConfigured', 'API key настроен') . '</span>';
+        }
+        echo '<a class="field-hint" href="https://yandex.com/maps-api/docs/tiles-api/quickstart.html" target="_blank" rel="noopener">Yandex Tiles API</a></div>';
+        echo '<div class="map-provider-key" data-map-provider-key="google"' . ($provider === 'google' ? '' : ' hidden') . '>';
+        echo '<label>' . self::t('settings.mapGoogleApiKey', 'API key Google Map Tiles')
+            . '<input type="password" name="map_google_api_key" autocomplete="new-password" value="" placeholder="'
+            . Util::h($googleConfigured ? $keyPlaceholder : '') . '"></label>';
+        if ($googleConfigured) {
+            echo '<span class="field-hint success-text">' . self::t('settings.mapApiKeyConfigured', 'API key настроен') . '</span>';
+        }
+        echo '<a class="field-hint" href="https://developers.google.com/maps/documentation/tile/get-api-key" target="_blank" rel="noopener">Google Map Tiles API</a></div>';
+        echo '<p class="muted map-center-hint">' . Util::h(self::t(
             'settings.mapCenterHint',
             'Эти координаты используются как центр карты при добавлении камеры без заданного положения.'
-        )) . '</p></div></div>';
-        echo '<form method="post" action="/admin/settings" class="form portal-map-settings-form">' . Csrf::field();
-        echo '<input type="hidden" name="action" value="save_map_center">';
+        )) . '</p>';
         echo '<div class="form-row">';
         echo '<label>' . self::t('settings.mapLatitude', 'Начальная широта')
             . '<input name="map_default_latitude" type="number" inputmode="decimal" min="-90" max="90" step="any" required value="'
-            . Util::h($mapCenter['latitude'] ?? PortalSettings::DEFAULT_MAP_LATITUDE) . '"></label>';
+            . Util::h($mapSettings['latitude'] ?? PortalSettings::DEFAULT_MAP_LATITUDE) . '"></label>';
         echo '<label>' . self::t('settings.mapLongitude', 'Начальная долгота')
             . '<input name="map_default_longitude" type="number" inputmode="decimal" min="-180" max="180" step="any" required value="'
-            . Util::h($mapCenter['longitude'] ?? PortalSettings::DEFAULT_MAP_LONGITUDE) . '"></label>';
+            . Util::h($mapSettings['longitude'] ?? PortalSettings::DEFAULT_MAP_LONGITUDE) . '"></label>';
         echo '</div><div class="form-actions"><button class="primary" type="submit">'
-            . self::t('settings.mapSave', 'Сохранить координаты') . '</button></div></form></section>';
+            . self::t('settings.mapSave', 'Сохранить настройки карты') . '</button></div></form></section>';
     }
 
     private static function portalUpdatePanel(array $status, ?array $updateResult = null): void
@@ -6871,6 +7283,7 @@ final class App
             echo '<details class="camera-location-options" data-camera-location-options><summary>' . self::t('cameras.locationOptions', 'Расположение камеры') . '</summary>';
             echo '<div class="form-row"><label>' . self::t('geo.latitude', 'Широта') . '<input id="camera-latitude" name="latitude" value="' . Util::h($lat) . '"></label><label>' . self::t('geo.longitude', 'Долгота') . '<input id="camera-longitude" name="longitude" value="' . Util::h($lng) . '"></label></div>';
             echo '<div class="camera-position-field"><div class="camera-position-head"><strong>' . self::t('cameras.position', 'Положение на карте') . '</strong><button type="button" class="camera-map-clear">' . self::t('cameras.clearPosition', 'Очистить точку') . '</button></div>';
+            self::renderMapProviderConfig();
             echo '<div id="camera-position-map" class="camera-position-map" data-lat="' . Util::h($lat) . '" data-lng="' . Util::h($lng)
                 . '" data-default-lat="' . Util::h(PortalSettings::formatCoordinate((float)$defaultMapCenter['latitude']))
                 . '" data-default-lng="' . Util::h(PortalSettings::formatCoordinate((float)$defaultMapCenter['longitude'])) . '"></div></div>';
@@ -7566,6 +7979,7 @@ final class App
     private static function map(array $cameras, array $favorites): void
     {
         echo '<section class="panel map-panel"><div id="map" class="map"></div></section>';
+        self::renderMapProviderConfig();
         $payload = [];
         $streamUnavailableByServer = self::mapStreamUnavailableByServer($cameras);
         foreach ($cameras as $camera) {
@@ -7587,6 +8001,47 @@ final class App
             ];
         }
         echo '<script>window.SESAME_CAMERAS = ' . json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . ';</script>';
+    }
+
+    private static function renderMapProviderConfig(): void
+    {
+        $settings = PortalSettings::mapConfiguration();
+        $provider = PortalSettings::normalizeMapProvider((string)$settings['provider']);
+        $config = [
+            'provider' => $provider,
+            'defaultCenter' => [
+                'lat' => (float)$settings['latitude'],
+                'lng' => (float)$settings['longitude'],
+            ],
+        ];
+
+        if ($provider === 'yandex' && $settings['yandexApiKey'] !== '') {
+            $language = I18n::locale() === 'ru' ? 'ru_RU' : 'en_US';
+            $config['tileUrl'] = 'https://tiles.api-maps.yandex.ru/v1/tiles/?apikey='
+                . rawurlencode((string)$settings['yandexApiKey'])
+                . '&lang=' . rawurlencode($language)
+                . '&x={x}&y={y}&z={z}&l=map&projection=web_mercator&maptype=future_map';
+            $config['maxZoom'] = 20;
+            $config['logoUrl'] = I18n::locale() === 'ru'
+                ? self::assetUrl('/assets/yandex-map-logo-ru.png')
+                : self::assetUrl('/assets/yandex-map-logo-en.png');
+            $config['mapsUrl'] = I18n::locale() === 'ru'
+                ? 'https://yandex.ru/maps/'
+                : 'https://yandex.com/maps/';
+        } elseif ($provider === 'google' && $settings['googleApiKey'] !== '') {
+            $config['sessionUrl'] = '/viewer/map/google-session';
+            $config['attributionUrl'] = '/viewer/map/google-attribution';
+        }
+
+        echo '<script>window.SESAME_MAP_CONFIG = ' . json_encode(
+            $config,
+            JSON_UNESCAPED_UNICODE
+            | JSON_UNESCAPED_SLASHES
+            | JSON_HEX_TAG
+            | JSON_HEX_AMP
+            | JSON_HEX_APOS
+            | JSON_HEX_QUOT
+        ) . ';</script>';
     }
 
     private static function player(): void
