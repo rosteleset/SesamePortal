@@ -299,6 +299,32 @@ printf "%s" "$settings_page" | grep -q "Доступная версия на Git
 printf "%s" "$settings_page" | grep -q "Smoke available update"
 printf "%s" "$settings_page" | grep -q "Проверить обновления"
 printf "%s" "$settings_page" | grep -q "Обновить Portal"
+grep -F -q "Начальная позиция карты" <<<"$settings_page"
+grep -F -q 'name="map_default_latitude"' <<<"$settings_page"
+grep -F -q 'name="map_default_longitude"' <<<"$settings_page"
+grep -F -q 'value="25.2048"' <<<"$settings_page"
+grep -F -q 'value="55.2708"' <<<"$settings_page"
+settings_csrf="$(sed -n 's/.*name="csrf" value="\([^"]*\)".*/\1/p' <<<"$settings_page" | head -n 1)"
+test -n "$settings_csrf"
+settings_saved="$(
+  curl -fsS -b "$COOKIE_JAR" -c "$COOKIE_JAR" \
+    -d "csrf=$settings_csrf" -d "action=save_map_center" \
+    -d "map_default_latitude=43.1234567" -d "map_default_longitude=41.7654321" \
+    "http://127.0.0.1:$PORT/admin/settings?lang=ru"
+)"
+grep -F -q "Начальные координаты карты сохранены" <<<"$settings_saved"
+grep -F -q 'value="43.1234567"' <<<"$settings_saved"
+grep -F -q 'value="41.7654321"' <<<"$settings_saved"
+settings_invalid="$(
+  curl -fsS -b "$COOKIE_JAR" -c "$COOKIE_JAR" \
+    -d "csrf=$settings_csrf" -d "action=save_map_center" \
+    -d "map_default_latitude=91" -d "map_default_longitude=41" \
+    "http://127.0.0.1:$PORT/admin/settings?lang=ru"
+)"
+grep -F -q "Укажите широту от -90 до 90 и долготу от -180 до 180." <<<"$settings_invalid"
+settings_after_invalid="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/admin/settings?lang=ru")"
+grep -F -q 'value="43.1234567"' <<<"$settings_after_invalid"
+grep -F -q 'value="41.7654321"' <<<"$settings_after_invalid"
 admin_users_page="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/admin/users?q=admin&lang=ru")"
 printf "%s" "$admin_users_page" | grep -q "admin"
 printf "%s" "$admin_users_page" | grep -q "Статический токен"
@@ -424,6 +450,8 @@ admin_cameras_new_form="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/adm
 printf "%s" "$admin_cameras_new_form" | grep -F -q 'data-watermark-dependent hidden'
 printf "%s" "$admin_cameras_new_form" | grep -F -q '<option value="auto" selected>автоматический случайный</option>'
 printf "%s" "$admin_cameras_new_form" | grep -F -q 'href="/admin/cameras/import">Импорт с DVR</a>'
+grep -F -q 'data-default-lat="43.1234567"' <<<"$admin_cameras_new_form"
+grep -F -q 'data-default-lng="41.7654321"' <<<"$admin_cameras_new_form"
 admin_camera_import="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/admin/cameras/import?server_id=3")"
 printf "%s" "$admin_camera_import" | grep -q "Импорт потоков с DVR"
 printf "%s" "$admin_camera_import" | grep -F -q 'data-dvr-import-form'

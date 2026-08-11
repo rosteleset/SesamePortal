@@ -329,6 +329,11 @@ final class DB
                 details TEXT NOT NULL DEFAULT "",
                 created_at TEXT NOT NULL
             )',
+            'CREATE TABLE IF NOT EXISTS portal_settings (
+                setting_key TEXT PRIMARY KEY,
+                setting_value TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )',
         ];
     }
 
@@ -430,6 +435,11 @@ final class DB
                 action TEXT NOT NULL,
                 details TEXT NOT NULL,
                 created_at TEXT NOT NULL
+            )',
+            'CREATE TABLE IF NOT EXISTS portal_settings (
+                setting_key TEXT PRIMARY KEY,
+                setting_value TEXT NOT NULL,
+                updated_at TEXT NOT NULL
             )',
         ];
     }
@@ -541,6 +551,11 @@ final class DB
                 action VARCHAR(255) NOT NULL,
                 details TEXT NOT NULL,
                 created_at VARCHAR(64) NOT NULL
+            ){$suffix}",
+            "CREATE TABLE IF NOT EXISTS portal_settings (
+                setting_key VARCHAR(191) PRIMARY KEY,
+                setting_value TEXT NOT NULL,
+                updated_at VARCHAR(64) NOT NULL
             ){$suffix}",
         ];
     }
@@ -749,6 +764,91 @@ final class DB
         $stmt = $pdo->prepare('SELECT 1 FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = ? AND index_name = ?');
         $stmt->execute([$table, $index]);
         return (bool)$stmt->fetchColumn();
+    }
+}
+
+final class PortalSettings
+{
+    public const DEFAULT_MAP_LATITUDE = 25.2048;
+    public const DEFAULT_MAP_LONGITUDE = 55.2708;
+
+    private const MAP_LATITUDE_KEY = 'map_default_latitude';
+    private const MAP_LONGITUDE_KEY = 'map_default_longitude';
+
+    public static function mapCenter(): array
+    {
+        $stmt = DB::pdo()->prepare(
+            'SELECT setting_key, setting_value FROM portal_settings WHERE setting_key IN (?, ?)'
+        );
+        $stmt->execute([self::MAP_LATITUDE_KEY, self::MAP_LONGITUDE_KEY]);
+
+        $values = [];
+        foreach ($stmt->fetchAll() as $row) {
+            $values[(string)$row['setting_key']] = (string)$row['setting_value'];
+        }
+
+        return [
+            'latitude' => self::storedCoordinate(
+                $values[self::MAP_LATITUDE_KEY] ?? null,
+                -90.0,
+                90.0,
+                self::DEFAULT_MAP_LATITUDE
+            ),
+            'longitude' => self::storedCoordinate(
+                $values[self::MAP_LONGITUDE_KEY] ?? null,
+                -180.0,
+                180.0,
+                self::DEFAULT_MAP_LONGITUDE
+            ),
+        ];
+    }
+
+    public static function setMapCenter(float $latitude, float $longitude): void
+    {
+        if (!is_finite($latitude) || $latitude < -90.0 || $latitude > 90.0) {
+            throw new \InvalidArgumentException('Invalid map latitude');
+        }
+        if (!is_finite($longitude) || $longitude < -180.0 || $longitude > 180.0) {
+            throw new \InvalidArgumentException('Invalid map longitude');
+        }
+
+        $pdo = DB::pdo();
+        $sql = match (DB::driver()) {
+            'mysql' => 'INSERT INTO portal_settings(setting_key, setting_value, updated_at) VALUES(?, ?, ?)
+                ON DUPLICATE KEY UPDATE setting_value=VALUES(setting_value), updated_at=VALUES(updated_at)',
+            default => 'INSERT INTO portal_settings(setting_key, setting_value, updated_at) VALUES(?, ?, ?)
+                ON CONFLICT(setting_key) DO UPDATE SET setting_value=excluded.setting_value, updated_at=excluded.updated_at',
+        };
+        $stmt = $pdo->prepare($sql);
+        $now = Util::now();
+
+        $pdo->beginTransaction();
+        try {
+            $stmt->execute([self::MAP_LATITUDE_KEY, self::formatCoordinate($latitude), $now]);
+            $stmt->execute([self::MAP_LONGITUDE_KEY, self::formatCoordinate($longitude), $now]);
+            $pdo->commit();
+        } catch (\Throwable $error) {
+            $pdo->rollBack();
+            throw $error;
+        }
+    }
+
+    public static function formatCoordinate(float $value): string
+    {
+        $formatted = rtrim(rtrim(number_format($value, 7, '.', ''), '0'), '.');
+        return $formatted === '-0' ? '0' : $formatted;
+    }
+
+    private static function storedCoordinate(?string $value, float $min, float $max, float $fallback): float
+    {
+        if ($value === null || !is_numeric($value)) {
+            return $fallback;
+        }
+
+        $coordinate = (float)$value;
+        return is_finite($coordinate) && $coordinate >= $min && $coordinate <= $max
+            ? $coordinate
+            : $fallback;
     }
 }
 
@@ -5673,6 +5773,7 @@ final class App
         $messageClass = '';
         $updateResult = null;
         $forceCheck = false;
+        $mapCenter = PortalSettings::mapCenter();
 
         if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
             $action = (string)Util::post('action');
@@ -5685,6 +5786,30 @@ final class App
                     ? self::t('settings.updateDone', 'Обновление Portal выполнено')
                     : self::t('settings.updateFailed', 'Обновление Portal не выполнено');
                 $messageClass = !empty($updateResult['ok']) ? 'success' : 'danger';
+            } elseif ($action === 'save_map_center') {
+                $latitudeInput = trim((string)Util::post('map_default_latitude'));
+                $longitudeInput = trim((string)Util::post('map_default_longitude'));
+                $latitude = self::coordinateFromInput($latitudeInput, -90.0, 90.0);
+                $longitude = self::coordinateFromInput($longitudeInput, -180.0, 180.0);
+                if ($latitude === null || $longitude === null) {
+                    $message = self::t(
+                        'settings.mapInvalid',
+                        'Укажите широту от -90 до 90 и долготу от -180 до 180.'
+                    );
+                    $messageClass = 'danger';
+                    $mapCenter = ['latitude' => $latitudeInput, 'longitude' => $longitudeInput];
+                } else {
+                    PortalSettings::setMapCenter($latitude, $longitude);
+                    $mapCenter = ['latitude' => $latitude, 'longitude' => $longitude];
+                    $message = self::t('settings.mapSaved', 'Начальные координаты карты сохранены');
+                    $messageClass = 'success';
+                    Audit::log(
+                        'settings.map_center.save',
+                        'latitude=' . PortalSettings::formatCoordinate($latitude)
+                        . ' longitude=' . PortalSettings::formatCoordinate($longitude)
+                        . ' ip=' . Audit::clientIp()
+                    );
+                }
             }
         }
 
@@ -5696,10 +5821,32 @@ final class App
             $messageClass = empty($status['checkError']) ? 'success' : 'danger';
         }
 
-        self::layout(self::t('settings.title', 'Настройки'), function () use ($message, $messageClass, $status, $updateResult) {
+        self::layout(self::t('settings.title', 'Настройки'), function () use ($message, $messageClass, $status, $updateResult, $mapCenter) {
             self::notice($message, $messageClass);
+            self::portalMapSettingsPanel($mapCenter);
             self::portalUpdatePanel($status, $updateResult);
         });
+    }
+
+    private static function portalMapSettingsPanel(array $mapCenter): void
+    {
+        echo '<section class="panel portal-map-settings-panel">';
+        echo '<div class="section-head"><div><h2>' . self::t('settings.mapCenter', 'Начальная позиция карты') . '</h2>';
+        echo '<p class="muted">' . Util::h(self::t(
+            'settings.mapCenterHint',
+            'Эти координаты используются как центр карты при добавлении камеры без заданного положения.'
+        )) . '</p></div></div>';
+        echo '<form method="post" action="/admin/settings" class="form portal-map-settings-form">' . Csrf::field();
+        echo '<input type="hidden" name="action" value="save_map_center">';
+        echo '<div class="form-row">';
+        echo '<label>' . self::t('settings.mapLatitude', 'Начальная широта')
+            . '<input name="map_default_latitude" type="number" inputmode="decimal" min="-90" max="90" step="any" required value="'
+            . Util::h($mapCenter['latitude'] ?? PortalSettings::DEFAULT_MAP_LATITUDE) . '"></label>';
+        echo '<label>' . self::t('settings.mapLongitude', 'Начальная долгота')
+            . '<input name="map_default_longitude" type="number" inputmode="decimal" min="-180" max="180" step="any" required value="'
+            . Util::h($mapCenter['longitude'] ?? PortalSettings::DEFAULT_MAP_LONGITUDE) . '"></label>';
+        echo '</div><div class="form-actions"><button class="primary" type="submit">'
+            . self::t('settings.mapSave', 'Сохранить координаты') . '</button></div></form></section>';
     }
 
     private static function portalUpdatePanel(array $status, ?array $updateResult = null): void
@@ -6682,7 +6829,8 @@ final class App
         $list = self::filteredCameras();
         $backPath = self::safeLocalPath((string)($_GET['back'] ?? ''));
         $cameras = $list['rows'];
-        self::layout(self::t('cameras.title', 'Камеры'), function () use ($edit, $form, $delete, $servers, $groups, $linkedGroups, $cameras, $message, $list, $backPath) {
+        $defaultMapCenter = PortalSettings::mapCenter();
+        self::layout(self::t('cameras.title', 'Камеры'), function () use ($edit, $form, $delete, $servers, $groups, $linkedGroups, $cameras, $message, $list, $backPath, $defaultMapCenter) {
             self::notice($message);
             if ($delete) {
                 self::cameraDeletePanel($delete);
@@ -6723,7 +6871,9 @@ final class App
             echo '<details class="camera-location-options" data-camera-location-options><summary>' . self::t('cameras.locationOptions', 'Расположение камеры') . '</summary>';
             echo '<div class="form-row"><label>' . self::t('geo.latitude', 'Широта') . '<input id="camera-latitude" name="latitude" value="' . Util::h($lat) . '"></label><label>' . self::t('geo.longitude', 'Долгота') . '<input id="camera-longitude" name="longitude" value="' . Util::h($lng) . '"></label></div>';
             echo '<div class="camera-position-field"><div class="camera-position-head"><strong>' . self::t('cameras.position', 'Положение на карте') . '</strong><button type="button" class="camera-map-clear">' . self::t('cameras.clearPosition', 'Очистить точку') . '</button></div>';
-            echo '<div id="camera-position-map" class="camera-position-map" data-lat="' . Util::h($lat) . '" data-lng="' . Util::h($lng) . '"></div></div>';
+            echo '<div id="camera-position-map" class="camera-position-map" data-lat="' . Util::h($lat) . '" data-lng="' . Util::h($lng)
+                . '" data-default-lat="' . Util::h(PortalSettings::formatCoordinate((float)$defaultMapCenter['latitude']))
+                . '" data-default-lng="' . Util::h(PortalSettings::formatCoordinate((float)$defaultMapCenter['longitude'])) . '"></div></div>';
             echo '<div class="form-row"><label>' . self::t('cameras.direction', 'Направление') . '<input id="camera-direction" name="direction_deg" type="number" min="0" max="359" value="' . Util::h($form['direction_deg'] ?? 0) . '"></label><label>' . self::t('cameras.viewAngle', 'Угол обзора') . '<input name="view_angle_deg" type="number" min="1" max="180" value="' . Util::h($form['view_angle_deg'] ?? 60) . '"></label></div>';
             echo '</details>';
             $timelineRepairMode = self::cameraTimelineRepairMode($form['direct_archive_video_timeline_repair_mode'] ?? null) ?? '';
@@ -9790,6 +9940,21 @@ final class App
         return $value === '' ? null : (float)$value;
     }
 
+    private static function coordinateFromInput(mixed $value, float $min, float $max): ?float
+    {
+        $value = trim((string)$value);
+        if ($value === '' || !is_numeric($value)) {
+            return null;
+        }
+
+        $coordinate = (float)$value;
+        if (!is_finite($coordinate) || $coordinate < $min || $coordinate > $max) {
+            return null;
+        }
+
+        return $coordinate;
+    }
+
 }
 
 final class Cli
@@ -9803,6 +9968,7 @@ final class Cli
         'camera_groups',
         'favorites',
         'audit_logs',
+        'portal_settings',
     ];
 
     public static function run(array $argv): void

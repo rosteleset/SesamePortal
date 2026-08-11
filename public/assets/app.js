@@ -65,7 +65,9 @@
 
     let committed = readEditorState();
     let pending = null;
-    const start = hasPoint(committed) ? [committed.lat, committed.lng] : [25.2048, 55.2708];
+    const defaultLatitude = mapDefaultCoordinate(container.dataset.defaultLat, 25.2048, -90, 90);
+    const defaultLongitude = mapDefaultCoordinate(container.dataset.defaultLng, 55.2708, -180, 180);
+    const start = hasPoint(committed) ? [committed.lat, committed.lng] : [defaultLatitude, defaultLongitude];
     const editorMap = L.map(container, { zoomControl: true }).setView(start, hasPoint(committed) ? 16 : 4);
     setPlainLeafletAttribution(editorMap);
     const confirmBar = createMapConfirmBar(container);
@@ -346,6 +348,12 @@
 
   function hasPoint(state) {
     return Number.isFinite(state.lat) && Number.isFinite(state.lng);
+  }
+
+  function mapDefaultCoordinate(value, fallback, min, max) {
+    const raw = String(value || "").trim();
+    const coordinate = raw === "" ? Number.NaN : Number(raw);
+    return Number.isFinite(coordinate) && coordinate >= min && coordinate <= max ? coordinate : fallback;
   }
 
   function directionTarget(center, direction, map) {

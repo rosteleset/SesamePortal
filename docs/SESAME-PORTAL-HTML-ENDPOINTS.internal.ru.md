@@ -228,14 +228,20 @@ Actions:
 
 ### GET /admin/settings
 
-Страница настроек Portal. Сейчас содержит блок `Обновления Portal`:
+Страница настроек Portal. Содержит:
 
-- текущая версия из `RELEASE.json` или fallback из локального Git checkout;
-- доступная версия на GitHub по `portal_update_github_repo` /
-  `portal_update_github_ref`;
-- время последней проверки;
-- состояние support tool `/usr/local/sbin/sesame-portal-update`;
-- кнопки `Проверить обновления` и `Обновить Portal`.
+- начальные широту и долготу карты для формы добавления камеры;
+- блок `Обновления Portal`:
+
+  - текущая версия из `RELEASE.json` или fallback из локального Git checkout;
+  - доступная версия на GitHub по `portal_update_github_repo` /
+    `portal_update_github_ref`;
+  - время последней проверки;
+  - состояние support tool `/usr/local/sbin/sesame-portal-update`;
+  - кнопки `Проверить обновления` и `Обновить Portal`.
+
+Начальные координаты только центрируют карту при добавлении камеры без заданного
+положения. Они не записываются в поля координат новой камеры автоматически.
 
 Требует admin.
 
@@ -251,6 +257,7 @@ Actions:
 
 | `action` | Поля | Описание |
 | --- | --- | --- |
+| `save_map_center` | `map_default_latitude`, `map_default_longitude` | Сохранить начальный центр карты. Широта должна находиться в диапазоне от `-90` до `90`, долгота — от `-180` до `180`. |
 | `check_update` | - | Принудительно проверить последний commit на GitHub и обновить cache `/var/lib/sesame-portal/portal-update-status.json`. |
 | `run_update` | - | Запустить configured update command, по умолчанию `sudo -n /usr/local/sbin/sesame-portal-update`. |
 
@@ -264,6 +271,7 @@ updater-а для production установки хранятся в root-owned
 
 Audit actions:
 
+- `settings.map_center.save`;
 - `portal.update.start`;
 - `portal.update.complete`;
 - `portal.update.failed`.

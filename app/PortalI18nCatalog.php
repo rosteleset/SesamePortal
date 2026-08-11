@@ -12,8 +12,144 @@ final class I18nCatalog
             $messages[$locale] ??= [];
             $messages[$locale] += $items;
         }
+        foreach (self::mapSettingsTranslations() as $locale => $items) {
+            $messages[$locale] ??= [];
+            $messages[$locale] += $items;
+        }
 
         return $messages;
+    }
+
+    private static function mapSettingsTranslations(): array
+    {
+        return [
+            'ru' => [
+                'settings.mapCenter' => 'Начальная позиция карты',
+                'settings.mapCenterHint' => 'Эти координаты используются как центр карты при добавлении камеры без заданного положения.',
+                'settings.mapLatitude' => 'Начальная широта',
+                'settings.mapLongitude' => 'Начальная долгота',
+                'settings.mapSave' => 'Сохранить координаты',
+                'settings.mapSaved' => 'Начальные координаты карты сохранены',
+                'settings.mapInvalid' => 'Укажите широту от -90 до 90 и долготу от -180 до 180.',
+            ],
+            'en' => [
+                'settings.mapCenter' => 'Initial map position',
+                'settings.mapCenterHint' => 'These coordinates are used as the map center when adding a camera without a specified position.',
+                'settings.mapLatitude' => 'Initial latitude',
+                'settings.mapLongitude' => 'Initial longitude',
+                'settings.mapSave' => 'Save coordinates',
+                'settings.mapSaved' => 'Initial map coordinates saved',
+                'settings.mapInvalid' => 'Enter a latitude from -90 to 90 and a longitude from -180 to 180.',
+            ],
+            'de' => [
+                'settings.mapCenter' => 'Anfängliche Kartenposition',
+                'settings.mapCenterHint' => 'Diese Koordinaten werden als Kartenmittelpunkt verwendet, wenn eine Kamera ohne festgelegte Position hinzugefügt wird.',
+                'settings.mapLatitude' => 'Anfänglicher Breitengrad',
+                'settings.mapLongitude' => 'Anfänglicher Längengrad',
+                'settings.mapSave' => 'Koordinaten speichern',
+                'settings.mapSaved' => 'Anfängliche Kartenkoordinaten gespeichert',
+                'settings.mapInvalid' => 'Geben Sie einen Breitengrad von -90 bis 90 und einen Längengrad von -180 bis 180 ein.',
+            ],
+            'fr' => [
+                'settings.mapCenter' => 'Position initiale de la carte',
+                'settings.mapCenterHint' => 'Ces coordonnées servent de centre de la carte lors de l’ajout d’une caméra sans position définie.',
+                'settings.mapLatitude' => 'Latitude initiale',
+                'settings.mapLongitude' => 'Longitude initiale',
+                'settings.mapSave' => 'Enregistrer les coordonnées',
+                'settings.mapSaved' => 'Coordonnées initiales de la carte enregistrées',
+                'settings.mapInvalid' => 'Saisissez une latitude comprise entre -90 et 90 et une longitude comprise entre -180 et 180.',
+            ],
+            'es' => [
+                'settings.mapCenter' => 'Posición inicial del mapa',
+                'settings.mapCenterHint' => 'Estas coordenadas se utilizan como centro del mapa al añadir una cámara sin una posición definida.',
+                'settings.mapLatitude' => 'Latitud inicial',
+                'settings.mapLongitude' => 'Longitud inicial',
+                'settings.mapSave' => 'Guardar coordenadas',
+                'settings.mapSaved' => 'Coordenadas iniciales del mapa guardadas',
+                'settings.mapInvalid' => 'Introduzca una latitud entre -90 y 90 y una longitud entre -180 y 180.',
+            ],
+            'it' => [
+                'settings.mapCenter' => 'Posizione iniziale della mappa',
+                'settings.mapCenterHint' => 'Queste coordinate vengono usate come centro della mappa quando si aggiunge una telecamera senza una posizione definita.',
+                'settings.mapLatitude' => 'Latitudine iniziale',
+                'settings.mapLongitude' => 'Longitudine iniziale',
+                'settings.mapSave' => 'Salva coordinate',
+                'settings.mapSaved' => 'Coordinate iniziali della mappa salvate',
+                'settings.mapInvalid' => 'Inserisci una latitudine da -90 a 90 e una longitudine da -180 a 180.',
+            ],
+            'pt' => [
+                'settings.mapCenter' => 'Posição inicial do mapa',
+                'settings.mapCenterHint' => 'Estas coordenadas são usadas como centro do mapa ao adicionar uma câmara sem uma posição definida.',
+                'settings.mapLatitude' => 'Latitude inicial',
+                'settings.mapLongitude' => 'Longitude inicial',
+                'settings.mapSave' => 'Guardar coordenadas',
+                'settings.mapSaved' => 'Coordenadas iniciais do mapa guardadas',
+                'settings.mapInvalid' => 'Introduza uma latitude entre -90 e 90 e uma longitude entre -180 e 180.',
+            ],
+            'bg' => [
+                'settings.mapCenter' => 'Начална позиция на картата',
+                'settings.mapCenterHint' => 'Тези координати се използват като център на картата при добавяне на камера без зададена позиция.',
+                'settings.mapLatitude' => 'Начална географска ширина',
+                'settings.mapLongitude' => 'Начална географска дължина',
+                'settings.mapSave' => 'Запази координатите',
+                'settings.mapSaved' => 'Началните координати на картата са запазени',
+                'settings.mapInvalid' => 'Въведете географска ширина от -90 до 90 и географска дължина от -180 до 180.',
+            ],
+            'pl' => [
+                'settings.mapCenter' => 'Początkowa pozycja mapy',
+                'settings.mapCenterHint' => 'Te współrzędne są używane jako środek mapy podczas dodawania kamery bez określonej pozycji.',
+                'settings.mapLatitude' => 'Początkowa szerokość geograficzna',
+                'settings.mapLongitude' => 'Początkowa długość geograficzna',
+                'settings.mapSave' => 'Zapisz współrzędne',
+                'settings.mapSaved' => 'Początkowe współrzędne mapy zostały zapisane',
+                'settings.mapInvalid' => 'Wprowadź szerokość geograficzną od -90 do 90 i długość geograficzną od -180 do 180.',
+            ],
+            'zh' => [
+                'settings.mapCenter' => '地图初始位置',
+                'settings.mapCenterHint' => '添加未指定位置的摄像机时，将使用这些坐标作为地图中心。',
+                'settings.mapLatitude' => '初始纬度',
+                'settings.mapLongitude' => '初始经度',
+                'settings.mapSave' => '保存坐标',
+                'settings.mapSaved' => '已保存地图初始坐标',
+                'settings.mapInvalid' => '请输入 -90 到 90 之间的纬度以及 -180 到 180 之间的经度。',
+            ],
+            'ja' => [
+                'settings.mapCenter' => '地図の初期位置',
+                'settings.mapCenterHint' => '位置が指定されていないカメラを追加するとき、これらの座標を地図の中心として使用します。',
+                'settings.mapLatitude' => '初期緯度',
+                'settings.mapLongitude' => '初期経度',
+                'settings.mapSave' => '座標を保存',
+                'settings.mapSaved' => '地図の初期座標を保存しました',
+                'settings.mapInvalid' => '緯度は -90～90、経度は -180～180 の範囲で入力してください。',
+            ],
+            'ko' => [
+                'settings.mapCenter' => '지도의 초기 위치',
+                'settings.mapCenterHint' => '위치가 지정되지 않은 카메라를 추가할 때 이 좌표를 지도 중심으로 사용합니다.',
+                'settings.mapLatitude' => '초기 위도',
+                'settings.mapLongitude' => '초기 경도',
+                'settings.mapSave' => '좌표 저장',
+                'settings.mapSaved' => '지도의 초기 좌표를 저장했습니다',
+                'settings.mapInvalid' => '위도는 -90~90, 경도는 -180~180 범위로 입력하세요.',
+            ],
+            'ar' => [
+                'settings.mapCenter' => 'الموضع الأولي للخريطة',
+                'settings.mapCenterHint' => 'تُستخدم هذه الإحداثيات كمركز للخريطة عند إضافة كاميرا من دون موضع محدد.',
+                'settings.mapLatitude' => 'خط العرض الأولي',
+                'settings.mapLongitude' => 'خط الطول الأولي',
+                'settings.mapSave' => 'حفظ الإحداثيات',
+                'settings.mapSaved' => 'تم حفظ الإحداثيات الأولية للخريطة',
+                'settings.mapInvalid' => 'أدخل خط عرض من -90 إلى 90 وخط طول من -180 إلى 180.',
+            ],
+            'hy' => [
+                'settings.mapCenter' => 'Քարտեզի սկզբնական դիրքը',
+                'settings.mapCenterHint' => 'Այս կոորդինատներն օգտագործվում են որպես քարտեզի կենտրոն՝ առանց նշված դիրքի տեսախցիկ ավելացնելիս։',
+                'settings.mapLatitude' => 'Սկզբնական լայնություն',
+                'settings.mapLongitude' => 'Սկզբնական երկայնություն',
+                'settings.mapSave' => 'Պահպանել կոորդինատները',
+                'settings.mapSaved' => 'Քարտեզի սկզբնական կոորդինատները պահպանվել են',
+                'settings.mapInvalid' => 'Մուտքագրեք լայնություն -90-ից 90 և երկայնություն -180-ից 180 միջակայքում։',
+            ],
+        ];
     }
 
     private static function translations(): array
