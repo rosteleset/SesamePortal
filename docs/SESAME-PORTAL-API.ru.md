@@ -138,7 +138,8 @@ Admin only.
 | `GET` | `/users/{id}` | Получить пользователя с `groupIds`. |
 | `PATCH`/`PUT` | `/users/{id}` | Обновить пользователя. |
 | `DELETE` | `/users/{id}` | Удалить пользователя. |
-| `POST` | `/users/{id}/static-token` | Выпустить static token. Token показывается один раз. Если token уже был, он заменяется. |
+| `POST` | `/users/{id}/static-token` | Выпустить static token. Если token уже был, он заменяется. Ответ: `{"token": "..."}`. |
+| `GET` | `/users/{id}/static-token` | Показать действующий static token (доступен администратору в любой момент; хранится обратимо). Ответ: `{"token": "..."}` или `{"token": null}`, если токена нет (например, legacy-токен без обратимого значения). |
 | `DELETE` | `/users/{id}/static-token` | Отозвать static token. |
 
 Query для списка:

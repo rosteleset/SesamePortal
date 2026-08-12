@@ -21,6 +21,11 @@ final class Config
         return dirname(__DIR__);
     }
 
+    public static function reset(): void
+    {
+        self::$config = null;
+    }
+
     public static function stateDir(): string
     {
         return getenv('SESAME_PORTAL_STATE_DIR') ?: self::root() . '/var';
@@ -55,6 +60,9 @@ final class Config
             'portal_update_auto_check' => getenv('SESAME_PORTAL_UPDATE_AUTO_CHECK') !== '0',
             'portal_update_command' => getenv('SESAME_PORTAL_UPDATE_COMMAND') ?: 'sudo -n /usr/local/sbin/sesame-portal-update',
             'portal_update_pass_args' => getenv('SESAME_PORTAL_UPDATE_PASS_ARGS') === '1',
+            'map_provider' => getenv('SESAME_PORTAL_MAP_PROVIDER') ?: 'openstreetmap',
+            'map_default_lat' => (float)(getenv('SESAME_PORTAL_MAP_DEFAULT_LAT') ?: 47.242057),
+            'map_default_lng' => (float)(getenv('SESAME_PORTAL_MAP_DEFAULT_LNG') ?: 38.889615),
         ], is_array($loaded) ? $loaded : []);
 
         if (empty($config['crypto_keys']) || !is_array($config['crypto_keys'])) {
@@ -142,14 +150,19 @@ final class DB
         }
 
         self::ensureColumn('users', 'admin_comment', 'TEXT');
+        self::ensureColumn('users', 'static_token_enc', 'TEXT');
         self::ensureColumn('users', 'hide_archive', 'INTEGER NOT NULL DEFAULT 0');
         self::ensureColumn('users', 'mosaic_columns', 'INTEGER NOT NULL DEFAULT 3');
+        self::ensureColumn('users', 'mosaic_enabled', 'INTEGER NOT NULL DEFAULT 0');
+        self::ensureColumn('users', 'theme', "TEXT NOT NULL DEFAULT ''");
         self::ensureColumn('portal_groups', 'parent_group_id', self::driver() === 'mysql' ? 'BIGINT NULL' : 'INTEGER');
         self::dropPortalGroupNameUniqueConstraint();
         self::ensureIndex('camera_groups', 'idx_camera_groups_group', 'group_id');
         self::ensureIndex('user_groups', 'idx_user_groups_group', 'group_id');
         self::ensureIndex('portal_groups', 'idx_portal_groups_parent', 'parent_group_id');
         self::ensureIndex('favorites', 'idx_favorites_user', 'user_id');
+        self::ensureIndex('cameras_mosaic', 'idx_cameras_mosaic_user', 'user_id');
+        self::migrateCamerasMosaicColumns();
         self::ensureColumn('dvr_servers', 'last_metrics_at', 'TEXT');
         self::ensureColumn('dvr_servers', 'last_metrics_json', 'TEXT');
         self::ensureColumn('cameras', 'last_sync_at', 'TEXT');
@@ -212,6 +225,25 @@ final class DB
         return (int)self::pdo()->lastInsertId();
     }
 
+    public static function syncIdentity(string $table, string $column = 'id'): void
+    {
+        if (self::driver() !== 'pgsql') {
+            return;
+        }
+
+        $pdo = self::pdo();
+        $stmt = $pdo->prepare('SELECT pg_get_serial_sequence(?, ?)');
+        $stmt->execute([$table, $column]);
+        $sequence = (string)$stmt->fetchColumn();
+        if ($sequence === '') {
+            return;
+        }
+
+        $current = (int)$pdo->query('SELECT last_value FROM ' . self::quoteQualifiedIdentifier($sequence))->fetchColumn();
+        $max = (int)$pdo->query('SELECT COALESCE(MAX(' . $column . '), 1) FROM ' . self::quoteIdentifier($table))->fetchColumn();
+        $pdo->prepare('SELECT setval(?::regclass, ?, true)')->execute([$sequence, max($current, $max)]);
+    }
+
     public static function setForeignKeys(bool $enabled): void
     {
         if (self::driver() === 'sqlite') {
@@ -243,9 +275,11 @@ final class DB
                 previous_daily_token TEXT,
                 daily_token_date TEXT,
                 static_token_hash TEXT,
+                static_token_enc TEXT,
                 admin_comment TEXT,
                 hide_archive INTEGER NOT NULL DEFAULT 0,
                 mosaic_columns INTEGER NOT NULL DEFAULT 3,
+                mosaic_enabled INTEGER NOT NULL DEFAULT 0,
                 created_at TEXT NOT NULL,
                 last_login_at TEXT
             )',
@@ -322,6 +356,16 @@ final class DB
                 created_at TEXT NOT NULL,
                 PRIMARY KEY (user_id, camera_id)
             )',
+            'CREATE TABLE IF NOT EXISTS cameras_mosaic (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                name TEXT NOT NULL,
+                cameras_json TEXT NOT NULL,
+                grid_rows INTEGER NOT NULL DEFAULT 3,
+                grid_cols INTEGER NOT NULL DEFAULT 3,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )',
             'CREATE TABLE IF NOT EXISTS audit_logs (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 actor_user_id INTEGER,
@@ -345,9 +389,11 @@ final class DB
                 previous_daily_token TEXT,
                 daily_token_date TEXT,
                 static_token_hash TEXT,
+                static_token_enc TEXT,
                 admin_comment TEXT,
                 hide_archive INTEGER NOT NULL DEFAULT 0,
                 mosaic_columns INTEGER NOT NULL DEFAULT 3,
+                mosaic_enabled INTEGER NOT NULL DEFAULT 0,
                 created_at TEXT NOT NULL,
                 last_login_at TEXT
             )",
@@ -424,6 +470,16 @@ final class DB
                 created_at TEXT NOT NULL,
                 PRIMARY KEY (user_id, camera_id)
             )',
+            'CREATE TABLE IF NOT EXISTS cameras_mosaic (
+                id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+                user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                name TEXT NOT NULL,
+                cameras_json TEXT NOT NULL,
+                grid_rows INTEGER NOT NULL DEFAULT 3,
+                grid_cols INTEGER NOT NULL DEFAULT 3,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )',
             'CREATE TABLE IF NOT EXISTS audit_logs (
                 id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
                 actor_user_id BIGINT,
@@ -448,9 +504,11 @@ final class DB
                 previous_daily_token TEXT,
                 daily_token_date VARCHAR(64),
                 static_token_hash VARCHAR(255),
+                static_token_enc TEXT,
                 admin_comment TEXT,
                 hide_archive INTEGER NOT NULL DEFAULT 0,
                 mosaic_columns INTEGER NOT NULL DEFAULT 3,
+                mosaic_enabled INTEGER NOT NULL DEFAULT 0,
                 created_at VARCHAR(64) NOT NULL,
                 last_login_at VARCHAR(64)
             ){$suffix}",
@@ -535,6 +593,17 @@ final class DB
                 CONSTRAINT fk_favorites_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
                 CONSTRAINT fk_favorites_camera FOREIGN KEY (camera_id) REFERENCES cameras(id) ON DELETE CASCADE
             ){$suffix}",
+            "CREATE TABLE IF NOT EXISTS cameras_mosaic (
+                id BIGINT AUTO_INCREMENT PRIMARY KEY,
+                user_id BIGINT NOT NULL,
+                name VARCHAR(255) NOT NULL,
+                cameras_json TEXT NOT NULL,
+                grid_rows INTEGER NOT NULL DEFAULT 3,
+                grid_cols INTEGER NOT NULL DEFAULT 3,
+                created_at VARCHAR(64) NOT NULL,
+                updated_at VARCHAR(64) NOT NULL,
+                CONSTRAINT fk_cameras_mosaic_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            ){$suffix}",
             "CREATE TABLE IF NOT EXISTS audit_logs (
                 id BIGINT AUTO_INCREMENT PRIMARY KEY,
                 actor_user_id BIGINT,
@@ -552,6 +621,51 @@ final class DB
             'mysql' => self::dropMysqlPortalGroupNameUniqueConstraint(),
             default => self::dropSqlitePortalGroupNameUniqueConstraint(),
         };
+    }
+
+    private static function migrateCamerasMosaicColumns(): void
+    {
+        if (!self::columnExists('cameras_mosaic', 'group_id') && !self::columnExists('cameras_mosaic', 'cols')) {
+            return;
+        }
+
+        if (self::driver() === 'sqlite') {
+            self::rebuildSqliteCamerasMosaicTable();
+            return;
+        }
+
+        if (self::columnExists('cameras_mosaic', 'group_id')) {
+            self::dropIndexIfExists('cameras_mosaic', 'idx_cameras_mosaic_group');
+            self::pdo()->exec('ALTER TABLE cameras_mosaic DROP COLUMN group_id');
+        }
+
+        if (self::columnExists('cameras_mosaic', 'cols')) {
+            self::pdo()->exec('ALTER TABLE cameras_mosaic RENAME COLUMN cols TO grid_cols');
+            self::pdo()->exec('ALTER TABLE cameras_mosaic ADD COLUMN grid_rows INTEGER NOT NULL DEFAULT 3');
+        }
+    }
+
+    private static function rebuildSqliteCamerasMosaicTable(): void
+    {
+        $pdo = self::pdo();
+        $pdo->exec('PRAGMA foreign_keys = OFF');
+        $pdo->exec('BEGIN');
+        $pdo->exec('CREATE TABLE cameras_mosaic_new (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            name TEXT NOT NULL,
+            cameras_json TEXT NOT NULL,
+            grid_rows INTEGER NOT NULL DEFAULT 3,
+            grid_cols INTEGER NOT NULL DEFAULT 3,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )');
+        $pdo->exec('INSERT INTO cameras_mosaic_new(id, user_id, name, cameras_json, grid_rows, grid_cols, created_at, updated_at)
+                    SELECT id, user_id, name, cameras_json, cols, cols, created_at, updated_at FROM cameras_mosaic');
+        $pdo->exec('DROP TABLE cameras_mosaic');
+        $pdo->exec('ALTER TABLE cameras_mosaic_new RENAME TO cameras_mosaic');
+        $pdo->exec('COMMIT');
+        $pdo->exec('PRAGMA foreign_keys = ON');
     }
 
     private static function dropSqlitePortalGroupNameUniqueConstraint(): void
@@ -685,6 +799,12 @@ final class DB
         return $quote . str_replace($quote, $quote . $quote, $identifier) . $quote;
     }
 
+    private static function quoteQualifiedIdentifier(string $name): string
+    {
+        $parts = array_filter(explode('.', $name), static fn(string $part): bool => $part !== '');
+        return implode('.', array_map(static fn(string $part): string => '"' . str_replace('"', '""', $part) . '"', $parts));
+    }
+
     private static function ensureColumn(string $table, string $column, string $definition): void
     {
         $pdo = self::pdo();
@@ -750,6 +870,22 @@ final class DB
         $stmt->execute([$table, $index]);
         return (bool)$stmt->fetchColumn();
     }
+
+    private static function dropIndexIfExists(string $table, string $index): void
+    {
+        if (!self::indexExists($table, $index)) {
+            return;
+        }
+        self::pdo()->exec('DROP INDEX ' . $index);
+    }
+
+    private static function dropColumnIfExists(string $table, string $column): void
+    {
+        if (!self::columnExists($table, $column)) {
+            return;
+        }
+        self::pdo()->exec('ALTER TABLE ' . $table . ' DROP COLUMN ' . $column);
+    }
 }
 
 final class Util
@@ -770,6 +906,40 @@ final class Util
     public static function randomToken(int $bytes = 32): string
     {
         return rtrim(strtr(base64_encode(random_bytes($bytes)), '+/', '-_'), '=');
+    }
+
+    public static function mapProvider(): string
+    {
+        $provider = (string)Config::get('map_provider', 'openstreetmap');
+        $allowed = ['openstreetmap', 'yandex'];
+        return in_array($provider, $allowed, true) ? $provider : 'openstreetmap';
+    }
+
+    public static function mapTileUrl(string $provider): string
+    {
+        return match ($provider) {
+            'yandex' => 'https://core-renderer-tiles.maps.yandex.net/tiles?l=map&x={x}&y={y}&z={z}&lang=ru_RU',
+            default => 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+        };
+    }
+
+    public static function mapAttribution(string $provider): string
+    {
+        return match ($provider) {
+            'yandex' => '&copy; <a href="https://yandex.ru/maps/">Яндекс Карты</a>',
+            default => '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+        };
+    }
+
+    public static function mapDefaultView(): array
+    {
+        $default = ['lat' => 47.242057, 'lng' => 38.889615];
+        $lat = Config::get('map_default_lat', $default['lat']);
+        $lng = Config::get('map_default_lng', $default['lng']);
+        return [
+            'lat' => is_numeric($lat) ? (float)$lat : $default['lat'],
+            'lng' => is_numeric($lng) ? (float)$lng : $default['lng'],
+        ];
     }
 
     public static function redirect(string $path): never
@@ -933,6 +1103,8 @@ final class I18n
             'cancel' => self::t('action.cancel', 'Отменить'),
             'fullscreen' => self::t('player.fullscreen', 'На весь экран'),
             'collapse' => self::t('player.collapse', 'Свернуть'),
+            'staticTokenReveal' => self::t('token.staticReveal', 'Показать и скопировать'),
+            'staticTokenCopied' => self::t('token.staticCopied', 'Скопировано'),
         ];
     }
 
@@ -1138,11 +1310,29 @@ final class I18n
                 'nav.users' => 'Users',
                 'nav.groups' => 'Groups',
                 'nav.cameras' => 'Cameras',
+                'nav.camerasAdmin' => 'Camera management',
+                'mosaic.title' => 'Mosaic',
+                'mosaic.create' => 'Create mosaic',
+                'mosaic.name' => 'Name',
+                'mosaic.rows' => 'Rows',
+                'mosaic.columns' => 'Columns',
+                'mosaic.cameras' => 'Cameras',
+                'mosaic.empty' => 'No mosaics created',
+                'mosaic.open' => 'Open in player',
+                'mosaic.edit' => 'Edit',
+                'mosaic.delete' => 'Delete',
+                'mosaic.save' => 'Save',
+                'mosaic.confirmDelete' => 'Delete mosaic?',
+                'mosaic.noCameras' => 'No cameras available',
+                'mosaic.requiredName' => 'Enter mosaic name',
                 'nav.dvr' => 'DVR',
                 'nav.agents' => 'Edge Agents',
                 'nav.audit' => 'Audit',
                 'nav.settings' => 'Settings',
                 'nav.logout' => 'Logout',
+                'nav.theme' => 'Theme',
+                'nav.theme.toLight' => 'Switch to light theme',
+                'nav.theme.toDark' => 'Switch to dark theme',
                 'login.title' => 'Sign In',
                 'login.subtitle' => 'SesameWare video surveillance portal',
                 'login.feature.secure' => 'Secure',
@@ -1237,6 +1427,18 @@ final class I18n
                 'settings.updateFailed' => 'Portal update failed',
                 'settings.updateOutputOk' => 'Updater output',
                 'settings.updateOutputFailed' => 'Updater error output',
+                'settings.mapProvider' => 'Map provider',
+                'settings.mapProviderDesc' => 'Choose the map provider for the map view',
+                'settings.mapProviderSaved' => 'Map provider saved',
+                'settings.mapProviderInvalid' => 'Invalid map provider',
+                'mapProvider.openstreetmap' => 'OpenStreetMap',
+                'mapProvider.yandex' => 'Yandex Maps',
+                'settings.mapView' => 'Default map center',
+                'settings.mapViewDesc' => 'Coordinates shown when opening the map',
+                'settings.mapViewLat' => 'Latitude',
+                'settings.mapViewLng' => 'Longitude',
+                'settings.mapViewSaved' => 'Map center coordinates saved',
+                'settings.mapViewInvalid' => 'Invalid map coordinates',
                 'users.title' => 'Users',
                 'users.new' => 'New user',
                 'users.edit' => 'Edit user',
@@ -1263,6 +1465,8 @@ final class I18n
                 'cameras.new' => 'New camera',
                 'cameras.edit' => 'Edit camera',
                 'cameras.name' => 'Name',
+                'cameras.nameExists' => 'A camera with this name already exists',
+                'cameras.nameRequired' => 'Camera name is required',
                 'cameras.displayName' => 'Stream title',
                 'cameras.sourceUrl' => 'Source URL',
                 'cameras.server' => 'Server',
@@ -1426,6 +1630,21 @@ final class I18n
                 'nav.users' => 'Benutzer',
                 'nav.groups' => 'Gruppen',
                 'nav.cameras' => 'Kameras',
+                'nav.camerasAdmin' => 'Kameraverwaltung',
+                'mosaic.title' => 'Mosaik',
+                'mosaic.create' => 'Mosaik erstellen',
+                'mosaic.name' => 'Name',
+                'mosaic.rows' => 'Zeilen',
+                'mosaic.columns' => 'Spalten',
+                'mosaic.cameras' => 'Kameras',
+                'mosaic.empty' => 'Keine Mosaike erstellt',
+                'mosaic.open' => 'Im Player öffnen',
+                'mosaic.edit' => 'Bearbeiten',
+                'mosaic.delete' => 'Löschen',
+                'mosaic.save' => 'Speichern',
+                'mosaic.confirmDelete' => 'Mosaik löschen?',
+                'mosaic.noCameras' => 'Keine verfügbaren Kameras',
+                'mosaic.requiredName' => 'Bitte Namen des Mosaiks angeben',
                 'nav.audit' => 'Audit',
                 'nav.logout' => 'Abmelden',
                 'login.title' => 'Anmelden',
@@ -1523,6 +1742,21 @@ final class I18n
                 'nav.users' => 'Utilisateurs',
                 'nav.groups' => 'Groupes',
                 'nav.cameras' => 'Caméras',
+                'nav.camerasAdmin' => 'Gestion des caméras',
+                'mosaic.title' => 'Mosaïque',
+                'mosaic.create' => 'Créer une mosaïque',
+                'mosaic.name' => 'Nom',
+                'mosaic.rows' => 'Lignes',
+                'mosaic.columns' => 'Colonnes',
+                'mosaic.cameras' => 'Caméras',
+                'mosaic.empty' => 'Aucune mosaïque créée',
+                'mosaic.open' => 'Ouvrir dans le lecteur',
+                'mosaic.edit' => 'Modifier',
+                'mosaic.delete' => 'Supprimer',
+                'mosaic.save' => 'Enregistrer',
+                'mosaic.confirmDelete' => 'Supprimer la mosaïque ?',
+                'mosaic.noCameras' => 'Aucune caméra disponible',
+                'mosaic.requiredName' => 'Veuillez saisir le nom de la mosaïque',
                 'nav.audit' => 'Journal',
                 'nav.logout' => 'Déconnexion',
                 'login.title' => 'Connexion',
@@ -1619,6 +1853,21 @@ final class I18n
                 'nav.users' => 'Usuarios',
                 'nav.groups' => 'Grupos',
                 'nav.cameras' => 'Cámaras',
+                'nav.camerasAdmin' => 'Gestión de cámaras',
+                'mosaic.title' => 'Mosaico',
+                'mosaic.create' => 'Crear mosaico',
+                'mosaic.name' => 'Nombre',
+                'mosaic.rows' => 'Filas',
+                'mosaic.columns' => 'Columnas',
+                'mosaic.cameras' => 'Cámaras',
+                'mosaic.empty' => 'No hay mosaicos creados',
+                'mosaic.open' => 'Abrir en el reproductor',
+                'mosaic.edit' => 'Editar',
+                'mosaic.delete' => 'Eliminar',
+                'mosaic.save' => 'Guardar',
+                'mosaic.confirmDelete' => '¿Eliminar mosaico?',
+                'mosaic.noCameras' => 'No hay cámaras disponibles',
+                'mosaic.requiredName' => 'Indique el nombre del mosaico',
                 'nav.audit' => 'Auditoría',
                 'nav.logout' => 'Salir',
                 'login.title' => 'Iniciar sesión',
@@ -1690,6 +1939,21 @@ final class I18n
                 'nav.users' => 'Utenti',
                 'nav.groups' => 'Gruppi',
                 'nav.cameras' => 'Telecamere',
+                'nav.camerasAdmin' => 'Gestione telecamere',
+                'mosaic.title' => 'Mosaico',
+                'mosaic.create' => 'Crea mosaico',
+                'mosaic.name' => 'Nome',
+                'mosaic.rows' => 'Righe',
+                'mosaic.columns' => 'Colonne',
+                'mosaic.cameras' => 'Telecamere',
+                'mosaic.empty' => 'Nessun mosaico creato',
+                'mosaic.open' => 'Apri nel player',
+                'mosaic.edit' => 'Modifica',
+                'mosaic.delete' => 'Elimina',
+                'mosaic.save' => 'Salva',
+                'mosaic.confirmDelete' => 'Eliminare il mosaico?',
+                'mosaic.noCameras' => 'Nessuna telecamera disponibile',
+                'mosaic.requiredName' => 'Inserire il nome del mosaico',
                 'nav.audit' => 'Audit',
                 'nav.logout' => 'Esci',
                 'login.title' => 'Accesso',
@@ -1730,6 +1994,21 @@ final class I18n
                 'nav.users' => 'Utilizadores',
                 'nav.groups' => 'Grupos',
                 'nav.cameras' => 'Câmaras',
+                'nav.camerasAdmin' => 'Gestão de câmaras',
+                'mosaic.title' => 'Mosaico',
+                'mosaic.create' => 'Criar mosaico',
+                'mosaic.name' => 'Nome',
+                'mosaic.rows' => 'Linhas',
+                'mosaic.columns' => 'Colunas',
+                'mosaic.cameras' => 'Câmaras',
+                'mosaic.empty' => 'Nenhum mosaico criado',
+                'mosaic.open' => 'Abrir no player',
+                'mosaic.edit' => 'Editar',
+                'mosaic.delete' => 'Eliminar',
+                'mosaic.save' => 'Guardar',
+                'mosaic.confirmDelete' => 'Eliminar mosaico?',
+                'mosaic.noCameras' => 'Nenhuma câmara disponível',
+                'mosaic.requiredName' => 'Indique o nome do mosaico',
                 'nav.audit' => 'Auditoria',
                 'nav.logout' => 'Sair',
                 'login.title' => 'Entrar',
@@ -1769,6 +2048,21 @@ final class I18n
                 'nav.users' => 'Потребители',
                 'nav.groups' => 'Групи',
                 'nav.cameras' => 'Камери',
+                'nav.camerasAdmin' => 'Управление на камери',
+                'mosaic.title' => 'Мозайка',
+                'mosaic.create' => 'Създай мозайка',
+                'mosaic.name' => 'Име',
+                'mosaic.rows' => 'Редове',
+                'mosaic.columns' => 'Колони',
+                'mosaic.cameras' => 'Камери',
+                'mosaic.empty' => 'Няма създадени мозайки',
+                'mosaic.open' => 'Отвори в плейъра',
+                'mosaic.edit' => 'Редактирай',
+                'mosaic.delete' => 'Изтрий',
+                'mosaic.save' => 'Запази',
+                'mosaic.confirmDelete' => 'Да се изтрие ли мозайката?',
+                'mosaic.noCameras' => 'Няма налични камери',
+                'mosaic.requiredName' => 'Въведете име на мозайката',
                 'nav.audit' => 'Журнал',
                 'nav.logout' => 'Изход',
                 'login.title' => 'Вход',
@@ -1808,6 +2102,21 @@ final class I18n
                 'nav.users' => 'Użytkownicy',
                 'nav.groups' => 'Grupy',
                 'nav.cameras' => 'Kamery',
+                'nav.camerasAdmin' => 'Zarządzanie kamerami',
+                'mosaic.title' => 'Mozaika',
+                'mosaic.create' => 'Utwórz mozaikę',
+                'mosaic.name' => 'Nazwa',
+                'mosaic.rows' => 'Wiersze',
+                'mosaic.columns' => 'Kolumny',
+                'mosaic.cameras' => 'Kamery',
+                'mosaic.empty' => 'Brak utworzonych mozaik',
+                'mosaic.open' => 'Otwórz w odtwarzaczu',
+                'mosaic.edit' => 'Edytuj',
+                'mosaic.delete' => 'Usuń',
+                'mosaic.save' => 'Zapisz',
+                'mosaic.confirmDelete' => 'Usunąć mozaikę?',
+                'mosaic.noCameras' => 'Brak dostępnych kamer',
+                'mosaic.requiredName' => 'Podaj nazwę mozaiki',
                 'nav.audit' => 'Audyt',
                 'nav.logout' => 'Wyloguj',
                 'login.title' => 'Logowanie',
@@ -1847,6 +2156,21 @@ final class I18n
                 'nav.users' => '用户',
                 'nav.groups' => '组',
                 'nav.cameras' => '摄像机',
+                'nav.camerasAdmin' => '摄像机管理',
+                'mosaic.title' => '宫格',
+                'mosaic.create' => '创建宫格',
+                'mosaic.name' => '名称',
+                'mosaic.rows' => '行',
+                'mosaic.columns' => '列数',
+                'mosaic.cameras' => '摄像机',
+                'mosaic.empty' => '尚未创建宫格',
+                'mosaic.open' => '在播放器中打开',
+                'mosaic.edit' => '编辑',
+                'mosaic.delete' => '删除',
+                'mosaic.save' => '保存',
+                'mosaic.confirmDelete' => '删除宫格？',
+                'mosaic.noCameras' => '没有可用摄像机',
+                'mosaic.requiredName' => '请输入宫格名称',
                 'nav.audit' => '审计',
                 'nav.logout' => '退出',
                 'login.title' => '登录',
@@ -1886,6 +2210,21 @@ final class I18n
                 'nav.users' => 'ユーザー',
                 'nav.groups' => 'グループ',
                 'nav.cameras' => 'カメラ',
+                'nav.camerasAdmin' => 'カメラ管理',
+                'mosaic.title' => 'モザイク',
+                'mosaic.create' => 'モザイクを作成',
+                'mosaic.name' => '名前',
+                'mosaic.rows' => '行',
+                'mosaic.columns' => '列数',
+                'mosaic.cameras' => 'カメラ',
+                'mosaic.empty' => 'モザイクはまだ作成されていません',
+                'mosaic.open' => 'プレイヤーで開く',
+                'mosaic.edit' => '編集',
+                'mosaic.delete' => '削除',
+                'mosaic.save' => '保存',
+                'mosaic.confirmDelete' => 'モザイクを削除しますか？',
+                'mosaic.noCameras' => '利用可能なカメラがありません',
+                'mosaic.requiredName' => 'モザイクの名前を入力してください',
                 'nav.audit' => '監査',
                 'nav.logout' => 'ログアウト',
                 'login.title' => 'サインイン',
@@ -1925,6 +2264,21 @@ final class I18n
                 'nav.users' => '사용자',
                 'nav.groups' => '그룹',
                 'nav.cameras' => '카메라',
+                'nav.camerasAdmin' => '카메라 관리',
+                'mosaic.title' => '모자이크',
+                'mosaic.create' => '모자이크 만들기',
+                'mosaic.name' => '이름',
+                'mosaic.rows' => '행',
+                'mosaic.columns' => '열',
+                'mosaic.cameras' => '카메라',
+                'mosaic.empty' => '생성된 모자이크가 없습니다',
+                'mosaic.open' => '플레이어에서 열기',
+                'mosaic.edit' => '편집',
+                'mosaic.delete' => '삭제',
+                'mosaic.save' => '저장',
+                'mosaic.confirmDelete' => '모자이크를 삭제하시겠습니까?',
+                'mosaic.noCameras' => '사용 가능한 카메라가 없습니다',
+                'mosaic.requiredName' => '모자이크 이름을 입력하세요',
                 'nav.audit' => '감사',
                 'nav.logout' => '로그아웃',
                 'login.title' => '로그인',
@@ -1964,6 +2318,21 @@ final class I18n
                 'nav.users' => 'المستخدمون',
                 'nav.groups' => 'المجموعات',
                 'nav.cameras' => 'الكاميرات',
+                'nav.camerasAdmin' => 'إدارة الكاميرات',
+                'mosaic.title' => 'فسيفساء',
+                'mosaic.create' => 'إنشاء فسيفساء',
+                'mosaic.name' => 'الاسم',
+                'mosaic.rows' => 'الصفوف',
+                'mosaic.columns' => 'الأعمدة',
+                'mosaic.cameras' => 'الكاميرات',
+                'mosaic.empty' => 'لم يتم إنشاء فسيفساء',
+                'mosaic.open' => 'فتح في المشغل',
+                'mosaic.edit' => 'تعديل',
+                'mosaic.delete' => 'حذف',
+                'mosaic.save' => 'حفظ',
+                'mosaic.confirmDelete' => 'حذف الفسيفساء؟',
+                'mosaic.noCameras' => 'لا توجد كاميرات متاحة',
+                'mosaic.requiredName' => 'يرجى إدخال اسم الفسيفساء',
                 'nav.audit' => 'السجل',
                 'nav.logout' => 'خروج',
                 'login.title' => 'تسجيل الدخول',
@@ -2003,6 +2372,21 @@ final class I18n
                 'nav.users' => 'Օգտատերեր',
                 'nav.groups' => 'Խմբեր',
                 'nav.cameras' => 'Տեսախցիկներ',
+                'nav.camerasAdmin' => 'Տեսախցիկների կառավարում',
+                'mosaic.title' => 'Խճանկար',
+                'mosaic.create' => 'Ստեղծել խճանկար',
+                'mosaic.name' => 'Անուն',
+                'mosaic.rows' => 'Տողեր',
+                'mosaic.columns' => 'Սյունակներ',
+                'mosaic.cameras' => 'Տեսախցիկներ',
+                'mosaic.empty' => 'Խճանկարներ չեն ստեղծվել',
+                'mosaic.open' => 'Բացել նվագարկիչում',
+                'mosaic.edit' => 'Խմբագրել',
+                'mosaic.delete' => 'Ջնջել',
+                'mosaic.save' => 'Պահպանել',
+                'mosaic.confirmDelete' => 'Ջնջե՞լ խճանկարը',
+                'mosaic.noCameras' => 'Հասանելի տեսախցիկներ չկան',
+                'mosaic.requiredName' => 'Մուտքագրեք խճանկարի անունը',
                 'nav.audit' => 'Աուդիտ',
                 'nav.logout' => 'Ելք',
                 'login.title' => 'Մուտք',
@@ -2369,6 +2753,44 @@ final class I18n
         }
 
         foreach ([
+            'ru' => 'Разрешить создание мозаик',
+            'en' => 'Allow creating mosaics',
+            'de' => 'Mosaikerstellung erlauben',
+            'fr' => 'Autoriser la création de mosaïques',
+            'es' => 'Permitir crear mosaicos',
+            'it' => 'Consenti creazione mosaici',
+            'pt' => 'Permitir criar mosaicos',
+            'bg' => 'Позволи създаване на мозайки',
+            'pl' => 'Zezwól na tworzenie mozaik',
+            'zh' => '允许创建宫格',
+            'ja' => 'モザイク作成を許可',
+            'ko' => '모자이크 생성 허용',
+            'ar' => 'السماح بإنشاء الفسيفساء',
+            'hy' => 'Թույլ տալ խճանկարների ստեղծումը',
+        ] as $locale => $label) {
+            $messages[$locale]['users.mosaicEnabled'] = $label;
+        }
+
+        foreach ([
+            'ru' => 'Автор',
+            'en' => 'Author',
+            'de' => 'Autor',
+            'fr' => 'Auteur',
+            'es' => 'Autor',
+            'it' => 'Autore',
+            'pt' => 'Autor',
+            'bg' => 'Автор',
+            'pl' => 'Autor',
+            'zh' => '作者',
+            'ja' => '作成者',
+            'ko' => '작성자',
+            'ar' => 'المؤلف',
+            'hy' => 'Հեղինակ',
+        ] as $locale => $label) {
+            $messages[$locale]['mosaic.owner'] = $label;
+        }
+
+        foreach ([
             'ru' => ['Обновлено', 'Создано', 'Все серверы', 'Все режимы', 'Архив: все', 'Архив включён', 'Архив выключен', 'Синхронизация: все', 'Синхронизация ok', 'Синхронизация с ошибкой', 'Read-only', 'Без результата', 'Все группы', 'Сортировка', 'Сортировка', 'Направление сортировки', 'По возрастанию', 'По убыванию', 'Сбросить'],
             'en' => ['Updated', 'Created', 'All servers', 'All modes', 'Archive: all', 'Archive on', 'Archive off', 'Sync: all', 'Sync ok', 'Sync failed', 'Read-only', 'No result', 'All groups', 'Sort', 'Sort', 'Sort direction', 'Ascending', 'Descending', 'Reset'],
             'de' => ['Aktualisiert', 'Erstellt', 'Alle Server', 'Alle Modi', 'Archiv: alle', 'Archiv aktiv', 'Archiv inaktiv', 'Sync: alle', 'Sync ok', 'Sync fehlgeschlagen', 'Read-only', 'Kein Ergebnis', 'Alle Gruppen', 'Sortierung', 'Sortierung', 'Sortierrichtung', 'Aufsteigend', 'Absteigend', 'Zurücksetzen'],
@@ -2489,10 +2911,11 @@ final class I18n
             'token.static' => 'Статический токен',
             'token.staticIssue' => 'Выпустить статический токен',
             'token.staticReplace' => 'Заменить статический токен',
-            'token.staticReplaceConfirm' => 'Старый статический токен сразу перестанет работать. Выпустить новый токен?',
-            'token.staticIssued' => 'Новый статический токен. Сохраните его сейчас: позже Portal покажет только наличие токена',
-            'token.staticPresent' => 'есть',
-            'token.staticMissing' => 'нет',
+             'token.staticReplaceConfirm' => 'Старый статический токен сразу перестанет работать. Выпустить новый токен?',
+             'token.staticReveal' => 'Показать и скопировать',
+             'token.staticCopied' => 'Скопировано',
+             'token.staticPresent' => 'есть',
+             'token.staticMissing' => 'нет',
             'users.saveDone' => 'Пользователь сохранён',
             'users.saving' => 'Сохраняем пользователя...',
             'geo.latitude' => 'Широта',
@@ -2504,13 +2927,15 @@ final class I18n
             'action.sync' => 'Sync',
             'action.revoke' => 'Revoke',
             'column.static_token_hash' => 'Static token',
+            'users.staticToken' => 'Static token of the user',
             'token.static' => 'Static token',
             'token.staticIssue' => 'Issue static token',
             'token.staticReplace' => 'Replace static token',
-            'token.staticReplaceConfirm' => 'The old static token will stop working immediately. Issue a new token?',
-            'token.staticIssued' => 'New static token. Save it now: later Portal will only show that a token exists',
-            'token.staticPresent' => 'present',
-            'token.staticMissing' => 'missing',
+             'token.staticReplaceConfirm' => 'The old static token will stop working immediately. Issue a new token?',
+             'token.staticReveal' => 'Show and copy',
+             'token.staticCopied' => 'Copied',
+             'token.staticPresent' => 'present',
+             'token.staticMissing' => 'missing',
             'users.saveDone' => 'User saved',
             'users.saving' => 'Saving user...',
             'geo.latitude' => 'Latitude',
@@ -2882,8 +3307,8 @@ final class TokenService
         $user = self::staticTokenUser($userId);
         $hadToken = !empty($user['static_token_hash']);
         $token = 'sp_' . Util::randomToken();
-        DB::pdo()->prepare('UPDATE users SET static_token_hash = ? WHERE id = ?')
-            ->execute([password_hash($token, PASSWORD_DEFAULT), $userId]);
+        DB::pdo()->prepare('UPDATE users SET static_token_hash = ?, static_token_enc = ? WHERE id = ?')
+            ->execute([password_hash($token, PASSWORD_DEFAULT), Crypto::encrypt($token), $userId]);
         self::logStaticTokenEvent(
             $actor,
             $hadToken ? 'user.static_token.replace' : 'user.static_token.issue',
@@ -2898,7 +3323,7 @@ final class TokenService
     {
         $user = self::staticTokenUser($userId);
         $hadToken = !empty($user['static_token_hash']);
-        DB::pdo()->prepare('UPDATE users SET static_token_hash = NULL WHERE id = ?')->execute([$userId]);
+        DB::pdo()->prepare('UPDATE users SET static_token_hash = NULL, static_token_enc = NULL WHERE id = ?')->execute([$userId]);
         self::logStaticTokenEvent(
             $actor,
             'user.static_token.revoke',
@@ -2910,7 +3335,7 @@ final class TokenService
 
     private static function staticTokenUser(int $userId): ?array
     {
-        $stmt = DB::pdo()->prepare('SELECT id, login, static_token_hash FROM users WHERE id = ?');
+        $stmt = DB::pdo()->prepare('SELECT id, login, static_token_hash, static_token_enc FROM users WHERE id = ?');
         $stmt->execute([$userId]);
         return $stmt->fetch() ?: null;
     }
@@ -4133,6 +4558,91 @@ final class Repo
         $stmt->execute([$cameraId, ...$groupIds]);
         return (bool)$stmt->fetch();
     }
+
+    public static function mosaicsForUser(array $user): array
+    {
+        if ($user['role'] === 'admin') {
+            $stmt = DB::pdo()->prepare(
+                'SELECT m.*, u.login AS owner_login
+                 FROM cameras_mosaic m
+                 JOIN users u ON u.id = m.user_id
+                 ORDER BY m.created_at DESC'
+            );
+        } else {
+            $stmt = DB::pdo()->prepare(
+                'SELECT m.*, u.login AS owner_login
+                 FROM cameras_mosaic m
+                 JOIN users u ON u.id = m.user_id
+                 WHERE m.user_id = ?
+                 ORDER BY m.created_at DESC'
+            );
+            $stmt->execute([(int)$user['id']]);
+            return $stmt->fetchAll();
+        }
+        $stmt->execute();
+        return $stmt->fetchAll();
+    }
+
+    public static function mosaicById(int $id): ?array
+    {
+        $stmt = DB::pdo()->prepare(
+            'SELECT m.*, u.login AS owner_login
+             FROM cameras_mosaic m
+             JOIN users u ON u.id = m.user_id
+             WHERE m.id = ?'
+        );
+        $stmt->execute([$id]);
+        $row = $stmt->fetch();
+        return $row ?: null;
+    }
+
+    public static function mosaicAllowedForUser(array $user, int $mosaicId): bool
+    {
+        $mosaic = self::mosaicById($mosaicId);
+        if (!$mosaic) {
+            return false;
+        }
+        if ($user['role'] === 'admin') {
+            return true;
+        }
+        return (int)$mosaic['user_id'] === (int)$user['id'];
+    }
+
+    public static function mosaicCameraIds(array $mosaic): array
+    {
+        $ids = json_decode((string)($mosaic['cameras_json'] ?? '[]'), true);
+        if (!is_array($ids)) {
+            return [];
+        }
+        return array_values(array_unique(array_filter(array_map('intval', $ids), static fn(int $id): bool => $id > 0)));
+    }
+
+    public static function camerasByIds(array $ids): array
+    {
+        $ids = array_values(array_unique(array_filter(array_map('intval', $ids), static fn(int $id): bool => $id > 0)));
+        if (!$ids) {
+            return [];
+        }
+        $stmt = DB::pdo()->prepare(
+            'SELECT c.*, s.name AS server_name, s.base_url AS server_url
+             FROM cameras c
+             LEFT JOIN dvr_servers s ON s.id = c.server_id
+             WHERE c.id IN (' . self::placeholders($ids) . ') AND c.blocked = 0'
+        );
+        $stmt->execute($ids);
+        $rows = $stmt->fetchAll();
+        $byId = [];
+        foreach ($rows as $row) {
+            $byId[(int)$row['id']] = $row;
+        }
+        $ordered = [];
+        foreach ($ids as $id) {
+            if (isset($byId[$id])) {
+                $ordered[] = $byId[$id];
+            }
+        }
+        return $ordered;
+    }
 }
 
 final class App
@@ -4172,6 +4682,14 @@ final class App
             '/viewer/preview' => self::previewProxy(),
             '/viewer/player' => self::player(),
             '/favorite/toggle' => self::toggleFavorite(),
+            '/camera/rename' => self::renameCamera(),
+            '/theme' => self::updateTheme(),
+            '/mosaic' => self::mosaics(),
+            '/mosaic/new' => self::mosaicEdit(),
+            '/mosaic/edit' => self::mosaicEdit(),
+            '/mosaic/save' => self::mosaicSave(),
+            '/mosaic/view' => self::mosaicView(),
+            '/mosaic/delete' => self::mosaicDelete(),
             '/api/sesamedvr/auth' => self::authBackend(),
             default => self::viewer('mosaic'),
         };
@@ -4528,6 +5046,12 @@ final class App
             }
             if ($method === 'POST') {
                 self::apiJson(['token' => TokenService::issueStaticToken($id, $actor)]);
+                return;
+            }
+            if ($method === 'GET') {
+                $user = self::rowById('users', $id);
+                $encoded = trim((string)($user['static_token_enc'] ?? ''));
+                self::apiJson(['token' => $encoded === '' ? null : Crypto::decrypt($encoded)]);
                 return;
             }
             if ($method === 'DELETE') {
@@ -5629,7 +6153,7 @@ final class App
             self::t('dashboard.dvrServers', 'DVR серверы') => (int)DB::pdo()->query('SELECT COUNT(*) FROM dvr_servers')->fetchColumn(),
         ];
         $servers = Repo::all('dvr_servers', 'name ASC');
-        $recentSync = DB::pdo()->query('SELECT c.*, s.name AS server_name FROM cameras c LEFT JOIN dvr_servers s ON s.id = c.server_id ORDER BY COALESCE(c.last_sync_at, "") DESC, c.name ASC LIMIT 12')->fetchAll();
+        $recentSync = DB::pdo()->query("SELECT c.*, s.name AS server_name FROM cameras c LEFT JOIN dvr_servers s ON s.id = c.server_id ORDER BY COALESCE(c.last_sync_at, '') DESC, c.name ASC LIMIT 12")->fetchAll();
 
         self::layout(self::t('nav.dashboard', 'Dashboard'), function () use ($counts, $servers, $recentSync, $message) {
             self::notice($message);
@@ -5685,6 +6209,31 @@ final class App
                     ? self::t('settings.updateDone', 'Обновление Portal выполнено')
                     : self::t('settings.updateFailed', 'Обновление Portal не выполнено');
                 $messageClass = !empty($updateResult['ok']) ? 'success' : 'danger';
+            } elseif ($action === 'save_map_provider') {
+                $provider = (string)Util::post('map_provider');
+                $allowed = ['openstreetmap', 'yandex'];
+                if (in_array($provider, $allowed, true)) {
+                    self::saveConfigValue('map_provider', $provider);
+                    $message = self::t('settings.mapProviderSaved', 'Поставщик карт сохранён');
+                    $messageClass = 'success';
+                } else {
+                    $message = self::t('settings.mapProviderInvalid', 'Неверный поставщик карт');
+                    $messageClass = 'danger';
+                }
+            } elseif ($action === 'save_map_view') {
+                $lat = (string)Util::post('map_default_lat');
+                $lng = (string)Util::post('map_default_lng');
+                if (is_numeric($lat) && is_numeric($lng)
+                    && (float)$lat >= -90 && (float)$lat <= 90
+                    && (float)$lng >= -180 && (float)$lng <= 180) {
+                    self::saveConfigValue('map_default_lat', (string)(float)$lat);
+                    self::saveConfigValue('map_default_lng', (string)(float)$lng);
+                    $message = self::t('settings.mapViewSaved', 'Координаты центра карты сохранены');
+                    $messageClass = 'success';
+                } else {
+                    $message = self::t('settings.mapViewInvalid', 'Неверные координаты карты');
+                    $messageClass = 'danger';
+                }
             }
         }
 
@@ -5699,7 +6248,72 @@ final class App
         self::layout(self::t('settings.title', 'Настройки'), function () use ($message, $messageClass, $status, $updateResult) {
             self::notice($message, $messageClass);
             self::portalUpdatePanel($status, $updateResult);
+            echo '<div class="map-settings-grid">';
+            self::mapProviderPanel();
+            self::mapViewPanel();
+            echo '</div>';
         });
+    }
+
+    private static function saveConfigValue(string $key, string $value): bool
+    {
+        $configFile = Config::stateDir() . '/config.php';
+        if (!is_file($configFile)) {
+            return false;
+        }
+        if (function_exists('opcache_invalidate')) {
+            opcache_invalidate($configFile, true);
+        }
+        $config = require $configFile;
+        if (!is_array($config)) {
+            return false;
+        }
+        $config[$key] = $value;
+        $content = "<?php\n\nreturn " . var_export($config, true) . ";\n";
+        $ok = file_put_contents($configFile, $content) !== false;
+        if (function_exists('opcache_invalidate')) {
+            opcache_invalidate($configFile, true);
+        }
+        if ($ok) {
+            Config::reset();
+        }
+        return $ok;
+    }
+
+    private static function mapProviderPanel(): void
+    {
+        $current = Config::get('map_provider', 'openstreetmap');
+        $providers = [
+            'openstreetmap' => self::t('mapProvider.openstreetmap', 'OpenStreetMap'),
+            'yandex' => self::t('mapProvider.yandex', 'Яндекс Карты'),
+        ];
+
+        echo '<section class="panel"><div class="section-head"><h2>' . self::t('settings.mapProvider', 'Поставщик карт') . '</h2><p class="muted">' . self::t('settings.mapProviderDesc', 'Выберите поставщика карт для просмотра карты') . '</p></div>';
+        echo '<form method="post" action="/admin/settings">';
+        echo '<input type="hidden" name="action" value="save_map_provider">';
+        echo '<input type="hidden" name="csrf" value="' . Util::h(Csrf::token()) . '">';
+        echo '<select name="map_provider" aria-label="' . Util::h(self::t('settings.mapProvider', 'Поставщик карт')) . '">';
+        foreach ($providers as $key => $label) {
+            echo '<option value="' . Util::h($key) . '"' . ($key === $current ? ' selected' : '') . '>' . Util::h($label) . '</option>';
+        }
+        echo '</select>';
+        echo '<button type="submit" class="primary">' . self::t('action.save', 'Сохранить') . '</button>';
+        echo '</form></section>';
+    }
+
+    private static function mapViewPanel(): void
+    {
+        $view = Util::mapDefaultView();
+        echo '<section class="panel"><div class="section-head"><h2>' . self::t('settings.mapView', 'Центр карты по умолчанию') . '</h2><p class="muted">' . self::t('settings.mapViewDesc', 'Координаты, отображаемые при открытии карты') . '</p></div>';
+        echo '<form method="post" action="/admin/settings">';
+        echo '<input type="hidden" name="action" value="save_map_view">';
+        echo '<input type="hidden" name="csrf" value="' . Util::h(Csrf::token()) . '">';
+        echo '<div class="form-row">';
+        echo '<label>' . self::t('settings.mapViewLat', 'Широта') . '<input type="text" name="map_default_lat" value="' . Util::h((string)$view['lat']) . '"></label>';
+        echo '<label>' . self::t('settings.mapViewLng', 'Долгота') . '<input type="text" name="map_default_lng" value="' . Util::h((string)$view['lng']) . '"></label>';
+        echo '</div>';
+        echo '<button type="submit" class="primary">' . self::t('action.save', 'Сохранить') . '</button>';
+        echo '</form></section>';
     }
 
     private static function portalUpdatePanel(array $status, ?array $updateResult = null): void
@@ -5876,7 +6490,6 @@ final class App
         $pdo = DB::pdo();
         $message = '';
         $messageClass = '';
-        $staticToken = '';
 
         if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
             $action = (string)Util::post('action');
@@ -5888,6 +6501,7 @@ final class App
                 $role = Util::post('role') === 'admin' ? 'admin' : 'user';
                 $blocked = Util::checkbox('blocked');
                 $hideArchive = Util::checkbox('hide_archive');
+                $mosaicEnabled = Util::checkbox('mosaic_enabled');
                 $adminComment = trim((string)Util::post('admin_comment'));
                 $beforeUser = $id > 0 ? self::rowById('users', $id) : null;
                 $beforeGroupIds = $id > 0 ? self::linkedIds('user_groups', 'user_id', $id, 'group_id') : [];
@@ -5905,16 +6519,16 @@ final class App
                             if (strlen($password) < 6) {
                                 $message = self::t('users.passwordShort', 'Пароль должен быть не короче 6 символов');
                             } else {
-                                $pdo->prepare('UPDATE users SET login=?, password_hash=?, role=?, blocked=?, hide_archive=?, admin_comment=? WHERE id=?')
-                                    ->execute([$login, password_hash($password, PASSWORD_DEFAULT), $role, $blocked, $hideArchive, $adminComment, $id]);
+                                $pdo->prepare('UPDATE users SET login=?, password_hash=?, role=?, blocked=?, hide_archive=?, mosaic_enabled=?, admin_comment=? WHERE id=?')
+                                    ->execute([$login, password_hash($password, PASSWORD_DEFAULT), $role, $blocked, $hideArchive, $mosaicEnabled, $adminComment, $id]);
                             }
                         } else {
-                            $pdo->prepare('UPDATE users SET login=?, role=?, blocked=?, hide_archive=?, admin_comment=? WHERE id=?')
-                                ->execute([$login, $role, $blocked, $hideArchive, $adminComment, $id]);
+                            $pdo->prepare('UPDATE users SET login=?, role=?, blocked=?, hide_archive=?, mosaic_enabled=?, admin_comment=? WHERE id=?')
+                                ->execute([$login, $role, $blocked, $hideArchive, $mosaicEnabled, $adminComment, $id]);
                         }
                     } else {
-                        $pdo->prepare('INSERT INTO users(login, password_hash, role, blocked, hide_archive, admin_comment, daily_token, daily_token_date, created_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)')
-                            ->execute([$login, password_hash($password, PASSWORD_DEFAULT), $role, $blocked, $hideArchive, $adminComment, Util::randomToken(), TokenService::today(), Util::now()]);
+                        $pdo->prepare('INSERT INTO users(login, password_hash, role, blocked, hide_archive, mosaic_enabled, admin_comment, daily_token, daily_token_date, created_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+                            ->execute([$login, password_hash($password, PASSWORD_DEFAULT), $role, $blocked, $hideArchive, $mosaicEnabled, $adminComment, Util::randomToken(), TokenService::today(), Util::now()]);
                         $id = DB::lastInsertId('users');
                     }
                     if ($message === '') {
@@ -5930,7 +6544,7 @@ final class App
                 $pdo->prepare('DELETE FROM users WHERE id = ?')->execute([$id]);
                 Audit::log('user.delete', 'user_id=' . $id);
             } elseif ($action === 'issue_static' && $id > 0) {
-                $staticToken = TokenService::issueStaticToken($id);
+                TokenService::issueStaticToken($id);
             } elseif ($action === 'revoke_static' && $id > 0) {
                 TokenService::revokeStaticToken($id);
             }
@@ -5941,24 +6555,64 @@ final class App
         $groups = self::groupRowsWithDisplayLabels(Repo::all('portal_groups', 'name ASC'));
         $list = self::filteredUsers();
         $users = $list['rows'];
-        self::layout(self::t('users.title', 'Пользователи'), function () use ($users, $edit, $groups, $linkedGroups, $message, $messageClass, $staticToken, $list) {
+        self::layout(self::t('users.title', 'Пользователи'), function () use ($users, $edit, $groups, $linkedGroups, $message, $messageClass, $list) {
             self::notice($message, $messageClass);
-            if ($staticToken) {
-                echo '<div class="alert"><strong>' . self::t('token.staticIssued', 'Новый static token. Сохраните его сейчас: позже Portal покажет только наличие token') . '</strong><br><code>' . Util::h($staticToken) . '</code></div>';
-            }
-            echo '<div class="admin-grid">';
-            echo '<section class="panel"><h2>' . ($edit ? self::t('users.edit', 'Изменить пользователя') : self::t('users.new', 'Новый пользователь')) . '</h2>';
+            echo '<div class="user-admin-stack">';
+            echo '<details class="panel user-create-panel"' . ($edit ? ' open' : '') . '>';
+            echo '<summary><h2>' . ($edit ? self::t('users.edit', 'Изменить пользователя') : self::t('users.new', 'Новый пользователь')) . '</h2></summary>';
             $savingLabel = self::t('users.saving', 'Сохраняем пользователя...');
             echo '<form method="post" class="form" data-submit-progress="' . Util::h($savingLabel) . '">' . Csrf::field();
             echo '<input type="hidden" name="action" value="save"><input type="hidden" name="id" value="' . Util::h($edit['id'] ?? 0) . '">';
             echo '<label>' . self::t('field.login', 'Логин') . '<input name="login" value="' . Util::h($edit['login'] ?? '') . '" required></label>';
             echo '<label>' . self::t('field.password', 'Пароль') . '<input name="password" type="password" minlength="6" placeholder="' . ($edit ? self::t('users.passwordPlaceholderEdit', 'оставьте пустым, чтобы не менять') : self::t('users.passwordPlaceholderNew', 'минимум 6 символов')) . '"></label>';
+            if ($edit) {
+                $editHasToken = trim((string)($edit['static_token_hash'] ?? '')) !== '';
+                echo '<div class="static-token-row">';
+                echo '<div class="static-token-head">';
+                echo '<span class="static-token-label">' . Util::h(self::t('users.staticToken', 'Постоянный токен пользователя')) . '</span>';
+                echo '<span class="pill ' . ($editHasToken ? 'success' : 'danger') . '">' . Util::h($editHasToken ? self::t('token.staticPresent', 'есть') : self::t('token.staticMissing', 'нет')) . '</span>';
+                echo '</div>';
+                if ($editHasToken) {
+                    $revealLabel = self::t('token.staticReveal', 'Показать и скопировать');
+                    echo '<span class="static-token-field">';
+                    echo '<input class="static-token-input" type="text" readonly value="*******" aria-label="' . Util::h($revealLabel) . '" data-static-token-reveal data-static-token-user="' . (int)$edit['id'] . '">';
+                    echo '<button type="button" class="icon-action static-token-copy" data-static-token-reveal data-static-token-user="' . (int)$edit['id'] . '" title="' . Util::h($revealLabel) . '" aria-label="' . Util::h($revealLabel) . '"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z"/><circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="2"/></svg></button>';
+                    echo '</span>';
+                }
+                echo '<span class="static-token-actions">';
+                self::smallPostButton(
+                    'static-token-issue-form',
+                    $editHasToken ? self::t('token.staticReplace', 'Заменить статический токен') : self::t('token.staticIssue', 'Выпустить статический токен'),
+                    '',
+                    $editHasToken ? 'token-refresh' : 'token-issue'
+                );
+                if ($editHasToken) {
+                    self::smallPostButton('static-token-revoke-form', self::t('action.revoke', 'Отозвать'), 'danger', 'token-revoke');
+                }
+                echo '</span></div>';
+            }
             echo '<label>' . self::t('column.role', 'Роль') . '<select name="role"><option value="user">user</option><option value="admin" ' . (($edit['role'] ?? '') === 'admin' ? 'selected' : '') . '>admin</option></select></label>';
             echo '<label>' . self::t('users.adminComment', 'Комментарий администратора') . '<textarea name="admin_comment" rows="3">' . Util::h($edit['admin_comment'] ?? '') . '</textarea></label>';
             echo '<label class="check"><input type="checkbox" name="blocked" ' . (!empty($edit['blocked']) ? 'checked' : '') . '> ' . self::t('users.blocked', 'Заблокирован') . '</label>';
             echo '<label class="check"><input type="checkbox" name="hide_archive" ' . (!empty($edit['hide_archive']) ? 'checked' : '') . '> ' . self::t('users.hideArchive', 'Скрывать архив') . '</label>';
+            echo '<label class="check"><input type="checkbox" name="mosaic_enabled" ' . (!empty($edit['mosaic_enabled']) ? 'checked' : '') . '> ' . self::t('users.mosaicEnabled', 'Разрешить создание мозаик') . '</label>';
             self::groupCheckboxTree(self::t('groups.title', 'Группы'), 'group_ids[]', $groups, $linkedGroups, 'group_ids_json');
-            echo '<div class="form-submit-row"><button type="submit" class="primary" data-submit-button>' . self::t('action.save', 'Сохранить') . '</button><div class="submit-progress" data-submit-status hidden role="status" aria-live="polite">' . Util::h($savingLabel) . '</div></div></form></section>';
+            echo '<div class="form-submit-row"><button type="submit" class="primary" data-submit-button>' . self::t('action.save', 'Сохранить') . '</button><div class="submit-progress" data-submit-status hidden role="status" aria-live="polite">' . Util::h($savingLabel) . '</div></div></form>';
+            if ($edit) {
+                $editHasToken = trim((string)($edit['static_token_hash'] ?? '')) !== '';
+                self::smallPostFormOpen(
+                    'static-token-issue-form',
+                    '/admin/users',
+                    ['action' => 'issue_static', 'id' => (int)$edit['id']],
+                    $editHasToken ? self::t('token.staticReplaceConfirm', 'Старый статический токен сразу перестанет работать. Выпустить новый токен?') : ''
+                );
+                self::smallPostFormClose();
+                if ($editHasToken) {
+                    self::smallPostFormOpen('static-token-revoke-form', '/admin/users', ['action' => 'revoke_static', 'id' => (int)$edit['id']]);
+                    self::smallPostFormClose();
+                }
+            }
+            echo '</details>';
             self::table(self::t('users.title', 'Пользователи'), ['login', 'role', 'admin_comment', 'blocked', 'hide_archive', 'static_token_hash', 'last_login_at'], $users, '/admin/users', false, $list);
             echo '</div>';
         });
@@ -6024,7 +6678,9 @@ final class App
             if ($delete) {
                 self::groupDeletePanel($delete);
             }
-            echo '<div class="admin-grid group-admin-grid"><section class="panel"><h2>' . ($edit ? self::t('groups.edit', 'Изменить группу') : self::t('groups.new', 'Новая группа')) . '</h2>';
+            echo '<div class="group-admin-stack">';
+            echo '<details class="panel group-create-panel"' . ($edit ? ' open' : '') . '>';
+            echo '<summary><h2>' . ($edit ? self::t('groups.edit', 'Изменить группу') : self::t('groups.new', 'Новая группа')) . '</h2></summary>';
             echo '<form method="post" class="form">' . Csrf::field();
             echo '<input type="hidden" name="action" value="save"><input type="hidden" name="id" value="' . Util::h($edit['id'] ?? 0) . '">';
             echo '<label>' . self::t('column.name', 'Название') . '<input name="name" value="' . Util::h($edit['name'] ?? '') . '" required></label>';
@@ -6034,7 +6690,8 @@ final class App
             echo '<label class="check"><input type="checkbox" name="blocked" ' . (!empty($edit['blocked']) ? 'checked' : '') . '> ' . self::t('column.blocked', 'Заблокирована') . '</label>';
             self::assignmentPicker(self::t('groups.users', 'Пользователи'), 'user_ids[]', $users, $linkedUsers, 'login', self::t('assignment.searchUsers', 'Найти пользователя'));
             self::assignmentPicker(self::t('groups.cameras', 'Камеры'), 'camera_ids[]', $cameras, $linkedCameras, 'name', self::t('assignment.searchCameras', 'Найти камеру'));
-            echo '<button class="primary">' . self::t('action.save', 'Сохранить') . '</button></form></section>';
+            echo '<button class="primary">' . self::t('action.save', 'Сохранить') . '</button></form>';
+            echo '</details>';
             self::table(self::t('groups.title', 'Группы'), ['id', 'parent_group_name', 'name', 'blocked', 'description'], $groups, '/admin/groups', false, $list);
             echo '</div>';
         });
@@ -6687,7 +7344,10 @@ final class App
             if ($delete) {
                 self::cameraDeletePanel($delete);
             }
-            echo '<div class="admin-grid"><section class="panel"><div class="section-head"><h2>' . ($edit ? self::t('cameras.edit', 'Изменить камеру') : self::t('cameras.new', 'Новая камера')) . '</h2>';
+            echo '<div class="camera-admin-stack">';
+            echo '<details class="panel camera-create-panel"' . ($edit ? ' open' : '') . '>';
+            echo '<summary><h2>' . ($edit ? self::t('cameras.edit', 'Изменить камеру') : self::t('cameras.new', 'Новая камера')) . '</h2>';
+            echo '<span class="camera-create-actions">';
             if ($backPath !== '') {
                 echo '<a class="btn" href="' . Util::h($backPath) . '">' . self::t('action.back', 'Назад') . '</a>';
             }
@@ -6695,7 +7355,7 @@ final class App
                 echo '<a class="btn" href="' . Util::h(self::tableActionUrl('/admin/cameras', [], $list)) . '">' . self::t('cameras.new', 'Новая камера') . '</a>';
             }
             echo '<a class="btn" href="/admin/cameras/import">' . self::t('cameras.importFromDvr', 'Импорт с DVR') . '</a>';
-            echo '</div>';
+            echo '</span></summary>';
             echo '<form method="post" class="form">' . Csrf::field();
             echo '<input type="hidden" name="action" value="save"><input type="hidden" name="id" value="' . Util::h($edit['id'] ?? 0) . '">';
             echo '<label>' . self::t('cameras.displayName', 'Название потока') . '<input name="display_name" value="' . Util::h($form['name'] ?? '') . '"></label>';
@@ -6756,7 +7416,7 @@ final class App
             echo '</select></label></div></details>';
             echo '<label class="check"><input type="checkbox" name="blocked" ' . (!empty($form['blocked']) ? 'checked' : '') . '> ' . self::t('cameras.blocked', 'Заблокирована') . '</label>';
             self::groupCheckboxTree(self::t('cameras.groups', 'Группы'), 'group_ids[]', $groups, $linkedGroups);
-            echo '<button class="primary">' . self::t('action.saveSync', 'Сохранить и синхронизировать') . '</button></form></section>';
+            echo '<button class="primary">' . self::t('action.saveSync', 'Сохранить и синхронизировать') . '</button></form></details>';
             self::table(self::t('cameras.title', 'Камеры'), ['name', 'server_name', 'dvr_control_mode', 'agent_id', 'agent_camera_id', 'retention_days', 'archive_enabled', 'last_sync_message'], $cameras, '/admin/cameras', true, $list);
             echo '</div>';
         });
@@ -7142,7 +7802,7 @@ final class App
         $displayName = trim((string)$displayValue);
         $streamName = trim((string)$streamValue);
         if ($streamName === '' && $displayName !== '') {
-            $streamName = Util::dvrStreamSlug($displayName);
+            $streamName = Util::dvrStreamSlug($displayName) . '-' . substr(bin2hex(random_bytes(3)), 0, 6);
         }
         if ($displayName === '' && $streamName !== '') {
             $displayName = $streamName;
@@ -7320,13 +7980,14 @@ final class App
         }
         $favorites = Repo::favoritesMap((int)$user['id']);
 
+        $isAdmin = ($user['role'] ?? '') === 'admin';
         $title = $mode === 'map' ? self::t('nav.map', 'Карта') : self::t('cameras.title', 'Камеры');
-        self::layout($title, function () use ($mode, $groups, $filter, $searchQuery, $cameras, $favorites, $cameraPager, $cols, $previewRefresh) {
+        self::layout($title, function () use ($mode, $groups, $filter, $searchQuery, $cameras, $favorites, $cameraPager, $cols, $previewRefresh, $isAdmin) {
             self::filters($mode, $groups, $filter, $searchQuery, $cols, $previewRefresh);
             if ($mode === 'map') {
                 self::map($cameras, $favorites);
             } else {
-                self::mosaic($cameras, $favorites, $cameraPager ?? [], $cols, $previewRefresh);
+                self::mosaic($cameras, $favorites, $cameraPager ?? [], $cols, $previewRefresh, $isAdmin);
             }
         });
     }
@@ -7349,6 +8010,11 @@ final class App
     private static function normalizeViewerColumns(mixed $cols): int
     {
         return min(6, max(2, (int)$cols));
+    }
+
+    private static function normalizeGridDimension(mixed $value): int
+    {
+        return min(6, max(2, (int)$value));
     }
 
     private static function viewerSearchQuery(): string
@@ -7379,7 +8045,7 @@ final class App
         return in_array($refresh, ['off', '10', '30', '60', '300'], true) ? $refresh : '30';
     }
 
-    private static function mosaic(array $cameras, array $favorites, array $pager, int $cols, string $previewRefresh): void
+    private static function mosaic(array $cameras, array $favorites, array $pager, int $cols, string $previewRefresh, bool $isAdmin): void
     {
         $streamUnavailableByServer = self::mapStreamUnavailableByServer($cameras);
         echo '<section class="camera-grid cols-' . Util::h($cols) . '">';
@@ -7392,7 +8058,7 @@ final class App
                 : self::t('js.previewUnavailable', 'Превью недоступно');
             $openPlayerLabel = self::t('viewer.openPlayer', 'Открыть плеер');
             $previewClass = 'preview' . ($preview ? ' is-loading' : ' no-preview') . ($streamUnavailable ? ' stream-unavailable' : '');
-            echo '<article class="camera-card">';
+            echo '<article class="camera-card' . ($isAdmin ? ' camera-card-admin' : '') . '">';
             echo '<a class="' . Util::h($previewClass) . '" href="' . Util::h($player) . '" aria-label="' . Util::h($openPlayerLabel) . '">';
             if ($preview) {
                 echo '<img data-preview-src="' . Util::h($preview) . '" data-preview-refresh="' . Util::h($previewRefresh) . '"';
@@ -7401,8 +8067,17 @@ final class App
                 }
                 echo ' alt="" loading="lazy" decoding="async" hidden>';
             }
-            echo '<span class="preview-spinner" aria-hidden="true"></span><span class="preview-state">' . Util::h($stateText) . '</span><span class="preview-play" aria-hidden="true"></span><span class="sr-only">' . Util::h($openPlayerLabel) . '</span></a><div class="camera-meta"><strong>' . Util::h($camera['name']) . '</strong><span>' . Util::h($camera['server_name'] ?? self::t('common.noServer', 'Без сервера')) . '</span></div>';
+            echo '<span class="preview-spinner" aria-hidden="true"></span><span class="preview-state">' . Util::h($stateText) . '</span><span class="preview-play" aria-hidden="true"></span><span class="sr-only">' . Util::h($openPlayerLabel) . '</span></a><div class="camera-meta"><strong>' . Util::h($camera['name']) . '</strong>';
+            if ($isAdmin) {
+                echo '<span>' . Util::h($camera['server_name'] ?? self::t('common.noServer', 'Без сервера')) . '</span>';
+                echo '<span class="camera-tech">' . Util::h($camera['dvr_stream_name'] ?: $camera['name']) . '</span>';
+            }
+            echo '</div>';
             self::favoriteButton((int)$camera['id'], isset($favorites[(int)$camera['id']]));
+            self::cameraRenameButton((int)$camera['id']);
+            if ($isAdmin) {
+                self::cameraSettingsButton((int)$camera['id']);
+            }
             echo '</article>';
         }
         echo '</section>';
@@ -7557,6 +8232,300 @@ final class App
             $pdo->prepare('INSERT INTO favorites(user_id, camera_id, created_at) VALUES(?, ?, ?)')
                 ->execute([$user['id'], $cameraId, Util::now()]);
         }
+        Util::redirect($_SERVER['HTTP_REFERER'] ?? '/');
+    }
+
+    private static function renameCamera(): void
+    {
+        $user = Auth::requireLogin();
+        $cameraId = (int)($_GET['id'] ?? Util::post('id'));
+        if (!Repo::cameraAllowedForUser($user, $cameraId)) {
+            http_response_code(403);
+            echo 'Forbidden';
+            return;
+        }
+
+        $stmt = DB::pdo()->prepare(
+            'SELECT c.*, s.name AS server_name
+             FROM cameras c
+             LEFT JOIN dvr_servers s ON s.id = c.server_id
+             WHERE c.id = ?'
+        );
+        $stmt->execute([$cameraId]);
+        $camera = $stmt->fetch();
+        if (!$camera) {
+            http_response_code(404);
+            echo 'Camera not found';
+            return;
+        }
+
+        $back = self::safeBackPath((string)Util::post('back', (string)($_GET['back'] ?? ($_SERVER['HTTP_REFERER'] ?? '/'))));
+        if ($back === '') {
+            $back = '/';
+        }
+
+        $error = '';
+        if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
+            $name = trim((string)Util::post('name'));
+            $name = function_exists('mb_substr') ? mb_substr($name, 0, 255) : substr($name, 0, 255);
+            if ($name === '') {
+                $error = self::t('cameras.nameRequired', 'Укажите название камеры');
+            } else {
+                $existing = self::cameraByName($name);
+                if ($existing && (int)$existing['id'] !== $cameraId) {
+                    $error = self::t('cameras.nameExists', 'Камера с таким названием уже существует');
+                } else {
+                    DB::pdo()->prepare('UPDATE cameras SET name = ?, updated_at = ? WHERE id = ?')
+                        ->execute([$name, Util::now(), $cameraId]);
+                    Audit::logForUser((int)$user['id'], 'camera.rename', $camera['name'] . ' -> ' . $name);
+                    Util::redirect($back);
+                }
+            }
+        } else {
+            $name = (string)$camera['name'];
+        }
+
+        self::layout(self::t('cameras.edit', 'Изменить камеру'), function () use ($camera, $name, $error, $back) {
+            echo '<section class="panel">';
+            echo '<div class="section-head"><h2>' . Util::h(self::t('cameras.edit', 'Изменить камеру')) . '</h2><a href="' . Util::h($back) . '">' . Util::h(self::t('action.cancel', 'Отмена')) . '</a></div>';
+            echo '<form method="post" action="/camera/rename" class="form">' . Csrf::field();
+            echo '<input type="hidden" name="id" value="' . (int)$camera['id'] . '">';
+            echo '<input type="hidden" name="back" value="' . Util::h($back) . '">';
+            if ($error !== '') {
+                self::notice($error, 'danger');
+            }
+            echo '<label>' . Util::h(self::t('cameras.name', 'Название')) . '<input name="name" value="' . Util::h($name) . '" maxlength="255" required autofocus></label>';
+            echo '<div class="form-actions"><button class="primary">' . Util::h(self::t('action.save', 'Сохранить')) . '</button><a href="' . Util::h($back) . '">' . Util::h(self::t('action.cancel', 'Отмена')) . '</a></div>';
+            echo '</form></section>';
+        });
+    }
+
+    private static function mosaics(): void
+    {
+        $user = Auth::requireLogin();
+        if (($user['role'] ?? '') !== 'admin' && (int)($user['mosaic_enabled'] ?? 0) !== 1) {
+            http_response_code(403);
+            echo 'Forbidden';
+            return;
+        }
+        $mosaics = Repo::mosaicsForUser($user);
+        self::layout(self::t('mosaic.title', 'Мозаика'), function () use ($mosaics, $user): void {
+            echo '<section class="panel"><div class="panel-head"><h2>' . Util::h(self::t('mosaic.title', 'Мозаика')) . '</h2><a class="btn primary" href="/mosaic/new">' . Util::h(self::t('mosaic.create', 'Создать мозаику')) . '</a></div>';
+            if (!$mosaics) {
+                echo '<p class="empty">' . Util::h(self::t('mosaic.empty', 'Мозаики не созданы')) . '</p>';
+            } else {
+                echo '<ul class="mosaic-list">';
+                foreach ($mosaics as $mosaic) {
+                    $cameraCount = count(Repo::mosaicCameraIds($mosaic));
+                    echo '<li class="mosaic-item">';
+                    echo '<a class="mosaic-item-link" href="/mosaic/view?id=' . (int)$mosaic['id'] . '">';
+                    echo '<strong>' . Util::h($mosaic['name']) . '</strong>';
+                    echo '<span>' . $cameraCount . ' ' . Util::h(self::t('mosaic.cameras', 'камер')) . '</span>';
+                    if (($user['role'] ?? '') === 'admin' && !empty($mosaic['owner_login'])) {
+                        echo '<span class="mosaic-owner">' . Util::h(self::t('mosaic.owner', 'Автор')) . ': ' . Util::h($mosaic['owner_login']) . '</span>';
+                    }
+                    echo '</a>';
+                    echo '<div class="mosaic-item-actions">';
+                    echo '<a class="btn" href="/mosaic/edit?id=' . (int)$mosaic['id'] . '">' . Util::h(self::t('mosaic.edit', 'Изменить')) . '</a>';
+                    echo '<form method="post" action="/mosaic/delete" data-confirm="' . Util::h(self::t('mosaic.confirmDelete', 'Удалить мозаику?')) . '">' . Csrf::field() . '<input type="hidden" name="id" value="' . (int)$mosaic['id'] . '"><button class="btn danger">' . Util::h(self::t('mosaic.delete', 'Удалить')) . '</button></form>';
+                    echo '</div>';
+                    echo '</li>';
+                }
+                echo '</ul>';
+            }
+            echo '</section>';
+        });
+    }
+
+    private static function mosaicEdit(): void
+    {
+        $user = Auth::requireLogin();
+        if (($user['role'] ?? '') !== 'admin' && (int)($user['mosaic_enabled'] ?? 0) !== 1) {
+            http_response_code(403);
+            echo 'Forbidden';
+            return;
+        }
+        $mosaicId = (int)($_GET['id'] ?? 0);
+        $mosaic = null;
+        if ($mosaicId > 0) {
+            if (!Repo::mosaicAllowedForUser($user, $mosaicId)) {
+                http_response_code(403);
+                echo 'Forbidden';
+                return;
+            }
+            $mosaic = Repo::mosaicById($mosaicId);
+            if (!$mosaic) {
+                http_response_code(404);
+                echo 'Not found';
+                return;
+            }
+        }
+
+        $name = $mosaic['name'] ?? '';
+        $gridRows = $mosaic ? (int)($mosaic['grid_rows'] ?? 3) : 3;
+        $gridCols = $mosaic ? (int)($mosaic['grid_cols'] ?? 3) : 3;
+        $selectedIds = $mosaic ? Repo::mosaicCameraIds($mosaic) : [];
+
+        $cameras = self::mosaicAccessibleCameras($user);
+
+        self::layout(self::t('mosaic.title', 'Мозаика'), function () use ($mosaicId, $name, $gridRows, $gridCols, $selectedIds, $cameras): void {
+            echo '<section class="panel"><form method="post" action="/mosaic/save" class="mosaic-form">' . Csrf::field();
+            if ($mosaicId > 0) {
+                echo '<input type="hidden" name="id" value="' . $mosaicId . '">';
+            }
+            echo '<div class="form-field"><span class="form-field-label">' . Util::h(self::t('mosaic.name', 'Название')) . '</span><input name="name" value="' . Util::h($name) . '" maxlength="255" required autofocus></div>';
+            echo '<div class="form-field"><span class="form-field-label">' . Util::h(self::t('mosaic.rows', 'Строки')) . '</span><select name="grid_rows">';
+            for ($r = 2; $r <= 6; $r++) {
+                echo '<option value="' . $r . '"' . ($gridRows === $r ? ' selected' : '') . '>' . $r . '</option>';
+            }
+            echo '</select></div>';
+            echo '<div class="form-field"><span class="form-field-label">' . Util::h(self::t('mosaic.columns', 'Колонки')) . '</span><select name="grid_cols">';
+            for ($c = 2; $c <= 6; $c++) {
+                echo '<option value="' . $c . '"' . ($gridCols === $c ? ' selected' : '') . '>' . $c . '</option>';
+            }
+            echo '</select></div>';
+            echo '<div class="form-field"><span class="form-field-label">' . Util::h(self::t('mosaic.cameras', 'Камеры')) . '</span>';
+            if (!$cameras) {
+                echo '<p class="empty">' . Util::h(self::t('mosaic.noCameras', 'Нет доступных камер')) . '</p>';
+            } else {
+                echo '<div class="mosaic-camera-list">';
+                foreach ($cameras as $camera) {
+                    $id = (int)$camera['id'];
+                    echo '<label class="mosaic-camera-check"><input type="checkbox" name="cameras[]" value="' . $id . '"' . (in_array($id, $selectedIds, true) ? ' checked' : '') . '> <span>' . Util::h($camera['name']) . '</span></label>';
+                }
+                echo '</div>';
+            }
+            echo '</div>';
+            echo '<div class="form-actions"><button class="primary">' . Util::h(self::t('mosaic.save', 'Сохранить')) . '</button><a href="/mosaic">' . Util::h(self::t('action.cancel', 'Отмена')) . '</a></div>';
+            echo '</form></section>';
+        });
+    }
+
+    private static function mosaicAccessibleCameras(array $user): array
+    {
+        $cameras = Repo::accessibleCameras($user);
+        $allowed = [];
+        foreach ($cameras as $camera) {
+            if (Repo::cameraAllowedForUser($user, (int)$camera['id'])) {
+                $allowed[] = $camera;
+            }
+        }
+        return $allowed;
+    }
+
+    private static function mosaicSave(): void
+    {
+        $user = Auth::requireLogin();
+        if (($user['role'] ?? '') !== 'admin' && (int)($user['mosaic_enabled'] ?? 0) !== 1) {
+            http_response_code(403);
+            echo 'Forbidden';
+            return;
+        }
+        $mosaicId = (int)Util::post('id');
+        if ($mosaicId > 0 && !Repo::mosaicAllowedForUser($user, $mosaicId)) {
+            http_response_code(403);
+            echo 'Forbidden';
+            return;
+        }
+
+        $name = trim((string)Util::post('name'));
+        $gridRows = self::normalizeGridDimension((int)Util::post('grid_rows', 3));
+        $gridCols = self::normalizeGridDimension((int)Util::post('grid_cols', 3));
+        $cameraIds = array_values(array_unique(array_filter(array_map('intval', (array)Util::post('cameras', [])), static fn(int $id): bool => $id > 0)));
+
+        if ($name === '') {
+            http_response_code(422);
+            echo 'Name required';
+            return;
+        }
+
+        $validCameraIds = [];
+        foreach ($cameraIds as $cameraId) {
+            if (Repo::cameraAllowedForUser($user, $cameraId)) {
+                $validCameraIds[] = $cameraId;
+            }
+        }
+
+        $pdo = DB::pdo();
+        $now = Util::now();
+        $camerasJson = json_encode($validCameraIds, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        if ($mosaicId > 0) {
+            $pdo->prepare('UPDATE cameras_mosaic SET name = ?, cameras_json = ?, grid_rows = ?, grid_cols = ?, updated_at = ? WHERE id = ?')
+                ->execute([$name, $camerasJson, $gridRows, $gridCols, $now, $mosaicId]);
+        } else {
+            $pdo->prepare('INSERT INTO cameras_mosaic(user_id, name, cameras_json, grid_rows, grid_cols, created_at, updated_at) VALUES(?, ?, ?, ?, ?, ?, ?)')
+                ->execute([(int)$user['id'], $name, $camerasJson, $gridRows, $gridCols, $now, $now]);
+            $mosaicId = (int)$pdo->lastInsertId();
+        }
+        Util::redirect('/mosaic/view?id=' . $mosaicId);
+    }
+
+    private static function mosaicView(): void
+    {
+        $user = Auth::requireLogin();
+        if (($user['role'] ?? '') !== 'admin' && (int)($user['mosaic_enabled'] ?? 0) !== 1) {
+            http_response_code(403);
+            echo 'Forbidden';
+            return;
+        }
+        $mosaicId = (int)($_GET['id'] ?? 0);
+        if (!Repo::mosaicAllowedForUser($user, $mosaicId)) {
+            http_response_code(403);
+            echo 'Forbidden';
+            return;
+        }
+        $mosaic = Repo::mosaicById($mosaicId);
+        if (!$mosaic) {
+            http_response_code(404);
+            echo 'Not found';
+            return;
+        }
+
+        $cameraIds = Repo::mosaicCameraIds($mosaic);
+        $cameras = Repo::camerasByIds($cameraIds);
+        $gridRows = self::normalizeGridDimension((int)($mosaic['grid_rows'] ?? 3));
+        $gridCols = self::normalizeGridDimension((int)($mosaic['grid_cols'] ?? 3));
+        $token = (string)($user['daily_token'] ?? '');
+
+        self::layout((string)$mosaic['name'], function () use ($mosaic, $cameras, $gridRows, $gridCols, $token): void {
+            echo '<section class="mosaic-grid mosaic-grid-' . Util::h($gridRows) . 'x' . Util::h($gridCols) . ' mosaic-view">';
+            if (!$cameras) {
+                echo '<p class="empty">' . Util::h(self::t('mosaic.noCameras', 'В мозаике нет доступных камер')) . '</p>';
+            }
+            foreach ($cameras as $camera) {
+                $embed = self::embedUrl($camera, $token, '', '', '', '', false, ['screenshot' => 'false', 'hidecontrols' => 'true']);
+                echo '<article class="mosaic-tile">';
+                echo '<div class="mosaic-tile-frame"><iframe src="' . Util::h($embed) . '" allow="autoplay; fullscreen; picture-in-picture" allowfullscreen webkitallowfullscreen referrerpolicy="no-referrer-when-downgrade" loading="lazy"></iframe></div>';
+                echo '</article>';
+            }
+            echo '</section>';
+        });
+    }
+
+    private static function mosaicDelete(): void
+    {
+        $user = Auth::requireLogin();
+        if (($user['role'] ?? '') !== 'admin' && (int)($user['mosaic_enabled'] ?? 0) !== 1) {
+            http_response_code(403);
+            echo 'Forbidden';
+            return;
+        }
+        $mosaicId = (int)Util::post('id');
+        if (!Repo::mosaicAllowedForUser($user, $mosaicId)) {
+            http_response_code(403);
+            echo 'Forbidden';
+            return;
+        }
+        DB::pdo()->prepare('DELETE FROM cameras_mosaic WHERE id = ?')->execute([$mosaicId]);
+        Util::redirect('/mosaic');
+    }
+
+    private static function updateTheme(): void
+    {
+        $user = Auth::requireLogin();
+        $theme = (string)Util::post('theme');
+        $theme = in_array($theme, ['light', 'dark'], true) ? $theme : '';
+        DB::pdo()->prepare('UPDATE users SET theme = ? WHERE id = ?')->execute([$theme, (int)$user['id']]);
         Util::redirect($_SERVER['HTTP_REFERER'] ?? '/');
     }
 
@@ -7734,7 +8703,14 @@ final class App
     private static function layout(string $title, callable $body, ?array $userOverride = [], string $bodyClass = '', bool $showChrome = true): void
     {
         $user = $userOverride === null ? null : Auth::user();
-        echo '<!doctype html><html lang="' . Util::h(I18n::htmlLocale()) . '" dir="' . Util::h(I18n::dir()) . '"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">';
+        $theme = $user && $showChrome ? (string)($user['theme'] ?? '') : '';
+        if (!in_array($theme, ['light', 'dark'], true)) {
+            $theme = '';
+        }
+        echo '<!doctype html><html lang="' . Util::h(I18n::htmlLocale()) . '" dir="' . Util::h(I18n::dir()) . '"' . ($theme !== '' ? ' data-theme="' . Util::h($theme) . '"' : '') . '><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">';
+        if ($user && $showChrome && $theme === '') {
+            echo '<script>if(!document.documentElement.dataset.theme&&window.matchMedia){document.documentElement.dataset.theme=matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light";document.documentElement.dataset.themeAuto="1";}</script>';
+        }
         echo '<title>' . Util::h($title) . ' - SesamePortal</title>';
         echo '<link rel="icon" href="/assets/favicon.svg" type="image/svg+xml">';
         echo '<link rel="stylesheet" href="' . Util::h(self::assetUrl('/assets/styles.css')) . '">';
@@ -7746,7 +8722,10 @@ final class App
             echo '<a class="brand-logo-link" href="/"><img class="brand-logo-full" src="/assets/logo-sesameportal-inverse.svg" alt="SesamePortal"></a>';
             echo '<div class="nav-section">' . Util::h(self::t('nav.section.view', 'Просмотр')) . '</div><nav class="nav">';
             $viewerFilter = (string)($_GET['filter'] ?? 'all');
-            self::navLink('/', self::t('nav.mosaic', 'Мозаика'), 'grid', Util::path() === '/' && $viewerFilter !== 'favorites');
+            self::navLink('/', self::t('nav.cameras', 'Камеры'), 'grid', Util::path() === '/' && $viewerFilter !== 'favorites');
+            if (($user['role'] ?? '') === 'admin' || (int)($user['mosaic_enabled'] ?? 0) === 1) {
+                self::navLink('/mosaic', self::t('nav.mosaic', 'Мозаика'), 'grid', Util::path() === '/mosaic');
+            }
             self::navLink('/viewer/map', self::t('nav.map', 'Карта'), 'map');
             self::navLink('/?filter=favorites', self::t('filter.favorites', 'Избранное'), 'star', ($_GET['filter'] ?? '') === 'favorites' && Util::path() === '/');
             echo '</nav>';
@@ -7755,7 +8734,7 @@ final class App
                 self::navLink('/admin/dashboard', self::t('nav.dashboard', 'Dashboard'), 'dashboard');
                 self::navLink('/admin/users', self::t('nav.users', 'Пользователи'), 'user');
                 self::navLink('/admin/groups', self::t('nav.groups', 'Группы'), 'group');
-                self::navLink('/admin/cameras', self::t('nav.cameras', 'Камеры'), 'camera', str_starts_with(Util::path(), '/admin/cameras'));
+                self::navLink('/admin/cameras', self::t('nav.camerasAdmin', 'Управление камерами'), 'camera', str_starts_with(Util::path(), '/admin/cameras'));
                 self::navLink('/admin/servers', self::t('nav.dvr', 'DVR'), 'server');
                 self::navLink('/admin/agents', self::t('nav.agents', 'Edge Agents'), 'agent');
                 self::navLink('/admin/audit', self::t('nav.audit', 'Журнал'), 'audit');
@@ -7764,7 +8743,8 @@ final class App
             }
             echo '<div class="sidebar-foot">' . I18n::languageLinks() . '<a class="logout-link" href="/logout">' . self::icon('logout') . self::t('nav.logout', 'Выход') . '</a></div></aside>';
             $initial = strtoupper(substr((string)$user['login'], 0, 1) ?: 'U');
-            echo '<main class="main workspace"><div class="topbar"><div><h1>' . Util::h($title) . '</h1></div><div class="user">' . Util::h($initial) . '</div></div>';
+            $toggleIcon = $theme === 'dark' ? 'sun' : 'moon';
+            echo '<main class="main workspace"><div class="topbar"><div><h1>' . Util::h($title) . '</h1></div><div class="topbar-actions"><button type="button" class="theme-toggle" data-theme-toggle title="' . Util::h(self::t('nav.theme', 'Тема')) . '" aria-label="' . Util::h(self::t('nav.theme', 'Тема')) . '" data-title-light="' . Util::h(self::t('nav.theme.toLight', 'Включить светлую тему')) . '" data-title-dark="' . Util::h(self::t('nav.theme.toDark', 'Включить тёмную тему')) . '">' . self::icon($toggleIcon) . '</button><div class="user">' . Util::h($initial) . '</div></div></div>';
             if ($user['role'] === 'admin') {
                 self::portalUpdateBanner();
             }
@@ -7775,7 +8755,7 @@ final class App
             $body();
             echo '</main>';
         }
-        echo '<script>window.SESAME_I18N = ' . json_encode(I18n::js(), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . '; window.SESAME_CSRF = ' . json_encode(Csrf::token(), JSON_UNESCAPED_SLASHES) . ';</script>';
+        echo '<script>window.SESAME_I18N = ' . json_encode(I18n::js(), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . '; window.SESAME_CSRF = ' . json_encode(Csrf::token(), JSON_UNESCAPED_SLASHES) . '; window.SESAME_MAP_PROVIDER = ' . json_encode(Util::mapProvider(), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . '; window.SESAME_MAP_VIEW = ' . json_encode(Util::mapDefaultView(), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . ';</script>';
         echo '<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script><script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script><script src="' . Util::h(self::assetUrl('/assets/app.js')) . '"></script>';
         echo '</body></html>';
     }
@@ -7825,6 +8805,8 @@ final class App
             'scan' => '<path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M4 7V5a1 1 0 0 1 1-1h2M17 4h2a1 1 0 0 1 1 1v2M20 17v2a1 1 0 0 1-1 1h-2M7 20H5a1 1 0 0 1-1-1v-2M8 12h8M12 8v8"/>',
             'diagnostics' => '<path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M3 12h4l2-6 4 12 2-6h6"/>',
             'download' => '<path fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" d="M12 3v12M7 10l5 5 5-5M5 21h14"/>',
+            'sun' => '<circle cx="12" cy="12" r="4" fill="none" stroke="currentColor" stroke-width="2"/><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
+            'moon' => '<path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M20.5 14.5A8.5 8.5 0 0 1 9.5 3.5a8.5 8.5 0 1 0 11 11z"/>',
         ];
         return '<svg viewBox="0 0 24 24" aria-hidden="true">' . ($paths[$name] ?? $paths['grid']) . '</svg>';
     }
@@ -8356,7 +9338,7 @@ final class App
         $count->execute($params);
         $total = (int)$count->fetchColumn();
 
-        $stmt = $pdo->prepare('SELECT DISTINCT c.*, s.name AS server_name, s.base_url AS server_url FROM cameras c' . $join . $sqlWhere . ' ORDER BY ' . self::cameraListOrderSql($filters['sort'], $filters['dir']) . ' LIMIT ? OFFSET ?');
+        $stmt = $pdo->prepare('SELECT * FROM (SELECT DISTINCT c.*, s.name AS server_name, s.base_url AS server_url, COALESCE(s.name, \'\') AS sort_server, COALESCE(c.last_sync_ok, -1) AS sort_sync FROM cameras c' . $join . $sqlWhere . ') AS list ORDER BY ' . self::cameraListOrderSql($filters['sort'], $filters['dir']) . ' LIMIT ? OFFSET ?');
         $bind = [...$params, $pageSize, ($page - 1) * $pageSize];
         foreach ($bind as $idx => $value) {
             $stmt->bindValue($idx + 1, $value, is_int($value) ? PDO::PARAM_INT : PDO::PARAM_STR);
@@ -8472,15 +9454,15 @@ final class App
     private static function cameraListSortColumns(): array
     {
         return [
-            'name' => 'c.name',
-            'stream' => 'c.dvr_stream_name',
-            'server' => 'COALESCE(s.name, \'\')',
-            'mode' => 'c.dvr_control_mode',
-            'archive' => 'c.archive_enabled',
-            'retention' => 'c.retention_days',
-            'sync' => 'COALESCE(c.last_sync_ok, -1)',
-            'updated' => 'c.updated_at',
-            'created' => 'c.created_at',
+            'name' => 'name',
+            'stream' => 'dvr_stream_name',
+            'server' => 'sort_server',
+            'mode' => 'dvr_control_mode',
+            'archive' => 'archive_enabled',
+            'retention' => 'retention_days',
+            'sync' => 'sort_sync',
+            'updated' => 'updated_at',
+            'created' => 'created_at',
         ];
     }
 
@@ -8490,7 +9472,7 @@ final class App
         $column = $columns[$sort] ?? $columns['name'];
         $direction = $dir === 'desc' ? 'DESC' : 'ASC';
         $tieDirection = $sort === 'name' ? $direction : 'ASC';
-        return $column . ' ' . $direction . ', c.name ' . $tieDirection . ', c.id ASC';
+        return $column . ' ' . $direction . ', name ' . $tieDirection . ', id ASC';
     }
 
     private static function sqlPlaceholders(array $values): string
@@ -9003,7 +9985,17 @@ final class App
 
     private static function smallPost(string $path, array $fields, string $label, string $class = '', string $confirm = '', string $icon = ''): void
     {
+        self::smallPostFormOpen('', $path, $fields, $confirm);
+        self::smallPostButton('', $label, $class, $icon);
+        self::smallPostFormClose();
+    }
+
+    private static function smallPostFormOpen(string $formId, string $path, array $fields, string $confirm = ''): void
+    {
         echo '<form method="post" action="' . Util::h($path) . '" class="inline-form"';
+        if ($formId !== '') {
+            echo ' id="' . Util::h($formId) . '"';
+        }
         if ($confirm !== '') {
             $confirmJson = json_encode($confirm, JSON_UNESCAPED_UNICODE | JSON_HEX_APOS | JSON_HEX_QUOT);
             echo ' onsubmit="return confirm(' . Util::h($confirmJson === false ? '""' : $confirmJson) . ')"';
@@ -9012,8 +10004,16 @@ final class App
         foreach ($fields as $key => $value) {
             echo '<input type="hidden" name="' . Util::h($key) . '" value="' . Util::h($value) . '">';
         }
+    }
+
+    private static function smallPostButton(string $formId, string $label, string $class = '', string $icon = ''): void
+    {
         $buttonClass = trim($class . ($icon !== '' ? ' icon-action' : ''));
-        echo '<button class="' . Util::h($buttonClass) . '"';
+        echo '<button type="submit"';
+        if ($formId !== '') {
+            echo ' form="' . Util::h($formId) . '"';
+        }
+        echo ' class="' . Util::h($buttonClass) . '"';
         if ($icon !== '') {
             echo ' title="' . Util::h($label) . '" aria-label="' . Util::h($label) . '"';
         }
@@ -9023,7 +10023,12 @@ final class App
         } else {
             echo Util::h($label);
         }
-        echo '</button></form>';
+        echo '</button>';
+    }
+
+    private static function smallPostFormClose(): void
+    {
+        echo '</form>';
     }
 
     private static function checkboxList(string $title, string $name, array $rows, array $selected, string $labelKey): void
@@ -9112,6 +10117,28 @@ final class App
         echo '<button title="' . Util::h($label) . '" aria-label="' . Util::h($label) . '" class="' . ($isFavorite ? 'favorite active' : 'favorite') . '">' . ($isFavorite ? '★' : '☆') . '</button></form>';
     }
 
+    private static function cameraSettingsButton(int $cameraId): void
+    {
+        $back = self::safeLocalPath((string)($_SERVER['REQUEST_URI'] ?? ''));
+        if ($back === '') {
+            $back = '/';
+        }
+        $href = '/admin/cameras?' . http_build_query(['edit' => $cameraId, 'back' => $back]);
+        $label = self::t('settings.title', 'Настройки');
+        echo '<a class="camera-settings" href="' . Util::h($href) . '" title="' . Util::h($label) . '" aria-label="' . Util::h($label) . '">' . self::icon('settings') . '<span class="sr-only">' . Util::h($label) . '</span></a>';
+    }
+
+    private static function cameraRenameButton(int $cameraId): void
+    {
+        $back = self::safeLocalPath((string)($_SERVER['REQUEST_URI'] ?? ''));
+        if ($back === '') {
+            $back = '/';
+        }
+        $href = '/camera/rename?' . http_build_query(['id' => $cameraId, 'back' => $back]);
+        $label = self::t('action.edit', 'Изменить');
+        echo '<a class="camera-rename" href="' . Util::h($href) . '" title="' . Util::h($label) . '" aria-label="' . Util::h($label) . '">' . self::icon('edit') . '<span class="sr-only">' . Util::h($label) . '</span></a>';
+    }
+
     private static function notice(string $message, string $class = ''): void
     {
         if ($message !== '') {
@@ -9127,7 +10154,8 @@ final class App
         string $backLabel = '',
         string $settings = '',
         string $settingsLabel = '',
-        bool $dvr = true
+        bool $dvr = true,
+        array $extraQuery = []
     ): string
     {
         if (empty($camera['server_url'])) {
@@ -9148,6 +10176,9 @@ final class App
         if ($settings !== '') {
             $query['settings_url'] = self::absolutePortalUrl($settings);
             $query['settings_label'] = $settingsLabel !== '' ? $settingsLabel : self::t('settings.title', 'Настройки');
+        }
+        foreach ($extraQuery as $key => $value) {
+            $query[(string)$key] = (string)$value;
         }
 
         return rtrim($camera['server_url'], '/') . '/' . rawurlencode($camera['dvr_stream_name']) . '/embed.html?' . http_build_query($query);
@@ -9561,25 +10592,7 @@ final class App
 
     private static function syncPortalGroupIdentityAfterExplicitInsert(): void
     {
-        if (DB::driver() !== 'pgsql') {
-            return;
-        }
-
-        $pdo = DB::pdo();
-        $sequence = (string)$pdo->query("SELECT pg_get_serial_sequence('portal_groups', 'id')")->fetchColumn();
-        if ($sequence === '') {
-            return;
-        }
-
-        $current = (int)$pdo->query('SELECT last_value FROM ' . self::quoteQualifiedIdentifier($sequence))->fetchColumn();
-        $max = (int)$pdo->query('SELECT COALESCE(MAX(id), 1) FROM portal_groups')->fetchColumn();
-        $pdo->prepare('SELECT setval(?::regclass, ?, true)')->execute([$sequence, max($current, $max)]);
-    }
-
-    private static function quoteQualifiedIdentifier(string $name): string
-    {
-        $parts = array_filter(explode('.', $name), static fn(string $part): bool => $part !== '');
-        return implode('.', array_map(static fn(string $part): string => '"' . str_replace('"', '""', $part) . '"', $parts));
+        DB::syncIdentity('portal_groups');
     }
 
     private static function groupName(int $id): ?string
@@ -9805,6 +10818,14 @@ final class Cli
         'audit_logs',
     ];
 
+    private const IDENTITY_TABLES = [
+        'users',
+        'portal_groups',
+        'dvr_servers',
+        'cameras',
+        'audit_logs',
+    ];
+
     public static function run(array $argv): void
     {
         DB::migrate();
@@ -9876,7 +10897,7 @@ final class Cli
     private static function rotateSecrets(): int
     {
         $pdo = DB::pdo();
-        $rows = $pdo->query('SELECT id, management_token_enc FROM dvr_servers WHERE management_token_enc IS NOT NULL AND management_token_enc != ""')->fetchAll();
+        $rows = $pdo->query("SELECT id, management_token_enc FROM dvr_servers WHERE management_token_enc IS NOT NULL AND management_token_enc <> ''")->fetchAll();
         $stmt = $pdo->prepare('UPDATE dvr_servers SET management_token_enc = ? WHERE id = ?');
         $count = 0;
         foreach ($rows as $row) {
@@ -9948,6 +10969,10 @@ final class Cli
             $pdo->rollBack();
             DB::setForeignKeys(true);
             throw $error;
+        }
+
+        foreach (self::IDENTITY_TABLES as $table) {
+            DB::syncIdentity($table);
         }
     }
 }

@@ -1,5 +1,84 @@
 (function () {
   const messages = window.SESAME_I18N || {};
+
+  const YANDEX_PROJECTION_K = 0.001064;
+  const YANDEX_PROJECTION_R = 6378137;
+  const YANDEX_PROJECTION_MAX_LAT = 85.0511287798;
+  let yandexCrs = null;
+
+  function yandexWorldY(lat) {
+    const phi = lat * Math.PI / 180;
+    const sin = Math.sin(phi);
+    return YANDEX_PROJECTION_R * Math.log((1 + sin) / (1 - sin)) / 2
+      - 2 * Math.PI * YANDEX_PROJECTION_R * YANDEX_PROJECTION_K * sin;
+  }
+
+  function yandexProjection() {
+    const R = YANDEX_PROJECTION_R;
+    const half = Math.PI * R;
+    return {
+      project(latlng) {
+        const d = Math.PI / 180;
+        const lat = Math.max(Math.min(YANDEX_PROJECTION_MAX_LAT, latlng.lat), -YANDEX_PROJECTION_MAX_LAT);
+        return L.point(
+          R * latlng.lng * d,
+          yandexWorldY(lat)
+        );
+      },
+      unproject(point) {
+        const d = 180 / Math.PI;
+        let phi = 2 * Math.atan(Math.exp(point.y / R)) - Math.PI / 2;
+        for (let i = 0; i < 8; i++) {
+          const sin = Math.sin(phi);
+          const cos = Math.cos(phi);
+          const y = R * Math.log((1 + sin) / (1 - sin)) / 2
+            - 2 * Math.PI * R * YANDEX_PROJECTION_K * sin;
+          const dy = y - point.y;
+          if (Math.abs(dy) < 1e-4) break;
+          phi -= dy / (R / cos - 2 * Math.PI * R * YANDEX_PROJECTION_K * cos);
+        }
+        return L.latLng(phi * d, point.x * d / R);
+      },
+      bounds: L.bounds([-half, -half], [half, half])
+    };
+  }
+
+  function yandexCRS() {
+    const scale = 0.5 / (Math.PI * YANDEX_PROJECTION_R);
+    return L.Util.extend({}, L.CRS.Earth, {
+      code: 'EPSG:Yandex3857',
+      projection: yandexProjection(),
+      transformation: L.transformation(scale, 0.5, -scale, 0.5)
+    });
+  }
+
+  function mapCRS() {
+    if ((window.SESAME_MAP_PROVIDER || 'openstreetmap') !== 'yandex') return L.CRS.EPSG3857;
+    if (!yandexCrs) yandexCrs = yandexCRS();
+    return yandexCrs;
+  }
+
+  function tileLayerOptions() {
+    const provider = window.SESAME_MAP_PROVIDER || 'openstreetmap';
+    return {
+      maxZoom: 19,
+      attribution: provider === 'openstreetmap' ? '&copy; OpenStreetMap' : '&copy; <a href="https://yandex.ru/maps/">Яндекс Карты</a>'
+    };
+  }
+  function tileLayerUrl() {
+    const provider = window.SESAME_MAP_PROVIDER || 'openstreetmap';
+    switch (provider) {
+      case 'yandex': return 'https://core-renderer-tiles.maps.yandex.net/tiles?l=map&x={x}&y={y}&z={z}&lang=ru_RU';
+      default: return 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
+    }
+  }
+  function mapDefaultView() {
+    const view = window.SESAME_MAP_VIEW || {};
+    return {
+      lat: Number.isFinite(Number(view.lat)) ? Number(view.lat) : 47.242057,
+      lng: Number.isFinite(Number(view.lng)) ? Number(view.lng) : 38.889615
+    };
+  }
   initMap();
   initCameraPositionEditor();
   initPlayer();
@@ -13,20 +92,68 @@
   initDvrStreamImport();
   initLocalTimes();
   initPlayerBackBridge();
+  initThemeToggle();
+  initStaticTokens();
+
+  function initThemeToggle() {
+    const button = document.querySelector("[data-theme-toggle]");
+    if (!button) return;
+
+    const root = document.documentElement;
+    const media = window.matchMedia ? matchMedia("(prefers-color-scheme: dark)") : null;
+
+    function render(theme) {
+      button.title = theme === "dark" ? (button.dataset.titleLight || "") : (button.dataset.titleDark || "");
+      button.setAttribute("aria-label", button.title);
+      button.innerHTML = theme === "dark"
+        ? '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4" fill="none" stroke="currentColor" stroke-width="2"/><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>'
+        : '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M20.5 14.5A8.5 8.5 0 0 1 9.5 3.5a8.5 8.5 0 1 0 11 11z"/></svg>';
+    }
+
+    function currentTheme() {
+      return root.dataset.theme === "dark" ? "dark" : "light";
+    }
+
+    function apply(theme) {
+      root.dataset.theme = theme;
+      render(theme);
+    }
+
+    button.addEventListener("click", () => {
+      const next = currentTheme() === "dark" ? "light" : "dark";
+      apply(next);
+      root.removeAttribute("data-theme-auto");
+      fetch("/theme", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({ theme: next, csrf: window.SESAME_CSRF || "" })
+      }).catch(() => {
+        apply(next === "dark" ? "light" : "dark");
+      });
+    });
+
+    if (media && media.addEventListener) {
+      media.addEventListener("change", (event) => {
+        if (root.dataset.themeAuto === "1") {
+          apply(event.matches ? "dark" : "light");
+        }
+      });
+    }
+
+    render(currentTheme());
+  }
 
   function initMap() {
     if (!window.L || !window.SESAME_CAMERAS || !document.getElementById("map")) return;
 
     const cameras = window.SESAME_CAMERAS || [];
     const visibleCameras = cameras.filter((camera) => Number.isFinite(camera.lat) && Number.isFinite(camera.lng));
-    const map = L.map("map", { zoomControl: true });
+    const map = L.map("map", { zoomControl: true, crs: mapCRS() });
     setPlainLeafletAttribution(map);
-    map.setView([25.2048, 55.2708], 10);
+    const defaultView = mapDefaultView();
+    map.setView([defaultView.lat, defaultView.lng], 12);
 
-    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-      maxZoom: 19,
-      attribution: "&copy; OpenStreetMap"
-    }).addTo(map);
+    L.tileLayer(tileLayerUrl(), tileLayerOptions()).addTo(map);
 
     const markerLayer = cameraMarkerLayer();
     visibleCameras.forEach((camera) => {
@@ -65,18 +192,16 @@
 
     let committed = readEditorState();
     let pending = null;
-    const start = hasPoint(committed) ? [committed.lat, committed.lng] : [25.2048, 55.2708];
-    const editorMap = L.map(container, { zoomControl: true }).setView(start, hasPoint(committed) ? 16 : 4);
+    const defaultView = mapDefaultView();
+    const start = hasPoint(committed) ? [committed.lat, committed.lng] : [defaultView.lat, defaultView.lng];
+    const editorMap = L.map(container, { zoomControl: true, crs: mapCRS() }).setView(start, hasPoint(committed) ? 16 : 4);
     setPlainLeafletAttribution(editorMap);
     const confirmBar = createMapConfirmBar(container);
     let cameraMarker = null;
     let directionMarker = null;
     let directionLine = null;
 
-    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-      maxZoom: 19,
-      attribution: "&copy; OpenStreetMap"
-    }).addTo(editorMap);
+    L.tileLayer(tileLayerUrl(), tileLayerOptions()).addTo(editorMap);
 
     const stageChange = (next, pan = false) => {
       pending = normalizeEditorState(next);
@@ -866,6 +991,79 @@
     });
   }
 
+  function initStaticTokens(root = document) {
+    const MASK = "*******";
+    const maskToken = (input, button) => {
+      input.value = MASK;
+      input.title = "";
+      delete input.dataset.staticTokenLoading;
+      if (button) {
+        const reveal = tr("staticTokenReveal", "Show and copy");
+        button.title = reveal;
+        button.setAttribute("aria-label", reveal);
+        button.classList.remove("is-copied");
+      }
+    };
+    const copyToken = (input) => {
+      if (navigator.clipboard?.writeText) {
+        return navigator.clipboard.writeText(input.value).catch(() => fallbackCopy(input));
+      }
+      return fallbackCopy(input);
+    };
+    root.querySelectorAll("[data-static-token-reveal]").forEach((el) => {
+      if (el.dataset.staticTokenRevealBound === "1") return;
+      el.dataset.staticTokenRevealBound = "1";
+      el.addEventListener("click", async () => {
+        const container = el.closest(".static-token-field") || el;
+        const input = container.querySelector(".static-token-input");
+        const button = container.querySelector(".static-token-copy");
+        if (!input) return;
+        if (input.value !== MASK) {
+          input.select();
+          await copyToken(input).catch(() => {});
+          if (el === button) maskToken(input, button);
+          return;
+        }
+        if (input.dataset.staticTokenLoading === "1") return;
+        input.dataset.staticTokenLoading = "1";
+        try {
+          const userId = encodeURIComponent(el.dataset.staticTokenUser || "");
+          const response = await fetch(`/api/portal/v1/users/${userId}/static-token`, {
+            headers: { Accept: "application/json" }
+          });
+          if (!response.ok) throw new Error(String(response.status));
+          const data = await response.json();
+          const token = typeof data.token === "string" && data.token !== "" ? data.token : "";
+          if (!token) throw new Error("empty");
+          input.value = token;
+          await copyToken(input);
+          const copied = tr("staticTokenCopied", "Copied");
+          if (button) {
+            button.title = copied;
+            button.setAttribute("aria-label", copied);
+            button.classList.add("is-copied");
+          }
+          input.title = copied;
+          input.select();
+        } catch {
+          maskToken(input, button);
+        } finally {
+          delete input.dataset.staticTokenLoading;
+        }
+      });
+    });
+  }
+
+  function fallbackCopy(input) {
+    try {
+      input.focus();
+      input.select();
+      return document.execCommand("copy");
+    } catch {
+      return false;
+    }
+  }
+
   function refreshPreview(image) {
     const source = image.dataset.previewSrc;
     if (!source) return;
@@ -945,4 +1143,5 @@
   function tr(key, fallback) {
     return messages[key] || fallback;
   }
+
 })();

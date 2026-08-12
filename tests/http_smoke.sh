@@ -44,13 +44,17 @@ return [
             'maxWidth' => '500px',
         ],
     ]],
+    'db_dsn' => getenv('SESAME_PORTAL_DB_DSN') ?: null,
+    'db_user' => getenv('SESAME_PORTAL_DB_USER') ?: null,
+    'db_password' => getenv('SESAME_PORTAL_DB_PASSWORD') ?: null,
 ];
 PHP
 
-OLD_UNIQUE_STATE="$STATE_DIR/old-unique"
-mkdir -p "$OLD_UNIQUE_STATE"
-sqlite_duplicate_group_migration="$(
-  SESAME_PORTAL_STATE_DIR="$OLD_UNIQUE_STATE" SESAME_PORTAL_SECRET="test-secret" php <<'PHP'
+if [[ -z "${SESAME_PORTAL_DB_DSN:-}" ]]; then
+  OLD_UNIQUE_STATE="$STATE_DIR/old-unique"
+  mkdir -p "$OLD_UNIQUE_STATE"
+  sqlite_duplicate_group_migration="$(
+    SESAME_PORTAL_STATE_DIR="$OLD_UNIQUE_STATE" SESAME_PORTAL_SECRET="test-secret" php <<'PHP'
 <?php
 require getenv('ROOT') . '/app/Portal.php';
 $pdo = \SesamePortal\DB::pdo();
@@ -72,8 +76,9 @@ $stmt = $pdo->prepare('SELECT COUNT(*) FROM portal_groups WHERE name = ?');
 $stmt->execute(['Duplicate Group Name']);
 echo (string)$stmt->fetchColumn();
 PHP
-)"
-test "$sqlite_duplicate_group_migration" = "2"
+  )"
+  test "$sqlite_duplicate_group_migration" = "2"
+fi
 
 php "$ROOT/bin/portal" migrate >/dev/null
 php "$ROOT/bin/portal" create-admin admin admin123 >/dev/null
@@ -173,6 +178,8 @@ $pdo->prepare('INSERT INTO users(login, password_hash, role, blocked, static_tok
     ->execute(['plain-user', password_hash('user123', PASSWORD_DEFAULT), 'user', 0, password_hash('sp_smoke_user_token', PASSWORD_DEFAULT), $now]);
 $plainUserId = \SesamePortal\DB::lastInsertId('users');
 $pdo->prepare('UPDATE users SET hide_archive = 1 WHERE id = ?')
+    ->execute([$plainUserId]);
+$pdo->prepare('UPDATE users SET mosaic_enabled = 1 WHERE id = ?')
     ->execute([$plainUserId]);
 $pdo->prepare('INSERT INTO user_groups(user_id, group_id) VALUES(?, ?)')
     ->execute([$plainUserId, 1]);
@@ -316,6 +323,7 @@ printf "%s" "$admin_users_page" | grep -F -q 'data-submit-progress="Сохран
 printf "%s" "$admin_users_page" | grep -F -q 'data-submit-status'
 printf "%s" "$admin_users_page" | grep -F -q 'name="admin_comment"'
 printf "%s" "$admin_users_page" | grep -F -q 'name="hide_archive"'
+printf "%s" "$admin_users_page" | grep -F -q 'name="mosaic_enabled"'
 printf "%s" "$admin_users_page" | grep -F -q 'name="group_id"'
 printf "%s" "$admin_users_page" | grep -q "Все группы"
 printf "%s" "$admin_users_page" | grep -F -q '<th>Комментарий администратора</th>'
@@ -504,7 +512,7 @@ blank_server_camera="$(
   php <<'PHP'
 <?php
 require getenv('ROOT') . '/app/Portal.php';
-$stmt = \SesamePortal\DB::pdo()->prepare('SELECT server_selection || ":" || COALESCE(server_id, 0) || ":" || COALESCE(event_archive_max_bytes, 0) FROM cameras WHERE dvr_stream_name = ?');
+$stmt = \SesamePortal\DB::pdo()->prepare("SELECT server_selection || ':' || COALESCE(server_id, 0) || ':' || COALESCE(event_archive_max_bytes, 0) FROM cameras WHERE dvr_stream_name = ?");
 $stmt->execute(['no-sync-notice-cam']);
 echo (string)$stmt->fetchColumn();
 PHP
@@ -631,6 +639,8 @@ printf "%s" "$unicode_search_page" | grep -q "Двор Камера"
 ! printf "%s" "$unicode_search_page" | grep -q "Smoke Extra 30"
 stream_search_page="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/?q=UNICODE-YARD-CAM")"
 printf "%s" "$stream_search_page" | grep -q "Двор Камера"
+printf "%s" "$mosaic_page" | grep -q "smoke-cam"
+printf "%s" "$mosaic_page" | grep -q "camera-tech"
 ip_search_page="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/?q=192.0.2.77")"
 printf "%s" "$ip_search_page" | grep -q "Smoke Cam"
 ! printf "%s" "$ip_search_page" | grep -q "Smoke Extra 30"
@@ -715,9 +725,59 @@ test "$plain_login_status" = "303"
 plain_mosaic_page="$(curl -fsS -b "$PLAIN_COOKIE_JAR" "http://127.0.0.1:$PORT/")"
 grep -q "camera-grid cols-3" <<<"$plain_mosaic_page"
 grep -F -q 'class="active" href="/?cols=3"' <<<"$plain_mosaic_page"
+! printf "%s" "$plain_mosaic_page" | grep -q "camera-tech"
 plain_player_page="$(curl -fsS -b "$PLAIN_COOKIE_JAR" "http://127.0.0.1:$PORT/viewer/player?id=1")"
 ! printf "%s" "$plain_player_page" | grep -q "settings_url="
 ! printf "%s" "$plain_player_page" | grep -q "admin%2Fcameras"
+
+# Plain user can open the rename form for an accessible camera
+plain_rename_page="$(curl -fsS -b "$PLAIN_COOKIE_JAR" "http://127.0.0.1:$PORT/camera/rename?id=1")"
+printf "%s" "$plain_rename_page" | grep -q "Smoke Cam"
+printf "%s" "$plain_rename_page" | grep -q "smoke-cam"
+printf "%s" "$plain_rename_page" | grep -q 'name="name"'
+rename_csrf="$(printf "%s" "$plain_rename_page" | sed -n 's/.*name="csrf" value="\([^"]*\)".*/\1/p' | head -n 1)"
+test -n "$rename_csrf"
+rename_status="$(
+  curl -sS -o /dev/null -w '%{http_code}' -b "$PLAIN_COOKIE_JAR" \
+    -d "csrf=$rename_csrf" -d "id=1" -d "name=Renamed Smoke Cam" \
+    "http://127.0.0.1:$PORT/camera/rename"
+)"
+test "$rename_status" = "303"
+renamed_mosaic="$(curl -fsS -b "$PLAIN_COOKIE_JAR" "http://127.0.0.1:$PORT/")"
+printf "%s" "$renamed_mosaic" | grep -q "Renamed Smoke Cam"
+! printf "%s" "$renamed_mosaic" | grep -q "Smoke Cam"
+renamed_camera="$(curl -fsS -b "$PLAIN_COOKIE_JAR" "http://127.0.0.1:$PORT/api/portal/v1/cameras/1")"
+printf "%s" "$renamed_camera" | grep -q '"name": "Renamed Smoke Cam"'
+printf "%s" "$renamed_camera" | grep -q '"dvrStreamName": "smoke-cam"'
+# Plain user cannot rename a camera outside their groups
+rename_forbidden="$(
+  curl -sS -o /dev/null -w '%{http_code}' -b "$PLAIN_COOKIE_JAR" \
+    "http://127.0.0.1:$PORT/camera/rename?id=3"
+)"
+test "$rename_forbidden" = "403"
+# Renaming to an existing name or an empty name is rejected
+restore_rename_page="$(curl -fsS -b "$PLAIN_COOKIE_JAR" "http://127.0.0.1:$PORT/camera/rename?id=1")"
+restore_csrf="$(printf "%s" "$restore_rename_page" | sed -n 's/.*name="csrf" value="\([^"]*\)".*/\1/p' | head -n 1)"
+test -n "$restore_csrf"
+duplicate_rename_page="$(
+  curl -fsS -b "$PLAIN_COOKIE_JAR" \
+    -d "csrf=$restore_csrf" -d "id=1" -d "name=Двор Камера" \
+    "http://127.0.0.1:$PORT/camera/rename"
+)"
+printf "%s" "$duplicate_rename_page" | grep -q "уже существует"
+empty_rename_page="$(
+  curl -fsS -b "$PLAIN_COOKIE_JAR" \
+    -d "csrf=$restore_csrf" -d "id=1" -d "name=" \
+    "http://127.0.0.1:$PORT/camera/rename"
+)"
+printf "%s" "$empty_rename_page" | grep -q "Укажите название камеры"
+# Restore the original name for later tests
+curl -fsS -o /dev/null -b "$PLAIN_COOKIE_JAR" \
+  -d "csrf=$restore_csrf" -d "id=1" -d "name=Smoke Cam" \
+  "http://127.0.0.1:$PORT/camera/rename"
+restored_camera="$(curl -fsS -b "$PLAIN_COOKIE_JAR" "http://127.0.0.1:$PORT/api/portal/v1/cameras/1")"
+printf "%s" "$restored_camera" | grep -q '"name": "Smoke Cam"'
+printf "%s" "$restored_camera" | grep -q '"dvrStreamName": "smoke-cam"'
 
 api_unauth="$(
   curl -sS -o /dev/null -w '%{http_code}' \
@@ -1013,6 +1073,9 @@ api_static="$(
 )"
 STATIC_TOKEN="$(printf "%s" "$api_static" | php -r '$d=json_decode(stream_get_contents(STDIN), true); echo $d["token"] ?? "";')"
 test -n "$STATIC_TOKEN"
+api_static_reveal="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/api/portal/v1/users/1/static-token")"
+revealed_static_token="$(printf "%s" "$api_static_reveal" | php -r '$d=json_decode(stream_get_contents(STDIN), true); echo $d["token"] ?? "";')"
+test "$revealed_static_token" = "$STATIC_TOKEN"
 curl -fsS -H "Authorization: Bearer $STATIC_TOKEN" "http://127.0.0.1:$PORT/api/portal/v1/me" | grep -q '"login": "admin"'
 api_static_replace="$(
   curl -fsS -b "$COOKIE_JAR" -X POST \
@@ -1029,6 +1092,9 @@ old_static_denied="$(
 test "$old_static_denied" = "401"
 curl -fsS -H "Authorization: Bearer $STATIC_TOKEN_REPLACED" "http://127.0.0.1:$PORT/api/portal/v1/me" | grep -q '"login": "admin"'
 STATIC_TOKEN="$STATIC_TOKEN_REPLACED"
+api_static_reveal_replaced="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/api/portal/v1/users/1/static-token")"
+revealed_static_token_replaced="$(printf "%s" "$api_static_reveal_replaced" | php -r '$d=json_decode(stream_get_contents(STDIN), true); echo $d["token"] ?? "";')"
+test "$revealed_static_token_replaced" = "$STATIC_TOKEN"
 api_daily_denied="$(
   curl -sS -o /dev/null -w '%{http_code}' \
     -H "Authorization: Bearer $TOKEN" \
@@ -1073,6 +1139,38 @@ grep -q "previous=yes" <<<"$static_token_audit"
 admin_users_revoked="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/admin/users?q=admin&lang=ru")"
 printf "%s" "$admin_users_revoked" | grep -q "Выпустить статический токен"
 printf "%s" "$admin_users_revoked" | grep -q ">нет<"
+admin_edit_revoked="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/admin/users?edit=1&lang=ru")"
+! printf "%s" "$admin_edit_revoked" | grep -q 'data-static-token-reveal'
+printf "%s" "$admin_edit_revoked" | grep -q ">нет<"
+plain_user_id="$(
+  curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/api/portal/v1/users?q=plain-user&pageSize=1" \
+    | php -r '$d=json_decode(stream_get_contents(STDIN), true); echo $d["users"][0]["id"] ?? "";'
+)"
+test -n "$plain_user_id"
+admin_users_edit_panel="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/admin/users?edit=$plain_user_id&lang=ru")"
+printf "%s" "$admin_users_edit_panel" | grep -q "Постоянный токен пользователя"
+printf "%s" "$admin_users_edit_panel" | grep -q ">есть<"
+printf "%s" "$admin_users_edit_panel" | grep -q "Заменить статический токен"
+printf "%s" "$admin_users_edit_panel" | grep -q "Отозвать"
+printf "%s" "$admin_users_edit_panel" | grep -q 'data-static-token-reveal'
+printf "%s" "$admin_users_edit_panel" | grep -q 'value="*******"'
+plain_static_reveal="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/api/portal/v1/users/$plain_user_id/static-token")"
+printf "%s" "$plain_static_reveal" | grep -q '"token": null'
+plain_me="$(curl -fsS -H "Authorization: Bearer sp_smoke_user_token" "http://127.0.0.1:$PORT/api/portal/v1/me")"
+printf "%s" "$plain_me" | grep -q '"login": "plain-user"'
+printf "%s" "$plain_me" | grep -q '"role": "user"'
+plain_admin_denied="$(
+  curl -sS -o /dev/null -w '%{http_code}' \
+    -H "Authorization: Bearer sp_smoke_user_token" \
+    "http://127.0.0.1:$PORT/api/portal/v1/users"
+)"
+test "$plain_admin_denied" = "403"
+plain_cameras="$(curl -fsS -H "Authorization: Bearer sp_smoke_user_token" "http://127.0.0.1:$PORT/api/portal/v1/cameras?scope=accessible&pageSize=50")"
+plain_camera_names="$(printf "%s" "$plain_cameras" | php -r '$d=json_decode(stream_get_contents(STDIN), true); foreach (($d["cameras"] ?? []) as $c) { echo $c["name"] ?? "", "\n"; }')"
+grep -q "Smoke Cam" <<<"$plain_camera_names"
+grep -q "Двор Камера" <<<"$plain_camera_names"
+plain_restricted_camera_absent="$(grep -c "Read Only Cam" <<<"$plain_camera_names" || true)"
+test "$plain_restricted_camera_absent" = "0"
 
 denied="$(
   curl -sS -o /dev/null -w '%{http_code}' \
@@ -1150,5 +1248,73 @@ printf "%s" "$archive_audit_page" | grep -q "camera_id=1"
 printf "%s" "$archive_audit_page" | grep -q "from=1700000000"
 printf "%s" "$archive_audit_page" | grep -q "duration=60"
 printf "%s" "$archive_audit_page" | grep -q "ip=203.0.113.9"
+
+# --- Custom mosaics ---
+mosaic_list="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/mosaic")"
+printf "%s" "$mosaic_list" | grep -q "Мозаика"
+printf "%s" "$mosaic_list" | grep -q "Создать мозаику"
+mosaic_new="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/mosaic/new")"
+printf "%s" "$mosaic_new" | grep -F -q 'name="name"'
+printf "%s" "$mosaic_new" | grep -F -q 'name="grid_rows"'
+printf "%s" "$mosaic_new" | grep -F -q 'name="grid_cols"'
+printf "%s" "$mosaic_new" | grep -F -q 'name="cameras[]"'
+mosaic_csrf="$(printf "%s" "$mosaic_new" | sed -n 's/.*name="csrf" value="\([^"]*\)".*/\1/p' | head -n 1)"
+test -n "$mosaic_csrf"
+mosaic_save_status="$(
+  curl -sS -o /dev/null -w '%{http_code}' -b "$COOKIE_JAR" \
+    -d "csrf=$mosaic_csrf" -d "name=Admin Mosaic" -d "grid_rows=3" -d "grid_cols=3" -d "cameras[]=1" -d "cameras[]=2" \
+    "http://127.0.0.1:$PORT/mosaic/save"
+)"
+test "$mosaic_save_status" = "303"
+mosaic_list_after="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/mosaic")"
+printf "%s" "$mosaic_list_after" | grep -q "Admin Mosaic"
+mosaic_view="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/mosaic/view?id=1")"
+printf "%s" "$mosaic_view" | grep -q "Admin Mosaic"
+printf "%s" "$mosaic_view" | grep -q "mosaic-grid"
+printf "%s" "$mosaic_view" | grep -q "mosaic-tile-frame"
+printf "%s" "$mosaic_view" | grep -q "hidecontrols=true"
+printf "%s" "$mosaic_view" | grep -q "screenshot=false"
+! printf "%s" "$mosaic_view" | grep -E -q "back_url="
+! printf "%s" "$mosaic_view" | grep -q "camera-meta"
+# Mosaic without name is rejected
+mosaic_no_name_status="$(
+  curl -sS -o /dev/null -w '%{http_code}' -b "$COOKIE_JAR" \
+    -d "csrf=$mosaic_csrf" -d "name=" -d "grid_rows=3" -d "grid_cols=3" \
+    "http://127.0.0.1:$PORT/mosaic/save"
+)"
+test "$mosaic_no_name_status" = "422"
+
+# Plain user can create their own mosaic (from accessible cameras)
+plain_mosaic_new="$(curl -fsS -b "$PLAIN_COOKIE_JAR" "http://127.0.0.1:$PORT/mosaic/new")"
+plain_mosaic_csrf="$(printf "%s" "$plain_mosaic_new" | sed -n 's/.*name="csrf" value="\([^"]*\)".*/\1/p' | head -n 1)"
+test -n "$plain_mosaic_csrf"
+plain_mosaic_save_status="$(
+  curl -sS -o /dev/null -w '%{http_code}' -b "$PLAIN_COOKIE_JAR" \
+    -d "csrf=$plain_mosaic_csrf" -d "name=Plain Mosaic" -d "grid_rows=2" -d "grid_cols=2" -d "cameras[]=1" \
+    "http://127.0.0.1:$PORT/mosaic/save"
+)"
+test "$plain_mosaic_save_status" = "303"
+plain_mosaic_list="$(curl -fsS -b "$PLAIN_COOKIE_JAR" "http://127.0.0.1:$PORT/mosaic")"
+printf "%s" "$plain_mosaic_list" | grep -q "Plain Mosaic"
+# Plain user does NOT see admin's mosaic
+! printf "%s" "$plain_mosaic_list" | grep -q "Admin Mosaic"
+# Plain user cannot view admin's mosaic
+plain_forbidden_view="$(
+  curl -sS -o /dev/null -w '%{http_code}' -b "$PLAIN_COOKIE_JAR" \
+    "http://127.0.0.1:$PORT/mosaic/view?id=1"
+)"
+test "$plain_forbidden_view" = "403"
+# Admin sees plain user's mosaic
+admin_list_all="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/mosaic")"
+printf "%s" "$admin_list_all" | grep -q "Plain Mosaic"
+# Admin sees mosaic owner login
+printf "%s" "$admin_list_all" | grep -q "mosaic-owner"
+printf "%s" "$admin_list_all" | grep -q "plain-user"
+# Admin can view plain user's mosaic
+admin_view_plain="$(
+  curl -sS -o /dev/null -w '%{http_code}' -b "$COOKIE_JAR" \
+    "http://127.0.0.1:$PORT/mosaic/view?id=2"
+)"
+test "$admin_view_plain" = "200"
 
 echo "http smoke ok"

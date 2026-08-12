@@ -19,6 +19,9 @@ return [
     'portal_update_auto_check' => true,
     'portal_update_command' => 'sudo -n /usr/local/sbin/sesame-portal-update',
     'portal_update_pass_args' => false,
+    'map_provider' => 'openstreetmap',
+    'map_default_lat' => 47.242057,
+    'map_default_lng' => 38.889615,
     'crypto_primary_key' => 'primary',
     'crypto_keys' => [
         'primary' => 'replace-with-random-secret',
