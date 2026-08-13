@@ -26,4 +26,11 @@ return [
     'crypto_keys' => [
         'primary' => 'replace-with-random-secret',
     ],
+    'smtp_host' => '',
+    'smtp_port' => 465,
+    'smtp_user' => '',
+    'smtp_password' => '',
+    'smtp_security' => 'ssl',
+    'smtp_from_email' => '',
+    'smtp_from_name' => 'SesamePortal',
 ];

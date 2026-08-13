@@ -63,6 +63,13 @@ final class Config
             'map_provider' => getenv('SESAME_PORTAL_MAP_PROVIDER') ?: 'openstreetmap',
             'map_default_lat' => (float)(getenv('SESAME_PORTAL_MAP_DEFAULT_LAT') ?: 47.242057),
             'map_default_lng' => (float)(getenv('SESAME_PORTAL_MAP_DEFAULT_LNG') ?: 38.889615),
+            'smtp_host' => getenv('SESAME_PORTAL_SMTP_HOST') ?: '',
+            'smtp_port' => (int)(getenv('SESAME_PORTAL_SMTP_PORT') ?: 465),
+            'smtp_user' => getenv('SESAME_PORTAL_SMTP_USER') ?: '',
+            'smtp_password' => getenv('SESAME_PORTAL_SMTP_PASSWORD') ?: '',
+            'smtp_security' => getenv('SESAME_PORTAL_SMTP_SECURITY') ?: 'ssl',
+            'smtp_from_email' => getenv('SESAME_PORTAL_SMTP_FROM_EMAIL') ?: '',
+            'smtp_from_name' => getenv('SESAME_PORTAL_SMTP_FROM_NAME') ?: 'SesamePortal',
         ], is_array($loaded) ? $loaded : []);
 
         if (empty($config['crypto_keys']) || !is_array($config['crypto_keys'])) {
@@ -79,6 +86,102 @@ final class Config
     public static function get(string $key, mixed $default = null): mixed
     {
         return self::all()[$key] ?? $default;
+    }
+}
+
+final class Mail
+{
+    public static function send(string $to, string $subject, string $htmlBody): bool
+    {
+        $host = (string)Config::get('smtp_host', '');
+        if ($host === '') {
+            return false;
+        }
+        $port = (int)Config::get('smtp_port', 465);
+        $user = (string)Config::get('smtp_user', '');
+        $password = (string)Config::get('smtp_password', '');
+        $security = (string)Config::get('smtp_security', 'ssl');
+        $fromEmail = (string)Config::get('smtp_from_email', $user);
+        $fromName = (string)Config::get('smtp_from_name', 'SesamePortal');
+
+        $remote = ($security === 'ssl' ? 'ssl://' : '') . $host . ':' . $port;
+        $errno = 0;
+        $errstr = '';
+        $fp = @stream_socket_client($remote, $errno, $errstr, 15, STREAM_CLIENT_CONNECT);
+        if (!$fp) {
+            return false;
+        }
+
+        $read = function () use ($fp): string {
+            $data = '';
+            while (!feof($fp)) {
+                $line = fgets($fp, 515);
+                $data .= $line;
+                if (isset($line[3]) && $line[3] === ' ') {
+                    break;
+                }
+            }
+            return $data;
+        };
+        $write = function (string $cmd) use ($fp): void {
+            fwrite($fp, $cmd . "\r\n");
+        };
+
+        $read();
+        $write('EHLO ' . php_uname('n'));
+        $resp = $read();
+
+        if ($security === 'tls') {
+            $write('STARTTLS');
+            $read();
+            stream_socket_enable_crypto($fp, true, STREAM_CRYPTO_METHOD_TLS_CLIENT);
+            $write('EHLO ' . php_uname('n'));
+            $resp = $read();
+        }
+
+        if ($user !== '') {
+            $write('AUTH LOGIN');
+            $read();
+            $write(base64_encode($user));
+            $read();
+            $write(base64_encode($password));
+            $authResp = $read();
+            if (!str_starts_with($authResp, '235')) {
+                fclose($fp);
+                return false;
+            }
+        }
+
+        $write('MAIL FROM:<' . $fromEmail . '>');
+        $read();
+        $write('RCPT TO:<' . $to . '>');
+        $read();
+        $write('DATA');
+        $read();
+
+        $headers = [
+            'MIME-Version: 1.0',
+            'Content-Type: text/html; charset=UTF-8',
+            'From: ' . self::encodeHeader($fromName) . ' <' . $fromEmail . '>',
+            'To: <' . $to . '>',
+            'Subject: ' . self::encodeHeader($subject),
+        ];
+
+        $body = implode("\r\n", $headers) . "\r\n\r\n" . $htmlBody . "\r\n.\r\n";
+        $write($body);
+        $dataResp = $read();
+        $write('QUIT');
+        fclose($fp);
+
+        return str_starts_with($dataResp, '250');
+    }
+
+    private static function encodeHeader(string $value): string
+    {
+        if (preg_match('/[^\x20-\x7E]/', $value)) {
+            return '=?UTF-8?B?' . base64_encode($value) . '?=';
+        }
+        return $value;
     }
 }
 
@@ -155,6 +258,10 @@ final class DB
         self::ensureColumn('users', 'mosaic_columns', 'INTEGER NOT NULL DEFAULT 3');
         self::ensureColumn('users', 'mosaic_enabled', 'INTEGER NOT NULL DEFAULT 0');
         self::ensureColumn('users', 'theme', "TEXT NOT NULL DEFAULT ''");
+        self::ensureColumn('users', 'email', 'TEXT');
+        self::ensureColumn('users', 'must_change_password', 'INTEGER NOT NULL DEFAULT 0');
+        self::ensureColumn('users', 'password_reset_token', 'TEXT');
+        self::ensureColumn('users', 'password_reset_expires', 'TEXT');
         self::ensureColumn('portal_groups', 'parent_group_id', self::driver() === 'mysql' ? 'BIGINT NULL' : 'INTEGER');
         self::dropPortalGroupNameUniqueConstraint();
         self::ensureIndex('camera_groups', 'idx_camera_groups_group', 'group_id');
@@ -280,6 +387,10 @@ final class DB
                 hide_archive INTEGER NOT NULL DEFAULT 0,
                 mosaic_columns INTEGER NOT NULL DEFAULT 3,
                 mosaic_enabled INTEGER NOT NULL DEFAULT 0,
+                email TEXT,
+                must_change_password INTEGER NOT NULL DEFAULT 0,
+                password_reset_token TEXT,
+                password_reset_expires TEXT,
                 created_at TEXT NOT NULL,
                 last_login_at TEXT
             )',
@@ -394,6 +505,10 @@ final class DB
                 hide_archive INTEGER NOT NULL DEFAULT 0,
                 mosaic_columns INTEGER NOT NULL DEFAULT 3,
                 mosaic_enabled INTEGER NOT NULL DEFAULT 0,
+                email TEXT,
+                must_change_password INTEGER NOT NULL DEFAULT 0,
+                password_reset_token TEXT,
+                password_reset_expires TEXT,
                 created_at TEXT NOT NULL,
                 last_login_at TEXT
             )",
@@ -509,6 +624,10 @@ final class DB
                 hide_archive INTEGER NOT NULL DEFAULT 0,
                 mosaic_columns INTEGER NOT NULL DEFAULT 3,
                 mosaic_enabled INTEGER NOT NULL DEFAULT 0,
+                email TEXT,
+                must_change_password INTEGER NOT NULL DEFAULT 0,
+                password_reset_token TEXT,
+                password_reset_expires TEXT,
                 created_at VARCHAR(64) NOT NULL,
                 last_login_at VARCHAR(64)
             ){$suffix}",
@@ -2790,6 +2909,34 @@ final class I18n
             $messages[$locale]['mosaic.owner'] = $label;
         }
 
+        $authKeys = [
+            'auth.onboardingTitle' => ['Смена пароля', 'Password change', 'Passwort ändern', 'Changement de mot de passe', 'Cambio de contraseña', 'Cambio password', 'Alteração de senha', 'Смяна на парола', 'Zmiana hasła', '更改密码', 'パスワード変更', '비밀번호 변경', 'تغيير كلمة المرور', 'Փաստագրի փոփոխում'],
+            'auth.onboardingRequired' => ['При первом входе необходимо сменить пароль и указать email для восстановления', 'On first login you must change your password and provide an email for recovery', 'Beim ersten Login müssen Sie Ihr Passwort ändern und eine E-Mail angeben', 'Lors de la première connexion, vous devez changer le mot de passe et fournir un email', 'En el primer inicio de sesión debe cambiar la contraseña y proporcionar un email', 'Al primo accesso è necessario cambiare la password e inserire l\'email', 'No primeiro acesso é necessário alterar a senha e fornecer email', 'При първо влизане трябва да смените паролата и да посочите имейл', 'Przy pierwszym logowaniu musisz zmienić hasło i podać email', '首次登录需要更改密码并提供邮箱', '初回ログイン時にパスワードを変更し、メールを入力してください', '첫 로그인 시 비밀번호를 변경하고 이메일을 입력해야 합니다', 'عند تسجيل الدخول الأول يجب تغيير كلمة المرور وتقديم البريد الإلكتروني', 'Առաջին մուտքի ժամանակ անհրաժեշտ է փոխել գաղտնաբառը և նշել էլփոստը'],
+            'auth.newPassword' => ['Новый пароль', 'New password', 'Neues Passwort', 'Nouveau mot de passe', 'Nueva contraseña', 'Nuova password', 'Nova senha', 'Нова парола', 'Nowe hasło', '新密码', '新しいパスワード', '새 비밀번호', 'كلمة مرور جديدة', 'Նոր գաղտնաբառ'],
+            'auth.confirmPassword' => ['Подтверждение', 'Confirmation', 'Bestätigung', 'Confirmation', 'Confirmación', 'Conferma', 'Confirmação', 'Потвърждение', 'Potwierdzenie', '确认', '確認', '확인', 'تأكيد', 'Հաստատում'],
+            'auth.email' => ['Email', 'Email', 'E-Mail', 'Email', 'Correo electrónico', 'Email', 'Email', 'Имейл', 'Email', '邮箱', 'メール', '이메일', 'البريد الإلكتروني', 'Էլփոստ'],
+            'auth.passwordShort' => ['Пароль должен быть не короче 6 символов', 'Password must be at least 6 characters', 'Passwort muss mindestens 6 Zeichen lang sein', 'Le mot de passe doit comporter au moins 6 caractères', 'La contraseña debe tener al menos 6 caracteres', 'La password deve essere di almeno 6 caratteri', 'A senha deve ter pelo menos 6 caracteres', 'Паролата трябва да е поне 6 символа', 'Hasło musi mieć co najmniej 6 znaków', '密码至少6个字符', 'パスワードは6文字以上必要です', '비밀번호는 6자 이상이어야 합니다', 'كلمة المرور يجب أن تكون 6 أحرف على الأقل', 'Գաղտնաբառը պետք է ունենա առնվազն 6 նիշ'],
+            'auth.passwordMismatch' => ['Пароли не совпадают', 'Passwords do not match', 'Passwörter stimmen nicht überein', 'Les mots de passe ne correspondent pas', 'Las contraseñas no coinciden', 'Le password non corrispondono', 'As senhas não coincidem', 'Паролите не съвпадат', 'Hasła nie są zgodne', '密码不匹配', 'パスワードが一致しません', '비밀번호가 일치하지 않습니다', 'كلمات المرور غير متطابقة', 'Գաղտնաբառերը չեն համընկնում'],
+            'auth.emailInvalid' => ['Введите корректный email', 'Enter a valid email', 'Geben Sie eine gültige E-Mail ein', 'Saisissez un email valide', 'Introduzca un email válido', 'Inserisci un\'email valida', 'Digite um email válido', 'Въведете валиден имейл', 'Wprowadź poprawny email', '请输入有效邮箱', '有効なメールを入力してください', '유효한 이메일을 입력하세요', 'أدخل بريداً إلكترونياً صالحاً', 'Մուտքագրեք վավեր էլփոստ'],
+            'auth.forgotPassword' => ['Забыли пароль?', 'Forgot password?', 'Passwort vergessen?', 'Mot de passe oublié?', '¿Olvidó la contraseña?', 'Password dimenticata?', 'Esqueceu a senha?', 'Забравена парола?', 'Zapomniałeś hasła?', '忘记密码？', 'パスワードを忘れた？', '비밀번호를 잊으셨나요?', 'نسيت كلمة المرور؟', 'Մոռացել ե՞ք գաղտնաբառը'],
+            'auth.forgotInstructions' => ['Введите email — пришлём ссылку для сброса пароля', 'Enter your email — we will send a reset link', 'Geben Sie Ihre E-Mail ein — wir senden einen Link', 'Saisissez votre email — nous enverrons un lien', 'Introduzca su email — enviaremos un enlace', 'Inserisci la tua email — invieremo un link', 'Digite seu email — enviaremos um link', 'Въведете имейл — ще изпратим линк', 'Wpisz email — wyślemy link', '输入邮箱 — 发送重置链接', 'メールを入力 — リセットリンクを送信', '이메일 입력 — 재설정 링크 전송', 'أدخل بريدك الإلكتروني — سنرسل رابط إعادة التعيين', 'Մուտքագրեք էլփոստը — կուղարկենք վերականգնման հղում'],
+            'auth.resetSent' => ['Если email найден, инструкция отправлена', 'If email is found, instructions sent', 'Wenn E-Mail gefunden wird, Anleitung gesendet', 'Si l\'email est trouvé, instructions envoyées', 'Si se encuentra el email, instrucciones enviadas', 'Se l\'email è trovato, istruzioni inviate', 'Se o email for encontrado, instruções enviadas', 'Ако имейлът е намерен, инструкциите са изпратени', 'Jeśli email zostanie znaleziony, instrukcje wysłane', '如果找到邮箱，指令已发送', 'メールが見つかった場合、手順を送信しました', '이메일이 발견되면 지침이 전송됩니다', 'إذا تم العثور على البريد، تم إرسال التعليمات', 'Եթե էլփոստը գտնվի, հրահանգները կուղարկվեն'],
+            'auth.resetPassword' => ['Сброс пароля', 'Reset password', 'Passwort zurücksetzen', 'Réinitialiser le mot de passe', 'Restablecer contraseña', 'Reimposta password', 'Redefinir senha', 'Нулиране на парола', 'Resetuj hasło', '重置密码', 'パスワードリセット', '비밀번호 재설정', 'إعادة تعيين كلمة المرور', 'Վերականգնել գաղտնաբառը'],
+            'auth.resetExpired' => ['Ссылка истекла', 'Link expired', 'Link abgelaufen', 'Lien expiré', 'Enlace expirado', 'Link scaduto', 'Link expirado', 'Линкът е изтекъл', 'Link wygasł', '链接已过期', 'リンクの有効期限が切れています', '링크 만료', 'انتهت صلاحية الرابط', 'Հղումը լրացել է'],
+            'auth.resetInvalidToken' => ['Неверная ссылка сброса', 'Invalid reset link', 'Ungültiger Reset-Link', 'Lien de réinitialisation invalide', 'Enlace de restablecimiento inválido', 'Link di ripristino non valido', 'Link de redefinição inválido', 'Невалиден линк за нулиране', 'Nieprawidłowy link resetowania', '无效的重置链接', '無効なリセットリンク', '잘못된 재설정 링크', 'رابط إعادة تعيين غير صالح', 'Անվավեր վերականգնման հղում'],
+            'auth.resetEmailSubject' => ['Восстановление пароля SesamePortal', 'SesamePortal password recovery', 'SesamePortal Passwort-Wiederherstellung', 'Récupération du mot de passe SesamePortal', 'Recuperación de contraseña SesamePortal', 'Recupero password SesamePortal', 'Recuperação de senha SesamePortal', 'Възстановяване на парола SesamePortal', 'Odzyskiwanie hasła SesamePortal', 'SesamePortal密码恢复', 'SesamePortalパスワード回復', 'SesamePortal 비밀번호 복구', 'استعادة كلمة مرور SesamePortal', 'SesamePortal գաղտնաբառի վերականգնում'],
+            'auth.resetEmailBody' => ['Для сброса пароля перейдите по ссылке:', 'To reset your password, follow this link:', 'Klicken Sie auf diesen Link, um Ihr Passwort zurückzusetzen:', 'Pour réinitialiser votre mot de passe, cliquez sur ce lien:', 'Para restablecer su contraseña, siga este enlace:', 'Per reimpostare la password, segui questo link:', 'Para redefinir sua senha, clique neste link:', 'За да нулирате паролата, последвайте този линк:', 'Aby zresetować hasło, kliknij ten link:', '点击此链接重置密码：', 'パスワードをリセットするにはこのリンクをたどってください：', '비밀번호를 재설정하려면 이 링크를 따르세요:', 'اتبع هذا الرابط لإعادة تعيين كلمة المرور:', 'Հետևեք այս հղմանը՝ գաղտնաբառը վերականգնելու համար։'],
+            'auth.resetEmailExpire' => ['Ссылка действительна 1 час.', 'Link valid for 1 hour.', 'Link 1 Stunde gültig.', 'Lien valide 1 heure.', 'Enlace válido por 1 hora.', 'Link valido per 1 ora.', 'Link válido por 1 hora.', 'Линкът е валиден 1 час.', 'Link ważny przez 1 godzinę.', '链接有效期为1小时。', 'リンクの有効期限は1時間です。', '링크는 1시간 동안 유효합니다.', 'الرابط صالح لمدة ساعة.', 'Հղումը վավեր է 1 ժամ։'],
+            'users.defaultPasswordGenerated' => ['Временный пароль', 'Temporary password', 'Temporäres Passwort', 'Mot de passe temporaire', 'Contraseña temporal', 'Password temporaneo', 'Senha temporária', 'Временна парола', 'Tymczasowe hasło', '临时密码', '一時パスワード', '임시 비밀번호', 'كلمة مرور مؤقتة', 'Ժամանակավոր գաղտնաբառ'],
+            'action.send' => ['Отправить', 'Send', 'Senden', 'Envoyer', 'Enviar', 'Invia', 'Enviar', 'Изпрати', 'Wyślij', '发送', '送信', '전송', 'إرسال', 'Ուղարկել'],
+        ];
+        $authLocales = ['ru', 'en', 'de', 'fr', 'es', 'it', 'pt', 'bg', 'pl', 'zh', 'ja', 'ko', 'ar', 'hy'];
+        foreach ($authKeys as $key => $translations) {
+            foreach ($authLocales as $idx => $locale) {
+                $messages[$locale][$key] = $translations[$idx];
+            }
+        }
+
         foreach ([
             'ru' => ['Обновлено', 'Создано', 'Все серверы', 'Все режимы', 'Архив: все', 'Архив включён', 'Архив выключен', 'Синхронизация: все', 'Синхронизация ok', 'Синхронизация с ошибкой', 'Read-only', 'Без результата', 'Все группы', 'Сортировка', 'Сортировка', 'Направление сортировки', 'По возрастанию', 'По убыванию', 'Сбросить'],
             'en' => ['Updated', 'Created', 'All servers', 'All modes', 'Archive: all', 'Archive on', 'Archive off', 'Sync: all', 'Sync ok', 'Sync failed', 'Read-only', 'No result', 'All groups', 'Sort', 'Sort', 'Sort direction', 'Ascending', 'Descending', 'Reset'],
@@ -3443,6 +3590,12 @@ final class Auth
         $user = self::user();
         if (!$user) {
             Util::redirect('/login');
+        }
+        if (($user['role'] ?? '') !== 'admin' && (int)($user['must_change_password'] ?? 0) === 1) {
+            $path = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?: '/';
+            if ($path !== '/onboarding' && $path !== '/logout') {
+                Util::redirect('/onboarding');
+            }
         }
         return $user;
     }
@@ -4668,6 +4821,9 @@ final class App
         match ($path) {
             '/login' => self::login(),
             '/logout' => self::logout(),
+            '/onboarding' => self::onboarding(),
+            '/forgot' => self::forgotPassword(),
+            '/reset' => self::resetPassword(),
             '/admin/dashboard' => self::dashboard(),
             '/admin/users' => self::users(),
             '/admin/groups' => self::groups(),
@@ -6474,7 +6630,9 @@ final class App
             echo '<label>' . self::t('field.login', 'Логин') . '<input name="login" autocomplete="username" required></label>';
             echo '<label>' . self::t('field.password', 'Пароль') . '<input name="password" type="password" autocomplete="current-password" required></label>';
             echo '<button class="primary">' . self::t('action.login', 'Войти') . '</button>';
-            echo '</form>' . I18n::languageLinks() . '</section>';
+            echo '</form>';
+            echo '<a href="/forgot" class="forgot-link">' . Util::h(self::t('auth.forgotPassword', 'Забыли пароль?')) . '</a>';
+            echo I18n::languageLinks() . '</section>';
         }, null);
     }
 
@@ -6482,6 +6640,144 @@ final class App
     {
         Auth::logout();
         Util::redirect('/login');
+    }
+
+    private static function onboarding(): void
+    {
+        $user = Auth::requireLogin();
+        if ((int)($user['must_change_password'] ?? 0) !== 1) {
+            Util::redirect('/');
+        }
+        $error = '';
+        if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
+            $newPassword = (string)Util::post('new_password');
+            $confirmPassword = (string)Util::post('confirm_password');
+            $email = trim((string)Util::post('email'));
+            if (strlen($newPassword) < 6) {
+                $error = self::t('auth.passwordShort', 'Пароль должен быть не короче 6 символов');
+            } elseif ($newPassword !== $confirmPassword) {
+                $error = self::t('auth.passwordMismatch', 'Пароли не совпадают');
+            } elseif (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+                $error = self::t('auth.emailInvalid', 'Введите корректный email');
+            } else {
+                DB::pdo()->prepare('UPDATE users SET password_hash=?, email=?, must_change_password=0 WHERE id=?')
+                    ->execute([password_hash($newPassword, PASSWORD_DEFAULT), $email, (int)$user['id']]);
+                Audit::logForUser((int)$user['id'], 'user.onboarding', 'password changed, email set');
+                Util::redirect('/');
+            }
+        }
+        self::layout(self::t('auth.onboardingTitle', 'Смена пароля'), function () use ($error, $user): void {
+            echo '<div class="onboarding-overlay">';
+            echo '<div class="onboarding-modal">';
+            echo '<h2>' . Util::h(self::t('auth.onboardingTitle', 'Смена пароля')) . '</h2>';
+            echo '<p class="onboarding-intro">' . Util::h(self::t('auth.onboardingRequired', 'При первом входе необходимо сменить пароль и указать email для восстановления')) . '</p>';
+            if ($error) {
+                echo '<div class="alert danger">' . Util::h($error) . '</div>';
+            }
+            echo '<form method="post" class="form">';
+            echo Csrf::field();
+            echo '<label>' . self::t('auth.newPassword', 'Новый пароль') . '<input name="new_password" type="password" required minlength="6" autocomplete="new-password"></label>';
+            echo '<label>' . self::t('auth.confirmPassword', 'Подтверждение') . '<input name="confirm_password" type="password" required autocomplete="new-password"></label>';
+            echo '<label>' . self::t('auth.email', 'Email') . '<input name="email" type="email" required autocomplete="email" placeholder="user@example.com"></label>';
+            echo '<button type="submit" class="primary">' . self::t('action.save', 'Сохранить') . '</button>';
+            echo '</form>';
+            echo '</div>';
+            echo '</div>';
+        });
+    }
+
+    private static function forgotPassword(): void
+    {
+        $message = '';
+        $messageClass = '';
+        if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
+            $email = trim((string)Util::post('email'));
+            if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+                $message = self::t('auth.emailInvalid', 'Введите корректный email');
+                $messageClass = 'danger';
+            } else {
+                $stmt = DB::pdo()->prepare('SELECT id, login FROM users WHERE email = ? AND blocked = 0');
+                $stmt->execute([$email]);
+                $u = $stmt->fetch();
+                if ($u) {
+                    $token = Util::randomToken();
+                    $expires = date('Y-m-d\TH:i:sP', time() + 3600);
+                    DB::pdo()->prepare('UPDATE users SET password_reset_token=?, password_reset_expires=? WHERE id=?')
+                        ->execute([$token, $expires, (int)$u['id']]);
+                    $baseUrl = rtrim((string)Config::get('base_url', ''), '/');
+                    $resetLink = $baseUrl . '/reset?token=' . $token;
+                    $subject = self::t('auth.resetEmailSubject', 'Восстановление пароля SesamePortal');
+                    $body = '<p>' . self::h(self::t('auth.resetEmailBody', 'Для сброса пароля перейдите по ссылке:')) . '</p>';
+                    $body .= '<p><a href="' . $resetLink . '">' . $resetLink . '</a></p>';
+                    $body .= '<p>' . self::h(self::t('auth.resetEmailExpire', 'Ссылка действительна 1 час.')) . '</p>';
+                    Mail::send($email, $subject, $body);
+                    Audit::logForUser((int)$u['id'], 'user.password_reset_requested', 'email=' . Audit::cleanValue($email));
+                }
+                $message = self::t('auth.resetSent', 'Если email найден, инструкция отправлена');
+                $messageClass = 'success';
+            }
+        }
+        self::layout(self::t('auth.forgotPassword', 'Забыли пароль?'), function () use ($message, $messageClass): void {
+            echo '<section class="login-panel login-card forgot-form">';
+            echo '<h2>' . Util::h(self::t('auth.forgotPassword', 'Забыли пароль?')) . '</h2>';
+            echo '<p>' . Util::h(self::t('auth.forgotInstructions', 'Введите email — пришлём ссылку для сброса пароля')) . '</p>';
+            self::notice($message, $messageClass);
+            echo '<form method="post" class="form">';
+            echo Csrf::field();
+            echo '<label>' . self::t('auth.email', 'Email') . '<input name="email" type="email" required autocomplete="email"></label>';
+            echo '<button type="submit" class="primary">' . self::t('action.send', 'Отправить') . '</button>';
+            echo '</form>';
+            echo '<a href="/login" class="forgot-back">' . Util::h(self::t('action.back', 'Назад')) . '</a>';
+            echo '</section>';
+        }, null);
+    }
+
+    private static function resetPassword(): void
+    {
+        $token = (string)($_GET['token'] ?? '');
+        $error = '';
+        $valid = false;
+        $stmt = DB::pdo()->prepare('SELECT id, login, password_reset_expires FROM users WHERE password_reset_token = ? AND blocked = 0');
+        $stmt->execute([$token]);
+        $u = $stmt->fetch();
+        if (!$u) {
+            $error = self::t('auth.resetInvalidToken', 'Неверная ссылка сброса');
+        } elseif ($u['password_reset_expires'] && strtotime((string)$u['password_reset_expires']) < time()) {
+            $error = self::t('auth.resetExpired', 'Ссылка истекла');
+        } else {
+            $valid = true;
+        }
+        if ($valid && ($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
+            $newPassword = (string)Util::post('new_password');
+            $confirmPassword = (string)Util::post('confirm_password');
+            if (strlen($newPassword) < 6) {
+                $error = self::t('auth.passwordShort', 'Пароль должен быть не короче 6 символов');
+            } elseif ($newPassword !== $confirmPassword) {
+                $error = self::t('auth.passwordMismatch', 'Пароли не совпадают');
+            } else {
+                DB::pdo()->prepare('UPDATE users SET password_hash=?, password_reset_token=NULL, password_reset_expires=NULL WHERE id=?')
+                    ->execute([password_hash($newPassword, PASSWORD_DEFAULT), (int)$u['id']]);
+                Audit::logForUser((int)$u['id'], 'user.password_reset', 'password changed via reset');
+                Util::redirect('/login');
+            }
+        }
+        self::layout(self::t('auth.resetPassword', 'Сброс пароля'), function () use ($error, $valid): void {
+            echo '<section class="login-panel login-card forgot-form">';
+            echo '<h2>' . Util::h(self::t('auth.resetPassword', 'Сброс пароля')) . '</h2>';
+            if ($error) {
+                echo '<div class="alert danger">' . Util::h($error) . '</div>';
+            }
+            if ($valid) {
+                echo '<form method="post" class="form">';
+                echo Csrf::field();
+                echo '<label>' . self::t('auth.newPassword', 'Новый пароль') . '<input name="new_password" type="password" required minlength="6" autocomplete="new-password"></label>';
+                echo '<label>' . self::t('auth.confirmPassword', 'Подтверждение') . '<input name="confirm_password" type="password" required autocomplete="new-password"></label>';
+                echo '<button type="submit" class="primary">' . self::t('action.save', 'Сохранить') . '</button>';
+                echo '</form>';
+            }
+            echo '<a href="/login" class="forgot-back">' . Util::h(self::t('action.back', 'Назад')) . '</a>';
+            echo '</section>';
+        }, null);
     }
 
     private static function users(): void
@@ -6502,6 +6798,8 @@ final class App
                 $blocked = Util::checkbox('blocked');
                 $hideArchive = Util::checkbox('hide_archive');
                 $mosaicEnabled = Util::checkbox('mosaic_enabled');
+                $mustChangePassword = $role === 'user' ? 1 : 0;
+                $generatedPassword = '';
                 $adminComment = trim((string)Util::post('admin_comment'));
                 $beforeUser = $id > 0 ? self::rowById('users', $id) : null;
                 $beforeGroupIds = $id > 0 ? self::linkedIds('user_groups', 'user_id', $id, 'group_id') : [];
@@ -6511,6 +6809,9 @@ final class App
                     $message = 'Selected groups contain unknown id(s): ' . implode(', ', $missingGroupIds);
                 } elseif ($login === '') {
                     $message = self::t('users.loginRequired', 'Логин обязателен');
+                } elseif ($id === 0 && $password === '' && $role === 'user') {
+                    $generatedPassword = 'Sesame' . random_int(1000, 9999) . '!';
+                    $password = $generatedPassword;
                 } elseif ($id === 0 && strlen($password) < 6) {
                     $message = self::t('users.passwordShort', 'Пароль должен быть не короче 6 символов');
                 } else {
@@ -6519,16 +6820,16 @@ final class App
                             if (strlen($password) < 6) {
                                 $message = self::t('users.passwordShort', 'Пароль должен быть не короче 6 символов');
                             } else {
-                                $pdo->prepare('UPDATE users SET login=?, password_hash=?, role=?, blocked=?, hide_archive=?, mosaic_enabled=?, admin_comment=? WHERE id=?')
-                                    ->execute([$login, password_hash($password, PASSWORD_DEFAULT), $role, $blocked, $hideArchive, $mosaicEnabled, $adminComment, $id]);
+                                $pdo->prepare('UPDATE users SET login=?, password_hash=?, role=?, blocked=?, hide_archive=?, mosaic_enabled=?, must_change_password=?, admin_comment=? WHERE id=?')
+                                    ->execute([$login, password_hash($password, PASSWORD_DEFAULT), $role, $blocked, $hideArchive, $mosaicEnabled, $mustChangePassword, $adminComment, $id]);
                             }
                         } else {
-                            $pdo->prepare('UPDATE users SET login=?, role=?, blocked=?, hide_archive=?, mosaic_enabled=?, admin_comment=? WHERE id=?')
-                                ->execute([$login, $role, $blocked, $hideArchive, $mosaicEnabled, $adminComment, $id]);
+                            $pdo->prepare('UPDATE users SET login=?, role=?, blocked=?, hide_archive=?, mosaic_enabled=?, must_change_password=?, admin_comment=? WHERE id=?')
+                                ->execute([$login, $role, $blocked, $hideArchive, $mosaicEnabled, $mustChangePassword, $adminComment, $id]);
                         }
                     } else {
-                        $pdo->prepare('INSERT INTO users(login, password_hash, role, blocked, hide_archive, mosaic_enabled, admin_comment, daily_token, daily_token_date, created_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
-                            ->execute([$login, password_hash($password, PASSWORD_DEFAULT), $role, $blocked, $hideArchive, $mosaicEnabled, $adminComment, Util::randomToken(), TokenService::today(), Util::now()]);
+                        $pdo->prepare('INSERT INTO users(login, password_hash, role, blocked, hide_archive, mosaic_enabled, must_change_password, admin_comment, daily_token, daily_token_date, created_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+                            ->execute([$login, password_hash($password, PASSWORD_DEFAULT), $role, $blocked, $hideArchive, $mosaicEnabled, $mustChangePassword, $adminComment, Util::randomToken(), TokenService::today(), Util::now()]);
                         $id = DB::lastInsertId('users');
                     }
                     if ($message === '') {
@@ -6537,6 +6838,9 @@ final class App
                         $afterGroupIds = self::linkedIds('user_groups', 'user_id', $id, 'group_id');
                         self::logUserSaveAudit(null, $id, $beforeUser, $afterUser, $beforeGroupIds, $afterGroupIds);
                         $message = self::t('users.saveDone', 'Пользователь сохранён');
+                        if ($generatedPassword !== '') {
+                            $message .= ' ' . self::t('users.defaultPasswordGenerated', 'Временный пароль') . ': ' . $generatedPassword;
+                        }
                         $messageClass = 'success';
                     }
                 }

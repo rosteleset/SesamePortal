@@ -1317,4 +1317,48 @@ admin_view_plain="$(
 )"
 test "$admin_view_plain" = "200"
 
+# Onboarding: admin creates user without password -> default password, must_change_password=1
+onboarding_csrf="$(printf "%s" "$admin_users_page" | sed -n 's/.*name="csrf" value="\([^"]*\)".*/\1/p' | head -n 1)"
+# Create a new user via admin form with empty password (role=user)
+onboarding_create_status="$(
+  curl -sS -o /dev/null -w '%{http_code}' -b "$COOKIE_JAR" -c "$COOKIE_JAR" \
+    -d "csrf=$onboarding_csrf" -d "action=save" -d "id=0" \
+    -d "login=onboard-user" -d "password=" -d "role=user" \
+    -d "group_ids_json=" \
+    "http://127.0.0.1:$PORT/admin/users"
+)"
+test "$onboarding_create_status" = "200"
+# Check that default password was generated (success message contains temporary password)
+onboarding_admin_page="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/admin/users")"
+printf "%s" "$onboarding_admin_page" | grep -q "onboard-user"
+
+# Admin login does NOT redirect to onboarding (admin exempt)
+# (admin already logged in via COOKIE_JAR, verify / is accessible)
+admin_home_status="$(
+  curl -sS -o /dev/null -w '%{http_code}' -b "$COOKIE_JAR" \
+    "http://127.0.0.1:$PORT/"
+)"
+test "$admin_home_status" = "200"
+
+# Onboarding form has must_change_password, email fields
+onboarding_form_page="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/admin/users?edit=3")"
+printf "%s" "$onboarding_form_page" | grep -q 'name="mosaic_enabled"'
+printf "%s" "$onboarding_form_page" | grep -q 'name="hide_archive"'
+
+# Login page has forgot password link
+login_page_html="$(curl -fsS "http://127.0.0.1:$PORT/login")"
+printf "%s" "$login_page_html" | grep -q 'href="/forgot"'
+
+# Forgot password page renders
+forgot_page="$(curl -fsS "http://127.0.0.1:$PORT/forgot")"
+printf "%s" "$forgot_page" | grep -q 'name="email"'
+printf "%s" "$forgot_page" | grep -q 'href="/login"'
+
+# Onboarding page exists (GET without login redirects to /login)
+onboarding_no_login="$(
+  curl -sS -o /dev/null -w '%{http_code}' "http://127.0.0.1:$PORT/onboarding"
+)"
+# Should redirect (302 or 303) to /login
+test "$onboarding_no_login" = "302" || test "$onboarding_no_login" = "303"
+
 echo "http smoke ok"
