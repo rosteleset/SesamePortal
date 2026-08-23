@@ -88,6 +88,7 @@
   initCameraFormVisibility();
   initDvrStreamOptions();
   initSubmitProgress();
+  initConfirmDialogs();
   initAssignmentPickers();
   initDvrStreamImport();
   initLocalTimes();
@@ -847,6 +848,22 @@
       });
     });
 
+    root.querySelectorAll("[data-group-tree-search]").forEach((searchInput) => {
+      if (searchInput.dataset.bound === "1") return;
+      searchInput.dataset.bound = "1";
+      const field = searchInput.closest(".group-tree-field");
+      const list = field?.querySelector(".group-tree-list");
+      if (!list) return;
+      searchInput.addEventListener("input", () => {
+        const q = searchInput.value.trim().toLowerCase();
+        list.querySelectorAll(":scope > [data-group-tree-node]").forEach((node) => {
+          const header = node.querySelector(":scope > .group-tree-row > .group-tree-folder-header");
+          const match = !q || (header?.textContent?.toLowerCase().includes(q) ?? false);
+          node.style.display = match ? "" : "none";
+        });
+      });
+    });
+
     pickers.forEach((picker) => {
       const trigger = picker.querySelector(".group-tree-trigger");
       const menu = picker.querySelector("[data-group-tree-menu]");
@@ -859,26 +876,6 @@
         } else {
           closePicker(picker);
         }
-      });
-
-      picker.addEventListener("click", (event) => {
-        const option = event.target.closest("[data-group-tree-select-value]");
-        if (!option || !picker.contains(option)) return;
-        event.preventDefault();
-        const input = picker.querySelector('input[type="hidden"]');
-        const label = picker.querySelector("[data-group-tree-trigger-label]");
-        if (input) input.value = option.dataset.groupTreeSelectValue || "";
-        if (label) label.textContent = option.dataset.groupTreeSelectLabel || option.textContent.trim();
-        picker.querySelectorAll("[data-group-tree-select-value]").forEach((candidate) => {
-          const active = candidate === option;
-          candidate.classList.toggle("active", active);
-          if (active) {
-            candidate.setAttribute("aria-current", "true");
-          } else {
-            candidate.removeAttribute("aria-current");
-          }
-        });
-        closePicker(picker);
       });
     });
 
@@ -894,6 +891,63 @@
       if (event.key !== "Escape") return;
       pickers.forEach(closePicker);
     });
+  }
+
+  function initConfirmDialogs(root = document) {
+    root.querySelectorAll("form[data-confirm]").forEach((form) => {
+      if (form.dataset.confirmBound === "1") return;
+      form.dataset.confirmBound = "1";
+      form.addEventListener("submit", (event) => {
+        if (form.dataset.confirmAccepted === "1") {
+          delete form.dataset.confirmAccepted;
+          return;
+        }
+        event.preventDefault();
+        showConfirmDialog(form);
+      });
+    });
+  }
+
+  function showConfirmDialog(form) {
+    const message = form.dataset.confirm || "";
+    const submitButton = form.querySelector("button[type=submit]");
+    const okLabel = form.dataset.confirmOk || (submitButton ? submitButton.textContent.trim() : tr("js.confirm", "Подтвердить"));
+    const cancelLabel = tr("js.confirmCancel", "Отмена");
+    const dialog = document.createElement("dialog");
+    dialog.className = "confirm-dialog";
+    dialog.innerHTML =
+      '<form method="dialog" class="confirm-dialog-form">' +
+      "<p class=\"confirm-dialog-message\"></p>" +
+      '<div class="confirm-dialog-actions">' +
+      '<button class="btn confirm-cancel" value="cancel">' + escapeHtml(cancelLabel) + "</button>" +
+      '<button class="btn confirm-ok" value="ok">' + escapeHtml(okLabel) + "</button>" +
+      "</div></form>";
+    dialog.querySelector(".confirm-dialog-message").textContent = message;
+    const okButton = dialog.querySelector(".confirm-ok");
+    const formClass = form.className || "";
+    if (formClass.includes("danger") || submitButton?.classList.contains("danger")) {
+      okButton.classList.add("danger");
+    }
+    const cancelButton = dialog.querySelector(".confirm-cancel");
+    const closeDialog = () => {
+      dialog.close("cancel");
+    };
+    dialog.addEventListener("close", () => {
+      if (dialog.returnValue === "ok") {
+        form.dataset.confirmAccepted = "1";
+        form.requestSubmit();
+      }
+      dialog.remove();
+    });
+    dialog.addEventListener("cancel", () => {
+      closeDialog();
+    });
+    dialog.addEventListener("click", (event) => {
+      if (event.target === dialog) closeDialog();
+    });
+    document.body.appendChild(dialog);
+    dialog.showModal();
+    cancelButton.focus();
   }
 
   function initSubmitProgress(root = document) {
@@ -928,6 +982,11 @@
         const agentVisible = modeSelect?.value === "edge_agent";
         form.querySelectorAll("[data-camera-agent-field]").forEach((field) => {
           field.hidden = !agentVisible;
+        });
+
+        const onvifVisible = modeSelect?.value === "managed";
+        form.querySelectorAll("[data-camera-onvif-field]").forEach((field) => {
+          field.hidden = !onvifVisible;
         });
 
         const watermarkVisible = !!watermarkToggle?.checked;
@@ -1145,3 +1204,120 @@
   }
 
 })();
+
+/* Clickable table rows — clicking anywhere on a row with data-href opens its edit page */
+document.addEventListener('click', function (e) {
+  var row = e.target.closest('tr[data-href]');
+  if (!row) return;
+  if (e.target.closest('a, button, form, input, select')) return;
+  window.location.href = row.getAttribute('data-href');
+});
+
+/* Tab switcher for group edit page */
+document.addEventListener('click', function (e) {
+  var btn = e.target.closest('.tab-btn');
+  if (!btn) return;
+  var tabs = btn.closest('.group-edit-tabs');
+  if (!tabs) return;
+  var tabId = btn.getAttribute('data-tab');
+  tabs.querySelectorAll('.tab-btn').forEach(function (b) { b.classList.toggle('active', b === btn); });
+  tabs.querySelectorAll('.tab-panel').forEach(function (p) {
+    var isTarget = p.getAttribute('data-tab-panel') === tabId;
+    if (isTarget) { p.removeAttribute('hidden'); } else { p.setAttribute('hidden', ''); }
+  });
+  var url = new URL(window.location);
+  url.searchParams.set('tab', tabId);
+  history.replaceState(null, '', url);
+});
+
+/* Folder expand/collapse in group edit — show cameras list */
+document.addEventListener('click', function (e) {
+  var row = e.target.closest('.folder-expand-row');
+  if (!row) return;
+  var folderId = row.getAttribute('data-folder-id');
+  if (!folderId) return;
+  var camRow = row.closest('tbody').querySelector('.folder-cameras-row[data-folder-id="' + folderId + '"]');
+  if (!camRow) return;
+  var isOpen = row.classList.toggle('open');
+  if (isOpen) { camRow.removeAttribute('hidden'); } else { camRow.setAttribute('hidden', ''); }
+});
+
+/* Folder action dropdown — "Добавить камеру" */
+document.addEventListener('click', function (e) {
+  var trigger = e.target.closest('.folder-action-trigger');
+  if (trigger) {
+    e.stopPropagation();
+    var dropdown = trigger.closest('.folder-action-dropdown');
+    if (dropdown) {
+      var wasOpen = dropdown.classList.contains('open');
+      document.querySelectorAll('.folder-action-dropdown.open').forEach(function (d) {
+        d.classList.remove('open');
+        var m = d.querySelector('.folder-action-menu');
+        if (m) { m.style.left = ''; m.style.top = ''; }
+      });
+      if (!wasOpen) {
+        dropdown.classList.add('open');
+        var menu = dropdown.querySelector('.folder-action-menu');
+        if (menu) {
+          var r = trigger.getBoundingClientRect();
+          menu.style.left = r.left + 'px';
+          if (r.bottom + 100 > window.innerHeight) {
+            menu.style.top = (r.top - 2) + 'px';
+            menu.style.bottom = 'auto';
+            menu.style.transform = 'translateY(-100%)';
+          } else {
+            menu.style.top = (r.bottom + 2) + 'px';
+            menu.style.bottom = 'auto';
+            menu.style.transform = '';
+          }
+        }
+      }
+    }
+    return;
+  }
+  if (!e.target.closest('.folder-action-menu')) {
+    document.querySelectorAll('.folder-action-dropdown.open').forEach(function (d) { d.classList.remove('open'); });
+  }
+});
+document.addEventListener('keydown', function (e) {
+  if (e.key === 'Escape') {
+    document.querySelectorAll('.folder-action-dropdown.open').forEach(function (d) { d.classList.remove('open'); });
+  }
+});
+
+/* Camera picker modal — open dialog + search filter */
+document.addEventListener('click', function (e) {
+  var pickBtn = e.target.closest('.folder-pick-camera-btn');
+  if (pickBtn) {
+    var folderId = pickBtn.getAttribute('data-folder-id');
+    var dialog = document.getElementById('camera-picker-' + folderId);
+    if (dialog && typeof dialog.showModal === 'function') {
+      dialog.showModal();
+      var search = dialog.querySelector('.camera-picker-search');
+      if (search) { search.value = ''; search.focus(); filterCameraPicker(dialog); }
+    }
+    return;
+  }
+  var closeBtn = e.target.closest('.camera-picker-close');
+  if (closeBtn) {
+    var dlg = closeBtn.closest('.camera-picker-dialog');
+    if (dlg) dlg.close();
+    return;
+  }
+  if (e.target.classList && e.target.classList.contains('camera-picker-dialog')) {
+    e.target.close();
+  }
+});
+document.addEventListener('input', function (e) {
+  if (e.target.classList && e.target.classList.contains('camera-picker-search')) {
+    filterCameraPicker(e.target.closest('.camera-picker-dialog'));
+  }
+});
+function filterCameraPicker(dialog) {
+  if (!dialog) return;
+  var query = (dialog.querySelector('.camera-picker-search').value || '').toLowerCase();
+  dialog.querySelectorAll('.camera-pick-item').forEach(function (item) {
+    var name = item.getAttribute('data-camera-name') || '';
+    item.style.display = name.indexOf(query) !== -1 ? '' : 'none';
+  });
+}

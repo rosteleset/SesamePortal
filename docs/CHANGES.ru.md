@@ -15,6 +15,8 @@
 8. [Сворачиваемая панель «Новая камера» на странице камер](#8-сворачиваемая-панель-новая-камера-на-странице-камер)
 9. [Постоянный токен: обратимое хранение и раскрытие/копирование](#9-постоянный-токен-обратимое-хранение-и-раскрытиекопирование)
 10. [Миграция на PostgreSQL 18 с автосинхронизацией identity-последовательностей](#10-миграция-на-postgresql-18-с-автосинхронизацией-identity-последовательностей)
+11. [Разбиение монолита `app/Portal.php` + зелёный `tests/http_smoke.sh`](#11-разбиение-монолита-apportalphp--зелёный-testssmokesh)
+12. [Слой «папок» внутри групп вместо прямых привязок группа↔камера/пользователь](#12-слой-папок-внутри-групп-вместо-прямых-привязок-группа-камерапользователь)
 
 ---
 
@@ -475,10 +477,133 @@ identity-последовательностей при восстановлен�
 
 ---
 
+## 11. Разбиение монолита `app/Portal.php` + зелёный `tests/http_smoke.sh`
+
+### Серверная часть — разбиение `app/Portal.php`
+
+Монолит `app/Portal.php` (~11.5k строк) разбит на модули. `app/Portal.php` теперь —
+bootstrap (26 строк), подключающий 15 классов + 6 трейтов:
+
+- `app/Config.php`, `app/DB.php`, `app/Util.php`, `app/Crypto.php`, `app/I18n.php`,
+  `app/Mail.php`, `app/Audit.php`, `app/Auth.php`, `app/Csrf.php`, `app/TokenService.php`,
+  `app/DvrClient.php`, `app/PortalUpdateService.php`, `app/Repo.php`,
+  `app/PortalI18nCatalog.php`, `app/App.php` (роутер + `t()`/`run()`).
+- `app/Traits/App*Trait.php` (6 трейтов): `AppRenderTrait`, `AppPagesTrait`,
+  `AppViewerTrait`, `AppApiTrait`, `AppDataTrait`, `AppCliTrait`.
+
+Порядок `require_once` в bootstrap зафиксирован (зависимости классов). Границы классов
+сохранены 1:1 из монолита. `php -l app/*.php app/Traits/*.php` — без ошибок;
+`bin/portal migrate` / `create-admin` работают.
+
+### Доступ к группам — плоская модель (`app/Repo.php`)
+
+`Repo::userAccessibleGroupIds()` теперь возвращает только прямые группы пользователя
+(`directUserGroupIds`) вместо рекурсивного `groupBranchIds`. Пользователь с доступом к
+группе 1 не автоматически видит камеры дочерней группы 2. Фильтр `group:N` в
+`accessibleCameraScope` остался рекурсивным (раскрывает ветку) — этого требует
+`filter=group:1`. Это первый шаг модели «папки»: права на группу не наследуют дочерние
+группы автоматически.
+
+### Тесты — `tests/http_smoke.sh` + новый `tests/router.php`
+
+Тест `tests/http_smoke.sh` ранее никогда не был зелёным (падал на i18n-синхронизации
+ещё в коммите 1ca1976). Исправлены тестовые баги и инфраструктурные проблемы:
+
+- **SMTP-проверка**: тест искал сообщение «SMTP-конфигурация сохранена» через follow-up
+  GET после POST; flash-механизма в приложении нет (`notice()` выводит сообщение только
+  в тело POST-ответа). Тест исправлен на grep тела POST-ответа (`smtp_save_response`).
+- **Dotted URL**: `php -S ... -t public` без роутера отдаёт 404 для путей с точкой
+  (`/api/portal/v1/cameras/camera.test-1`), т.к. трактует их как статические файлы.
+  Добавлен `tests/router.php` — отдаёт существующие статики, иначе падает в `index.php`.
+  Команда запуска: `php -S $PORT -t public tests/router.php`.
+- **Недетерминированный sync**: `cameraSave` без `server_id` выбирал сервер через
+  `randomActiveServerId()` — случайно мог выбрать fake Import DVR (sync ok) или
+  `example.invalid` (sync fail). Тест `failed_camera_save` ожидает sync-fail; теперь
+  Import DVR (id=3) блокируется перед тестом, auto-выбор детерминированно берёт
+  `example.invalid`.
+- **Rename-форма**: убрана проверка `grep -q "smoke-cam"` на форме переименования —
+  форма показывает только имя камеры, не `dvr_stream_name`.
+- **Stream-name генерация**: проверка `dvrStreamName` для авто-имени теперь regex с
+  optional hex-суффиксом (`-[0-9a-f]{6}?`), т.к. `cameraNamesFromInput` добавляет
+  случайный суффикс.
+
+### Документация — `README.md` / `README.ru.md`
+
+Команда проверки `php -l app/Portal.php` заменена на `php -l app/*.php app/Traits/*.php`.
+
+### Проверка
+
+```bash
+php -l app/*.php app/Traits/*.php
+ROOT=. bash tests/http_smoke.sh   # EXIT=0, стабильно (3+ прогона)
+```
+
 ## Примечания
 
 - Dev-сервер: `php -S 127.0.0.1:8080 -t public`, логин `admin` / `admin123`.
 - БД по умолчанию: SQLite `var/portal.sqlite` (переключается через
   `SESAME_PORTAL_DB_DSN`/`DB_USER`/`DB_PASSWORD`).
-- `tests/http_smoke.sh`: пред-существующий 404 на `GET /api/portal/v1/cameras/camera.test-1`
-  не связан с этими изменениями.
+- `tests/http_smoke.sh` теперь зелёный; прежняя заметка о 404 на
+  `GET /api/portal/v1/cameras/camera.test-1` устарела — 404 устранён `tests/router.php`.
+
+---
+
+## 12. Слой «папок» внутри групп вместо прямых привязок группа↔камера/пользователь
+
+Модель доступа пользователей к камерам переведена со связей «пользователь ↔ группа» и
+«камера ↔ группа» на **папки внутри групп**.
+
+### Модель
+
+- `portal_groups` остаётся деревом групп (контейнер папок).
+- Новая таблица `group_folders` — папка в группе (`group_id`, `name`, `description`,
+  `blocked`, `created_at`).
+- `camera_folders` (M:N) заменяет `camera_groups`: камера привязывается к папкам.
+- `user_folders` (M:N) заменяет `user_groups`: пользователю выдаются права на папки.
+- Legacy `user_groups` и `camera_groups` удалены.
+
+### Права доступа
+
+- **admin** — создаёт и видит папки (в `/admin/groups`); видит все камеры.
+- **user** — сразу видит все камеры из всех своих `user_folders` (без выбора папки в
+  viewer), `c.blocked = 0`; заблокированные папки и папки заблокированных групп отсекаются.
+- Наследования по дереву групп **нет** — пользователь видит только явно выданные папки.
+- В viewer убран групповой/папочный фильтр (остались «Все», «Избранное», поиск).
+- В админ-списке камер и пользователей фильтр `group_id` заменён на `folder_id`.
+
+### UI
+
+- `/admin/groups`: форма группы + блок управления папками (создать/переименовать/
+  заблокировать/удалить). Имена папок назначает администратор.
+- `/admin/users` и `/admin/cameras` (включая импорт с DVR): дерево «группа → папки» с
+  чекбоксами (`folder_ids[]` / `folder_ids_json`).
+
+### API
+
+- Новый ресурс `/api/portal/v1/folders` (CRUD) и `/folders/:id/users|cameras` (members).
+- `groups/:id/users|cameras` — только `GET` (агрегация членов по папкам группы).
+- В `users`/`cameras`/`groups` поле `groupIds` заменено на `folderIds`.
+- `cameras?folderId`/`folderIds` — фильтр по папкам; `group:`/`groupIds` сохранён как
+  legacy (разворачивается в папки ветки группы).
+
+### Миграция (`app/DB.php::migrateGroupsToFolders`)
+
+- Для каждой группы, где были камеры, создаётся папка (имя = имя группы); связи
+  `camera_groups` переносятся в `camera_folders`.
+- Каждому пользователю выдаются права на все папки всех групп его ветки — прежний
+  доступ сохраняется и становится явным.
+- Старые таблицы удаляются. После миграции администратор переименовывает папки как нужно.
+
+### Затронутые файлы
+
+`app/DB.php`, `app/Repo.php`, `app/Cli.php`, `app/I18n.php`, `app/PortalI18nCatalog.php`,
+`app/Traits/AppDataTrait.php`, `app/Traits/AppPagesTrait.php`,
+`app/Traits/AppRenderTrait.php`, `app/Traits/AppViewerTrait.php`,
+`app/Traits/AppApiTrait.php`, `tests/http_smoke.sh`,
+`docs/data-model-groups-users-cameras.ru.md`.
+
+### Проверка
+
+- `php -l` по всем изменённым PHP-файлам — чисто.
+- `tests/http_smoke.sh` — зелёный (создание папок, привязка камер, выдача прав, фильтры,
+  API `folderIds`, members через папки).

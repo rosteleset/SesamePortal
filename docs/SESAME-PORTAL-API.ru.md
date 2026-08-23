@@ -273,22 +273,43 @@ Membership endpoints принимают `userIds`, `cameraIds` или униве
 `DELETE` удаляет только переданные ID. Для полной очистки передайте пустой
 список через `PUT`/`PATCH`.
 
-Примеры:
+> После перехода на модель «папок» `groups/:id/users` и `groups/:id/cameras` доступны
+> только методом `GET` (агрегация членов по всем папкам группы). Изменение состава
+> выполняется через ресурс `folders` — см. ниже.
+
+Примеры (чтение членов группы):
 
 ```http
 GET /api/portal/v1/groups/1/users
-PUT /api/portal/v1/groups/1/users
-Content-Type: application/json
-
-{ "userIds": [2, 3] }
+GET /api/portal/v1/groups/1/cameras
 ```
 
+### /api/portal/v1/folders
+
+Папки внутри групп — основная единица привязки камер и выдачи прав пользователям.
+
+| Метод | Путь | Тело | Назначение |
+|---|---|---|---|
+| `GET` | `/folders` | - | Список папок (с пагинацией/поиском). |
+| `POST` | `/folders` | `{groupId, name, description?, blocked?}` | Создать папку в группе. |
+| `GET` | `/folders/:id` | - | Одна папка (с `userIds`, `cameraIds`). |
+| `PATCH`/`PUT` | `/folders/:id` | `{name?, description?, blocked?}` | Обновить папку. |
+| `DELETE` | `/folders/:id` | - | Удалить папку (каскадно чистятся `camera_folders`, `user_folders`). |
+| `GET`/`POST`/`PUT`/`PATCH`/`DELETE` | `/folders/:id/users` | `{userIds}` | Члены-пользователи папки. |
+| `GET`/`POST`/`PUT`/`PATCH`/`DELETE` | `/folders/:id/cameras` | `{cameraIds}` | Члены-камеры папки. |
+
+Поле `folderIds` в `users`/`cameras` заменяет прежнее `groupIds`:
+
 ```http
-GET /api/portal/v1/groups/1/cameras
-POST /api/portal/v1/groups/1/cameras
+PUT /api/portal/v1/cameras/10
 Content-Type: application/json
 
-{ "cameraIds": [10, 11] }
+{ "folderIds": [1, 2] }
+```
+
+Фильтр камер по папке: `GET /api/portal/v1/cameras?folderId=1` или
+`?folderIds=1,2`. Legacy `groupId`/`groupIds`/`filter=group:ID` сохранён и разворачивается
+в папки ветки группы.
 ```
 
 Ответ `/groups/{id}/children`:

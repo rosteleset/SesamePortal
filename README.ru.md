@@ -203,7 +203,7 @@ php bin/portal restore /path/to/backup.json
 ## Проверки
 
 ```bash
-php -l app/Portal.php
+php -l app/*.php app/Traits/*.php
 bash -n scripts/install.sh
 tests/http_smoke.sh
 ```

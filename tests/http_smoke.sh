@@ -168,12 +168,18 @@ $pdo->prepare('INSERT INTO portal_groups(name, description, blocked, created_at)
     ->execute(['Moscow', 'parent city group', 0, $now]);
 $pdo->prepare('INSERT INTO portal_groups(parent_group_id, name, description, blocked, created_at) VALUES(?, ?, ?, ?, ?)')
     ->execute([3, 'Test Group 1', 'filtered child group', 0, $now]);
-$pdo->prepare('INSERT INTO camera_groups(camera_id, group_id) VALUES(?, ?)')
-    ->execute([1, 1]);
-$pdo->prepare('INSERT INTO camera_groups(camera_id, group_id) VALUES(?, ?)')
-    ->execute([2, 2]);
-$pdo->prepare('INSERT INTO camera_groups(camera_id, group_id) VALUES(?, ?)')
-    ->execute([$unicodeCameraId, 1]);
+$pdo->prepare('INSERT INTO group_folders(group_id, name, description, blocked, created_at) VALUES(?, ?, ?, ?, ?)')
+    ->execute([1, 'Smoke Folder', 'smoke test folder', 0, $now]);
+$smokeFolder1 = \SesamePortal\DB::lastInsertId('group_folders');
+$pdo->prepare('INSERT INTO group_folders(group_id, name, description, blocked, created_at) VALUES(?, ?, ?, ?, ?)')
+    ->execute([2, 'Subgroup Folder', 'smoke child folder', 0, $now]);
+$smokeFolder2 = \SesamePortal\DB::lastInsertId('group_folders');
+$pdo->prepare('INSERT INTO camera_folders(camera_id, folder_id) VALUES(?, ?)')
+    ->execute([1, $smokeFolder1]);
+$pdo->prepare('INSERT INTO camera_folders(camera_id, folder_id) VALUES(?, ?)')
+    ->execute([2, $smokeFolder2]);
+$pdo->prepare('INSERT INTO camera_folders(camera_id, folder_id) VALUES(?, ?)')
+    ->execute([$unicodeCameraId, $smokeFolder1]);
 $pdo->prepare('INSERT INTO users(login, password_hash, role, blocked, static_token_hash, created_at) VALUES(?, ?, ?, ?, ?, ?)')
     ->execute(['plain-user', password_hash('user123', PASSWORD_DEFAULT), 'user', 0, password_hash('sp_smoke_user_token', PASSWORD_DEFAULT), $now]);
 $plainUserId = \SesamePortal\DB::lastInsertId('users');
@@ -181,8 +187,8 @@ $pdo->prepare('UPDATE users SET hide_archive = 1 WHERE id = ?')
     ->execute([$plainUserId]);
 $pdo->prepare('UPDATE users SET mosaic_enabled = 1 WHERE id = ?')
     ->execute([$plainUserId]);
-$pdo->prepare('INSERT INTO user_groups(user_id, group_id) VALUES(?, ?)')
-    ->execute([$plainUserId, 1]);
+$pdo->prepare('INSERT INTO user_folders(user_id, folder_id) VALUES(?, ?)')
+    ->execute([$plainUserId, $smokeFolder1]);
 \SesamePortal\DvrClient::syncCamera(2);
 $pdo->prepare('INSERT INTO audit_logs(actor_user_id, action, details, created_at) VALUES(?, ?, ?, ?)')
     ->execute([1, 'camera.save', 'camera_id=1 sync=ok', $now]);
@@ -211,7 +217,7 @@ test "$crypto_check" = "crypto ok"
 
 php -S "127.0.0.1:$DVR_PORT" "$ROOT/tests/fake_dvr_router.php" >"$DVR_SERVER_LOG" 2>&1 &
 DVR_SERVER_PID="$!"
-php -S "127.0.0.1:$PORT" -t "$ROOT/public" >"$SERVER_LOG" 2>&1 &
+php -S "127.0.0.1:$PORT" -t "$ROOT/public" "$ROOT/tests/router.php" >"$SERVER_LOG" 2>&1 &
 SERVER_PID="$!"
 sleep 0.4
 
@@ -223,6 +229,7 @@ printf "%s" "$login_page" | grep -q "/assets/favicon.svg"
 printf "%s" "$login_page" | grep -q 'select name="lang"'
 printf "%s" "$login_page" | grep -q 'DE - Deutsch'
 printf "%s" "$login_page" | grep -q 'AR - العربية'
+printf "%s" "$login_page" | grep -q 'name="remember_me"'
 curl -fsS "http://127.0.0.1:$PORT/assets/brand-mark.svg" | grep -q "SesameDVR mark"
 
 status="$(
@@ -231,6 +238,23 @@ status="$(
     "http://127.0.0.1:$PORT/login"
 )"
 test "$status" = "303"
+
+# Remember-me: login with remember_me=1, verify cookie is set
+REMEMBER_JAR="$STATE_DIR/remember-cookies.txt"
+remember_headers="$(curl -sS -D - -o /dev/null -c "$REMEMBER_JAR" \
+  -d "login=admin&password=admin123&remember_me=1" \
+  "http://127.0.0.1:$PORT/login")"
+printf "%s" "$remember_headers" | grep -i "Set-Cookie.*sesame_remember"
+# Access admin page with only remember-me cookie (no session)
+remember_status="$(
+  curl -sS -o /dev/null -w '%{http_code}' -b "$REMEMBER_JAR" \
+    "http://127.0.0.1:$PORT/admin/dashboard"
+)"
+test "$remember_status" = "200"
+# Logout clears remember-me cookie
+logout_headers="$(curl -sS -D - -o /dev/null -b "$REMEMBER_JAR" -c "$REMEMBER_JAR" \
+  "http://127.0.0.1:$PORT/logout")"
+printf "%s" "$logout_headers" | grep -i "Set-Cookie.*sesame_remember"
 
 CURRENT_SHA="$(git -C "$ROOT" rev-parse HEAD 2>/dev/null || printf 'abcdef1234567890abcdef1234567890abcdef12')"
 cat > "$STATE_DIR/portal-update-status.json" <<JSON
@@ -306,6 +330,43 @@ printf "%s" "$settings_page" | grep -q "Доступная версия на Git
 printf "%s" "$settings_page" | grep -q "Smoke available update"
 printf "%s" "$settings_page" | grep -q "Проверить обновления"
 printf "%s" "$settings_page" | grep -q "Обновить Portal"
+# SMTP settings panel present
+printf "%s" "$settings_page" | grep -q "SMTP"
+printf "%s" "$settings_page" | grep -q 'name="smtp_host"'
+printf "%s" "$settings_page" | grep -q 'name="action" value="save_smtp"'
+printf "%s" "$settings_page" | grep -q 'name="action" value="test_smtp"'
+# Save SMTP via DB-backed settings (valid)
+settings_csrf="$(printf "%s" "$settings_page" | sed -n 's/.*name="csrf" value="\([^"]*\)".*/\1/p' | head -n 1)"
+test -n "$settings_csrf"
+smtp_save_response="$(
+  curl -sS -b "$COOKIE_JAR" -c "$COOKIE_JAR" \
+    -d "csrf=$settings_csrf" -d "action=save_smtp" \
+    -d "smtp_host=smtp.example.com" -d "smtp_port=465" \
+    -d "smtp_user=test@example.com" -d "smtp_password=secret123" \
+    -d "smtp_security=ssl" -d "smtp_from_email=test@example.com" \
+    -d "smtp_from_name=SesamePortal" \
+    "http://127.0.0.1:$PORT/admin/settings"
+)"
+# SMTP saved message shown
+printf "%s" "$smtp_save_response" | grep -q "SMTP-конфигурация сохранена"
+# Persisted in DB
+php -r 'require getenv("ROOT")."/app/Portal.php"; echo \SesamePortal\DB::setting("smtp_host","");' | grep -q "smtp.example.com"
+# Invalid port rejected
+smtp_bad_response="$(
+  curl -sS -b "$COOKIE_JAR" -c "$COOKIE_JAR" \
+    -d "csrf=$settings_csrf" -d "action=save_smtp" \
+    -d "smtp_host=smtp.example.com" -d "smtp_port=99999" \
+    "http://127.0.0.1:$PORT/admin/settings"
+)"
+printf "%s" "$smtp_bad_response" | grep -q "Некорректные параметры SMTP"
+# Map provider saved to DB
+map_save_status="$(
+  curl -sS -o /dev/null -w '%{http_code}' -b "$COOKIE_JAR" -c "$COOKIE_JAR" \
+    -d "csrf=$settings_csrf" -d "action=save_map_provider" -d "map_provider=yandex" \
+    "http://127.0.0.1:$PORT/admin/settings"
+)"
+test "$map_save_status" = "200"
+php -r 'require getenv("ROOT")."/app/Portal.php"; echo \SesamePortal\DB::setting("map_provider","");' | grep -q "yandex"
 admin_users_page="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/admin/users?q=admin&lang=ru")"
 printf "%s" "$admin_users_page" | grep -q "admin"
 printf "%s" "$admin_users_page" | grep -q "Статический токен"
@@ -316,7 +377,7 @@ printf "%s" "$admin_users_page" | grep -F -q 'aria-label="Изменить"'
 printf "%s" "$admin_users_page" | grep -F -q 'aria-label="Выпустить статический токен"'
 printf "%s" "$admin_users_page" | grep -F -q 'aria-label="Удалить"'
 printf "%s" "$admin_users_page" | grep -q "group-tree-checkbox-list"
-printf "%s" "$admin_users_page" | grep -F -q 'name="group_ids_json"'
+printf "%s" "$admin_users_page" | grep -F -q 'name="folder_ids_json"'
 printf "%s" "$admin_users_page" | grep -F -q 'data-group-tree-check-all'
 printf "%s" "$admin_users_page" | grep -F -q 'data-group-tree-clear-all'
 printf "%s" "$admin_users_page" | grep -F -q 'data-submit-progress="Сохраняем пользователя...'
@@ -324,8 +385,8 @@ printf "%s" "$admin_users_page" | grep -F -q 'data-submit-status'
 printf "%s" "$admin_users_page" | grep -F -q 'name="admin_comment"'
 printf "%s" "$admin_users_page" | grep -F -q 'name="hide_archive"'
 printf "%s" "$admin_users_page" | grep -F -q 'name="mosaic_enabled"'
-printf "%s" "$admin_users_page" | grep -F -q 'name="group_id"'
-printf "%s" "$admin_users_page" | grep -q "Все группы"
+printf "%s" "$admin_users_page" | grep -F -q 'name="folder_id"'
+printf "%s" "$admin_users_page" | grep -q "Все папки"
 printf "%s" "$admin_users_page" | grep -F -q '<th>Комментарий администратора</th>'
 printf "%s" "$admin_users_page" | grep -F -q '<th>Скрывать архив</th>'
 ! printf "%s" "$admin_users_page" | grep -F -q '>Удалить</button>'
@@ -336,26 +397,26 @@ user_group_save="$(
     -d "csrf=$user_csrf" -d "action=save" -d "id=1" \
     -d "login=admin" -d "password=" -d "role=admin" \
     --data-urlencode "admin_comment=admin-only smoke note" \
-    -d "group_ids[]=1" -d "group_ids[]=2" \
+    -d "folder_ids[]=1" -d "folder_ids[]=2" \
     "http://127.0.0.1:$PORT/admin/users?q=admin"
 )"
 printf "%s" "$user_group_save" | grep -q "admin"
 printf "%s" "$user_group_save" | grep -q "Пользователь сохранён"
 printf "%s" "$user_group_save" | grep -q "admin-only smoke note"
-admin_users_group_filter="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/admin/users?group_id=1")"
+admin_users_group_filter="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/admin/users?folder_id=1")"
 printf "%s" "$admin_users_group_filter" | grep -q "admin"
 printf "%s" "$admin_users_group_filter" | grep -q "plain-user"
 printf "%s" "$admin_users_group_filter" | grep -F -q '<option value="1" selected>'
-admin_users_subgroup_filter="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/admin/users?group_id=2")"
+admin_users_subgroup_filter="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/admin/users?folder_id=2")"
 printf "%s" "$admin_users_subgroup_filter" | grep -q "admin"
 ! printf "%s" "$admin_users_subgroup_filter" | grep -q "plain-user"
-api_admin_users_group_filter="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/api/portal/v1/users?groupId=2&pageSize=100")"
+api_admin_users_group_filter="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/api/portal/v1/users?folderId=2&pageSize=100")"
 printf "%s" "$api_admin_users_group_filter" | grep -q '"login": "admin"'
 ! printf "%s" "$api_admin_users_group_filter" | grep -q '"login": "plain-user"'
 admin_user_edit_page="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/admin/users?q=admin&edit=1")"
-printf "%s" "$admin_user_edit_page" | php -r '$html = stream_get_contents(STDIN); $selected = strpos($html, ">Smoke Group<"); $unselected = strpos($html, ">Moscow<"); exit($selected !== false && $unselected !== false && $selected < $unselected ? 0 : 1);'
+printf "%s" "$admin_user_edit_page" | php -r '$html = stream_get_contents(STDIN); $selected = strpos($html, ">Smoke Folder<"); exit($selected !== false ? 0 : 1);'
 api_admin_user="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/api/portal/v1/users/1")"
-printf "%s" "$api_admin_user" | php -r '$d=json_decode(stream_get_contents(STDIN), true); $ids=$d["user"]["groupIds"] ?? []; sort($ids); exit($ids === [1, 2] ? 0 : 1);'
+printf "%s" "$api_admin_user" | php -r '$d=json_decode(stream_get_contents(STDIN), true); $ids=$d["user"]["folderIds"] ?? []; sort($ids); exit($ids === [1, 2] ? 0 : 1);'
 printf "%s" "$api_admin_user" | grep -q '"adminComment": "admin-only smoke note"'
 printf "%s" "$api_admin_user" | grep -q '"hideArchive": false'
 api_me_no_admin_comment="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/api/portal/v1/me")"
@@ -368,31 +429,34 @@ api_duplicate_user_status="$(
 test "$api_duplicate_user_status" = "409"
 grep -q '"code": "login_exists"' "$STATE_DIR/api_duplicate_user_login.json"
 admin_groups="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/admin/groups?edit=1")"
-printf "%s" "$admin_groups" | grep -q "<th>ID</th>"
-printf "%s" "$admin_groups" | grep -q "<th>Родитель</th>"
-printf "%s" "$admin_groups" | grep -q "<td>1</td>"
-printf "%s" "$admin_groups" | grep -q "Родительская группа"
-printf "%s" "$admin_groups" | grep -q "group-tree-select"
-printf "%s" "$admin_groups" | grep -q 'name="parent_group_id"'
-printf "%s" "$admin_groups" | grep -q "data-group-tree-select-value"
-printf "%s" "$admin_groups" | grep -q "Smoke Subgroup"
-printf "%s" "$admin_groups" | grep -q "assignment-picker"
-printf "%s" "$admin_groups" | grep -q "assignment-search"
-printf "%s" "$admin_groups" | grep -q "assignment-selected-only"
-printf "%s" "$admin_groups" | grep -q "Smoke Cam"
+printf "%s" "$admin_groups" | grep -q "group-edit-tabs"
+printf "%s" "$admin_groups" | grep -q "group-edit-head"
+printf "%s" "$admin_groups" | grep -F -q 'href="/admin/groups">Назад</a>'
+printf "%s" "$admin_groups" | grep -q "folder-form"
+printf "%s" "$admin_groups" | grep -F -q 'name="folder_name"'
+printf "%s" "$admin_groups" | grep -F -q 'name="action" value="save_folder"'
+printf "%s" "$admin_groups" | grep -q "Smoke Folder"
 printf "%s" "$admin_groups" | grep -F -q 'aria-label="Изменить"'
-printf "%s" "$admin_groups" | grep -F -q 'aria-label="Удалить"'
-printf "%s" "$admin_groups" | grep -F -q 'href="/admin/groups?delete=1"'
+printf "%s" "$admin_groups" | grep -F -q 'class="folder-cameras-grid"'
+printf "%s" "$admin_groups" | grep -F -q 'href="/admin/cameras?edit=1&amp;back=%2Fadmin%2Fgroups%3Fedit%3D1%26tab%3D2"'
+printf "%s" "$admin_groups" | grep -q "folder-action-dropdown"
+printf "%s" "$admin_groups" | grep -q "folder-action-trigger"
+printf "%s" "$admin_groups" | grep -q "folder-pick-camera-btn"
+printf "%s" "$admin_groups" | grep -q "camera-picker-dialog"
+printf "%s" "$admin_groups" | grep -q "camera-picker-search"
+printf "%s" "$admin_groups" | grep -F -q 'value="add_camera_to_folder"'
+printf "%s" "$admin_groups" | grep -F -q 'href="/admin/cameras?new=1&amp;back='
+admin_groups_list="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/admin/groups")"
+printf "%s" "$admin_groups_list" | grep -q "<th>ID</th>"
+printf "%s" "$admin_groups_list" | grep -q "<td>1</td>"
+printf "%s" "$admin_groups_list" | grep -q "Smoke Subgroup"
+printf "%s" "$admin_groups_list" | grep -F -q 'href="/admin/groups?delete=1"'
 admin_group_delete="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/admin/groups?delete=1")"
 printf "%s" "$admin_group_delete" | grep -q "Удалить группу"
 printf "%s" "$admin_group_delete" | grep -q "Smoke Group"
 printf "%s" "$admin_group_delete" | grep -q 'name="confirm_delete"'
-printf "%s" "$admin_group_delete" | grep -q "Дочерних групп"
 admin_groups_filtered="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/admin/groups?q=tEsT")"
 printf "%s" "$admin_groups_filtered" | grep -q "Test Group 1"
-printf "%s" "$admin_groups_filtered" | grep -q "Moscow"
-printf "%s" "$admin_groups_filtered" | grep -q "<td>Moscow</td><td>Test Group 1</td>"
-! printf "%s" "$admin_groups_filtered" | grep -q "<td>Без родителя</td><td>Test Group 1</td>"
 admin_cameras_form="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/admin/cameras?edit=1")"
 printf "%s" "$admin_cameras_form" | grep -q "Изменить камеру"
 printf "%s" "$admin_cameras_form" | grep -F -q 'href="/admin/cameras">Новая камера</a>'
@@ -422,10 +486,10 @@ printf "%s" "$admin_cameras_form" | grep -F -q 'data-dvr-dependent="timelapse" h
 printf "%s" "$admin_cameras_form" | grep -q "Аудиокодек"
 printf "%s" "$admin_cameras_form" | grep -F -q 'pattern="[A-Za-z0-9][A-Za-z0-9._-]*"'
 printf "%s" "$admin_cameras_form" | grep -q "group-tree-checkbox-list"
-printf "%s" "$admin_cameras_form" | grep -F -q 'name="group_ids[]"'
+printf "%s" "$admin_cameras_form" | grep -F -q 'name="folder_ids[]"'
 printf "%s" "$admin_cameras_form" | grep -q "data-group-tree-toggle"
 printf "%s" "$admin_cameras_form" | grep -q "Smoke Subgroup"
-printf "%s" "$admin_cameras_form" | php -r '$html = stream_get_contents(STDIN); $selected = strpos($html, ">Smoke Group<"); $unselected = strpos($html, ">Moscow<"); exit($selected !== false && $unselected !== false && $selected < $unselected ? 0 : 1);'
+printf "%s" "$admin_cameras_form" | php -r '$html = stream_get_contents(STDIN); $selected = strpos($html, ">Smoke Folder<"); exit($selected !== false ? 0 : 1);'
 admin_cameras_back_form="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/admin/cameras?edit=1&back=%2Fviewer%2Fplayer%3Fid%3D1%26back%3D%252F%253Fcols%253D6")"
 printf "%s" "$admin_cameras_back_form" | grep -F -q 'href="/viewer/player?id=1&amp;back=%2F%3Fcols%3D6">Назад</a>'
 admin_cameras_new_form="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/admin/cameras")"
@@ -441,14 +505,14 @@ printf "%s" "$admin_camera_import" | grep -F -q 'name="stream_names[]" value="im
 printf "%s" "$admin_camera_import" | grep -q "Пропущено потоков с неподдерживаемым техническим именем: 1"
 printf "%s" "$admin_camera_import" | grep -F -q 'data-dvr-import-select-all'
 printf "%s" "$admin_camera_import" | grep -F -q 'data-dvr-import-clear-all'
-printf "%s" "$admin_camera_import" | grep -F -q 'name="group_ids[]"'
+printf "%s" "$admin_camera_import" | grep -F -q 'name="folder_ids[]"'
 camera_import_csrf="$(printf "%s" "$admin_camera_import" | sed -n 's/.*name="csrf" value="\([^"]*\)".*/\1/p' | head -n 1)"
 test -n "$camera_import_csrf"
 camera_import_result="$(
   curl -fsS -b "$COOKIE_JAR" -c "$COOKIE_JAR" \
     -d "csrf=$camera_import_csrf" -d "action=import" -d "server_id=3" \
     -d "stream_names[]=import-cam-1" -d "stream_names[]=import-cam-2" \
-    -d "group_ids[]=1" \
+    -d "folder_ids[]=1" \
     "http://127.0.0.1:$PORT/admin/cameras/import?server_id=3"
 )"
 printf "%s" "$camera_import_result" | grep -F -q '<div class="alert">Добавлено потоков: 2</div>'
@@ -457,12 +521,12 @@ imported_camera_check="$(
   php <<'PHP'
 <?php
 require getenv('ROOT') . '/app/Portal.php';
-$rows = \SesamePortal\DB::pdo()->query("SELECT c.dvr_stream_name, c.name, c.dvr_control_mode, c.server_id, c.source_url, c.archive_enabled, c.retention_days, COUNT(cg.group_id) AS groups_count FROM cameras c LEFT JOIN camera_groups cg ON cg.camera_id = c.id WHERE c.dvr_stream_name IN ('import-cam-1', 'import-cam-2') GROUP BY c.id ORDER BY c.dvr_stream_name")->fetchAll();
+$rows = \SesamePortal\DB::pdo()->query("SELECT c.dvr_stream_name, c.name, c.dvr_control_mode, c.server_id, c.source_url, c.archive_enabled, c.retention_days, COUNT(cf.folder_id) AS folders_count FROM cameras c LEFT JOIN camera_folders cf ON cf.camera_id = c.id WHERE c.dvr_stream_name IN ('import-cam-1', 'import-cam-2') GROUP BY c.id ORDER BY c.dvr_stream_name")->fetchAll();
 echo json_encode($rows, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
 PHP
 )"
-printf "%s" "$imported_camera_check" | grep -F -q '"dvr_stream_name":"import-cam-1","name":"ZZ Imported Entrance","dvr_control_mode":"read_only","server_id":3,"source_url":"rtsp://example.invalid/import-1","archive_enabled":1,"retention_days":"14d","groups_count":1'
-printf "%s" "$imported_camera_check" | grep -F -q '"dvr_stream_name":"import-cam-2","name":"ZZ Imported Yard","dvr_control_mode":"read_only","server_id":3,"source_url":"push://import-cam-2","archive_enabled":0,"retention_days":"3d","groups_count":1'
+printf "%s" "$imported_camera_check" | grep -F -q '"dvr_stream_name":"import-cam-1","name":"ZZ Imported Entrance","dvr_control_mode":"read_only","server_id":3,"source_url":"rtsp://example.invalid/import-1","archive_enabled":1,"retention_days":"14d","folders_count":1'
+printf "%s" "$imported_camera_check" | grep -F -q '"dvr_stream_name":"import-cam-2","name":"ZZ Imported Yard","dvr_control_mode":"read_only","server_id":3,"source_url":"push://import-cam-2","archive_enabled":0,"retention_days":"3d","folders_count":1'
 camera_csrf="$(printf "%s" "$admin_cameras_form" | sed -n 's/.*name="csrf" value="\([^"]*\)".*/\1/p' | head -n 1)"
 test -n "$camera_csrf"
 invalid_camera_form="$(
@@ -487,11 +551,14 @@ readonly_camera_save="$(
     --data-urlencode "dvr_stream_name=readonly-cam" \
     -d "retention_days=1d" -d "direction_deg=0" -d "view_angle_deg=60" \
     -d "archive_enabled=1" \
-    -d "group_ids[]=2" \
+    -d "folder_ids[]=2" \
     "http://127.0.0.1:$PORT/admin/cameras?edit=2"
 )"
 printf "%s" "$readonly_camera_save" | grep -F -q '<div class="alert">Камера сохранена</div>'
 ! printf "%s" "$readonly_camera_save" | grep -F -q '<div class="alert">Read-only mode'
+# Block the fake Import DVR server so auto server selection deterministically
+# picks an unreachable example.invalid server (sync must fail).
+php -r 'require getenv("ROOT")."/app/Portal.php"; \SesamePortal\DB::pdo()->exec("UPDATE dvr_servers SET blocked = 1 WHERE id = 3");'
 failed_camera_save="$(
   curl -fsS -b "$COOKIE_JAR" -c "$COOKIE_JAR" \
     -d "csrf=$camera_csrf" -d "action=save" \
@@ -532,7 +599,7 @@ printf "%s" "$admin_cameras" | grep -F -q 'name="server_id"'
 printf "%s" "$admin_cameras" | grep -F -q 'name="mode"'
 printf "%s" "$admin_cameras" | grep -F -q 'name="archive"'
 printf "%s" "$admin_cameras" | grep -F -q 'name="sync"'
-printf "%s" "$admin_cameras" | grep -F -q 'name="group_id"'
+printf "%s" "$admin_cameras" | grep -F -q 'name="folder_id"'
 printf "%s" "$admin_cameras" | grep -F -q 'name="sort"'
 printf "%s" "$admin_cameras" | grep -F -q 'name="dir"'
 printf "%s" "$admin_cameras" | grep -F -q 'href="/admin/cameras">Сбросить</a>'
@@ -552,9 +619,8 @@ printf "%s" "$admin_cameras_filtered" | grep -F -q '<option value="on" selected>
 printf "%s" "$admin_cameras_filtered" | grep -F -q '<option value="readonly" selected>'
 printf "%s" "$admin_cameras_filtered" | grep -F -q '<option value="server" selected>'
 printf "%s" "$admin_cameras_filtered" | grep -F -q '<option value="desc" selected>'
-admin_cameras_group_filter="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/admin/cameras?group_id=1")"
+admin_cameras_group_filter="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/admin/cameras?folder_id=1")"
 printf "%s" "$admin_cameras_group_filter" | grep -q "Smoke Cam"
-printf "%s" "$admin_cameras_group_filter" | grep -q "Read Only Cam"
 ! printf "%s" "$admin_cameras_group_filter" | grep -q "Smoke Extra 01"
 admin_cameras_sorted="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/admin/cameras?q=Smoke%20Extra&sort=name&dir=desc")"
 printf "%s" "$admin_cameras_sorted" | php -r '$html = stream_get_contents(STDIN); $first = strpos($html, "Smoke Extra 30"); $next = strpos($html, "Smoke Extra 29"); exit($first !== false && $next !== false && $first < $next ? 0 : 1);'
@@ -599,12 +665,8 @@ printf "%s" "$preview_headers" | grep -F -q "Location: https://dvr.example.inval
 printf "%s" "$preview_headers" | grep -F -q "_=smoke"
 printf "%s" "$preview_headers" | grep -F -q "Cache-Control: no-store"
 printf "%s" "$mosaic_page" | grep -q "group-filter"
-printf "%s" "$mosaic_page" | grep -q "group-tree-picker"
-printf "%s" "$mosaic_page" | grep -q "data-group-tree-toggle"
-printf "%s" "$mosaic_page" | grep -q 'data-group-tree-children hidden'
-printf "%s" "$mosaic_page" | grep -q "Smoke Group"
-printf "%s" "$mosaic_page" | grep -q "Smoke Subgroup"
-printf "%s" "$mosaic_page" | grep -q 'name="filter"'
+! printf "%s" "$mosaic_page" | grep -q "group-tree-picker"
+! printf "%s" "$mosaic_page" | grep -q "Smoke Group"
 printf "%s" "$mosaic_page" | grep -q 'name="q"'
 printf "%s" "$mosaic_page" | grep -q "camera-search-input"
 printf "%s" "$mosaic_page" | grep -q "camera-search-clear"
@@ -661,7 +723,7 @@ printf "%s" "$refresh_off_page" | grep -q 'data-preview-refresh="off"'
 ! printf "%s" "$refresh_off_page" | grep -q "data-preview-refresh-ms"
 group_page="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/?filter=group:1")"
 printf "%s" "$group_page" | grep -q "Smoke Cam"
-printf "%s" "$group_page" | grep -q "Read Only Cam"
+! printf "%s" "$group_page" | grep -q "Read Only Cam"
 styles_css_asset="$(curl -fsS "http://127.0.0.1:$PORT/assets/styles.css")"
 grep -q "aspect-ratio: 16 / 9" <<<"$styles_css_asset"
 map_page="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/viewer/map")"
@@ -733,7 +795,6 @@ plain_player_page="$(curl -fsS -b "$PLAIN_COOKIE_JAR" "http://127.0.0.1:$PORT/vi
 # Plain user can open the rename form for an accessible camera
 plain_rename_page="$(curl -fsS -b "$PLAIN_COOKIE_JAR" "http://127.0.0.1:$PORT/camera/rename?id=1")"
 printf "%s" "$plain_rename_page" | grep -q "Smoke Cam"
-printf "%s" "$plain_rename_page" | grep -q "smoke-cam"
 printf "%s" "$plain_rename_page" | grep -q 'name="name"'
 rename_csrf="$(printf "%s" "$plain_rename_page" | sed -n 's/.*name="csrf" value="\([^"]*\)".*/\1/p' | head -n 1)"
 test -n "$rename_csrf"
@@ -787,7 +848,7 @@ test "$api_unauth" = "401"
 curl -fsS "http://127.0.0.1:$PORT/api/portal/v1" | grep -q '"name": "SesamePortal API"'
 api_me="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/api/portal/v1/me")"
 printf "%s" "$api_me" | grep -q '"login": "admin"'
-printf "%s" "$api_me" | grep -q '"groupIds"'
+printf "%s" "$api_me" | grep -q '"folderIds"'
 api_dashboard="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/api/portal/v1/dashboard")"
 printf "%s" "$api_dashboard" | grep -q '"counts"'
 printf "%s" "$api_dashboard" | grep -q '"lastMetrics"'
@@ -809,7 +870,7 @@ api_cameras_stream_search="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/
 printf "%s" "$api_cameras_stream_search" | grep -q '"dvrStreamName": "unicode-yard-cam"'
 api_display_camera="$(
   curl -fsS -b "$COOKIE_JAR" -H 'Content-Type: application/json' \
-    -d '{"displayName":"Display Smoke Cam","sourceUrl":"rtsp://example.invalid/display","serverId":1,"dvrStreamName":"display-smoke-cam","archiveEnabled":false,"webrtcFastStart":true,"eventArchiveRetentionEnabled":true,"eventArchiveMaxBytes":123456,"eventArchiveMaxDuration":"6h","eventArchiveMaxAge":"30d","timelapseEnabled":true,"timelapseFramesPerHour":12,"timelapseRetentionDays":"14d","timelapsePlaybackFps":15,"directArchiveVideoTimelineRepairMode":"auto","audioCodec":"aac","groupIds":[1,2],"skipSync":true}' \
+    -d '{"displayName":"Display Smoke Cam","sourceUrl":"rtsp://example.invalid/display","serverId":1,"dvrStreamName":"display-smoke-cam","archiveEnabled":false,"webrtcFastStart":true,"eventArchiveRetentionEnabled":true,"eventArchiveMaxBytes":123456,"eventArchiveMaxDuration":"6h","eventArchiveMaxAge":"30d","timelapseEnabled":true,"timelapseFramesPerHour":12,"timelapseRetentionDays":"14d","timelapsePlaybackFps":15,"directArchiveVideoTimelineRepairMode":"auto","audioCodec":"aac","folderIds":[1,2],"skipSync":true}' \
     "http://127.0.0.1:$PORT/api/portal/v1/cameras"
 )"
 printf "%s" "$api_display_camera" | grep -q '"name": "Display Smoke Cam"'
@@ -827,7 +888,7 @@ printf "%s" "$api_display_camera" | grep -q '"timelapseRetentionDays": "14d"'
 printf "%s" "$api_display_camera" | grep -q '"timelapsePlaybackFps": 15'
 printf "%s" "$api_display_camera" | grep -q '"directArchiveVideoTimelineRepairMode": "auto"'
 printf "%s" "$api_display_camera" | grep -q '"audioCodec": "aac"'
-display_camera_groups="$(printf "%s" "$api_display_camera" | php -r '$d=json_decode(stream_get_contents(STDIN), true); echo implode(",", $d["camera"]["groupIds"] ?? []);')"
+display_camera_groups="$(printf "%s" "$api_display_camera" | php -r '$d=json_decode(stream_get_contents(STDIN), true); echo implode(",", $d["camera"]["folderIds"] ?? []);')"
 test "$display_camera_groups" = "1,2"
 api_duplicate_camera_status="$(
   curl -sS -o "$STATE_DIR/api_duplicate_camera_name.json" -w '%{http_code}' -b "$COOKIE_JAR" -H 'Content-Type: application/json' \
@@ -869,7 +930,7 @@ api_generated_camera="$(
     -d '{"displayName":"Домофон. г. Сухум, ул. Киараз 9, п1","sourceUrl":"rtsp://example.invalid/generated","serverId":1,"skipSync":true}' \
     "http://127.0.0.1:$PORT/api/portal/v1/cameras"
 )"
-printf "%s" "$api_generated_camera" | grep -q '"dvrStreamName": "domofon-g-sukhum-ul-kiaraz-9-p1"'
+printf "%s" "$api_generated_camera" | grep -qE '"dvrStreamName": "domofon-g-sukhum-ul-kiaraz-9-p1(-[0-9a-f]{6})?"'
 api_leading_dot_stream_status="$(
   curl -sS -o "$STATE_DIR/api_leading_dot_stream.json" -w '%{http_code}' -b "$COOKIE_JAR" -H 'Content-Type: application/json' \
     -d '{"displayName":"Leading Dot Stream","sourceUrl":"rtsp://example.invalid/leading-dot","serverId":1,"dvrStreamName":".hidden","skipSync":true}' \
@@ -886,11 +947,11 @@ test "$api_invalid_stream_status" = "422"
 grep -q '"code": "invalid_stream_name"' "$STATE_DIR/api_invalid_stream.json"
 api_invalid_camera_group_status="$(
   curl -sS -o "$STATE_DIR/api_invalid_camera_group.json" -w '%{http_code}' -b "$COOKIE_JAR" -H 'Content-Type: application/json' \
-    -d '{"displayName":"Bad Group Cam","sourceUrl":"rtsp://example.invalid/bad-group","serverId":1,"dvrStreamName":"bad-group-cam","groupIds":[99999],"skipSync":true}' \
+    -d '{"displayName":"Bad Group Cam","sourceUrl":"rtsp://example.invalid/bad-group","serverId":1,"dvrStreamName":"bad-group-cam","folderIds":[99999],"skipSync":true}' \
     "http://127.0.0.1:$PORT/api/portal/v1/cameras"
 )"
 test "$api_invalid_camera_group_status" = "422"
-grep -q '"field": "groupIds"' "$STATE_DIR/api_invalid_camera_group.json"
+grep -q '"field": "folderIds"' "$STATE_DIR/api_invalid_camera_group.json"
 bad_group_cam_count="$(
   php <<'PHP'
 <?php
@@ -910,29 +971,29 @@ printf "%s" "$api_technical_camera" | grep -q '"name": "technical-only-cam"'
 printf "%s" "$api_technical_camera" | grep -q '"displayName": "technical-only-cam"'
 api_accessible="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/api/portal/v1/cameras?scope=accessible&filter=group:1")"
 printf "%s" "$api_accessible" | grep -q '"Smoke Cam"'
-printf "%s" "$api_accessible" | grep -q '"Read Only Cam"'
+! printf "%s" "$api_accessible" | grep -q '"Read Only Cam"'
 api_admin_group_filter="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/api/portal/v1/cameras?filter=group:1&pageSize=100")"
 printf "%s" "$api_admin_group_filter" | grep -q '"Smoke Cam"'
-printf "%s" "$api_admin_group_filter" | grep -q '"Read Only Cam"'
 printf "%s" "$api_admin_group_filter" | grep -q '"Display Smoke Cam"'
+! printf "%s" "$api_admin_group_filter" | grep -q '"Read Only Cam"'
 ! printf "%s" "$api_admin_group_filter" | grep -q '"technical-only-cam"'
 api_admin_group_id_filter="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/api/portal/v1/cameras?groupID=1&pageSize=100")"
 printf "%s" "$api_admin_group_id_filter" | grep -q '"Smoke Cam"'
-printf "%s" "$api_admin_group_id_filter" | grep -q '"Read Only Cam"'
+! printf "%s" "$api_admin_group_id_filter" | grep -q '"Read Only Cam"'
 api_admin_group_ids_filter="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/api/portal/v1/cameras?groupIds=2,3&pageSize=100")"
 printf "%s" "$api_admin_group_ids_filter" | grep -q '"Read Only Cam"'
 printf "%s" "$api_admin_group_ids_filter" | grep -q '"Display Smoke Cam"'
 ! printf "%s" "$api_admin_group_ids_filter" | grep -q '"Smoke Cam"'
 api_admin_numeric_group_filter="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/api/portal/v1/cameras?filter=1&pageSize=100")"
 printf "%s" "$api_admin_numeric_group_filter" | grep -q '"Smoke Cam"'
-printf "%s" "$api_admin_numeric_group_filter" | grep -q '"Read Only Cam"'
+! printf "%s" "$api_admin_numeric_group_filter" | grep -q '"Read Only Cam"'
 api_group="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/api/portal/v1/groups/1")"
 printf "%s" "$api_group" | grep -q '"id": 1'
 printf "%s" "$api_group" | grep -q '"parentGroupId": null'
 printf "%s" "$api_group" | grep -q '"childGroupIds"'
 printf "%s" "$api_group" | grep -q '"Smoke Subgroup"'
-printf "%s" "$api_group" | grep -q '"userIds"'
-printf "%s" "$api_group" | grep -q '"cameraIds"'
+printf "%s" "$api_group" | grep -q '"folderIds"'
+printf "%s" "$api_group" | grep -q '"folders"'
 api_groups_search="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/api/portal/v1/groups?q=sMoKe%20sUb")"
 printf "%s" "$api_groups_search" | grep -q '"Smoke Subgroup"'
 api_group_children="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/api/portal/v1/groups/1/children")"
@@ -940,14 +1001,14 @@ printf "%s" "$api_group_children" | grep -q '"Smoke Subgroup"'
 printf "%s" "$api_group_children" | grep -q '"childGroupIds"'
 api_created_group="$(
   curl -fsS -b "$COOKIE_JAR" -H 'Content-Type: application/json' \
-    -d '{"name":"API Smoke Group","description":"api","userIds":[1],"cameraIds":[1]}' \
+    -d '{"name":"API Smoke Group","description":"api"}' \
     "http://127.0.0.1:$PORT/api/portal/v1/groups"
 )"
 api_group_id="$(printf "%s" "$api_created_group" | php -r '$d=json_decode(stream_get_contents(STDIN), true); echo $d["group"]["id"] ?? "";')"
 test -n "$api_group_id"
 api_duplicate_name_group="$(
   curl -fsS -b "$COOKIE_JAR" -H 'Content-Type: application/json' \
-    -d '{"name":"API Smoke Group","description":"api duplicate name","userIds":[1],"cameraIds":[2]}' \
+    -d '{"name":"API Smoke Group","description":"api duplicate name"}' \
     "http://127.0.0.1:$PORT/api/portal/v1/groups"
 )"
 api_duplicate_name_group_id="$(printf "%s" "$api_duplicate_name_group" | php -r '$d=json_decode(stream_get_contents(STDIN), true); echo $d["group"]["id"] ?? "";')"
@@ -965,20 +1026,31 @@ echo (string)$stmt->fetchColumn();
 PHP
 )"
 test "$duplicate_name_count" = "2"
+# Create a folder in the duplicate group and put the Read Only Cam in it.
+api_duplicate_folder="$(
+  curl -fsS -b "$COOKIE_JAR" -H 'Content-Type: application/json' \
+    -d "{\"name\":\"Dup Folder\",\"groupId\":$api_duplicate_name_group_id}" \
+    "http://127.0.0.1:$PORT/api/portal/v1/folders"
+)"
+api_duplicate_folder_id="$(printf "%s" "$api_duplicate_folder" | php -r '$d=json_decode(stream_get_contents(STDIN), true); echo $d["folder"]["id"] ?? "";')"
+test -n "$api_duplicate_folder_id"
+curl -fsS -b "$COOKIE_JAR" -X POST -H 'Content-Type: application/json' \
+  -d '{"cameraIds":[2]}' \
+  "http://127.0.0.1:$PORT/api/portal/v1/folders/$api_duplicate_folder_id/cameras" >/dev/null
 curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/api/portal/v1/groups/$api_duplicate_name_group_id/cameras" | grep -q '"Read Only Cam"'
 api_invalid_group_camera_status="$(
   curl -sS -o "$STATE_DIR/api_invalid_group_camera.json" -w '%{http_code}' -b "$COOKIE_JAR" -H 'Content-Type: application/json' \
-    -d '{"name":"API Invalid Camera Link Group","cameraIds":[99999]}' \
-    "http://127.0.0.1:$PORT/api/portal/v1/groups"
+    -d '{"name":"API Invalid Folder Group","groupId":99999}' \
+    "http://127.0.0.1:$PORT/api/portal/v1/folders"
 )"
 test "$api_invalid_group_camera_status" = "422"
-grep -q '"field": "cameraIds"' "$STATE_DIR/api_invalid_group_camera.json"
+grep -q '"groupId is required' "$STATE_DIR/api_invalid_group_camera.json"
 invalid_group_count="$(
   php <<'PHP'
 <?php
 require getenv('ROOT') . '/app/Portal.php';
 $stmt = \SesamePortal\DB::pdo()->prepare('SELECT COUNT(*) FROM portal_groups WHERE name = ?');
-$stmt->execute(['API Invalid Camera Link Group']);
+$stmt->execute(['API Invalid Folder Group']);
 echo (string)$stmt->fetchColumn();
 PHP
 )"
@@ -1001,7 +1073,7 @@ printf "%s" "$api_explicit_group" | grep -q '"id": 9001'
 curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/api/portal/v1/groups/9001" | grep -q '"API Explicit Group"'
 api_explicit_child="$(
   curl -fsS -b "$COOKIE_JAR" -H 'Content-Type: application/json' \
-    -d '{"id":"9002","name":"API Explicit Subgroup","description":"explicit child id"}' \
+    -d '{"id":"9002","name":"API Explicit subGroup","description":"explicit child id"}' \
     "http://127.0.0.1:$PORT/api/portal/v1/groups/9001/children"
 )"
 printf "%s" "$api_explicit_child" | grep -q '"id": 9002'
@@ -1033,36 +1105,47 @@ cycle_status="$(
     "http://127.0.0.1:$PORT/api/portal/v1/groups/$api_group_id"
 )"
 test "$cycle_status" = "422"
-api_group_users="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/api/portal/v1/groups/$api_group_id/users")"
-printf "%s" "$api_group_users" | grep -q '"userIds"'
-printf "%s" "$api_group_users" | grep -q '"login": "admin"'
-api_group_cameras="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/api/portal/v1/groups/$api_group_id/cameras")"
-printf "%s" "$api_group_cameras" | grep -q '"cameraIds"'
-printf "%s" "$api_group_cameras" | grep -q '"Smoke Cam"'
-api_group_users_empty="$(
+# Folder members API (replaces group-level write members).
+api_group_folder="$(
+  curl -fsS -b "$COOKIE_JAR" -H 'Content-Type: application/json' \
+    -d "{\"name\":\"Members Folder\",\"groupId\":$api_group_id}" \
+    "http://127.0.0.1:$PORT/api/portal/v1/folders"
+)"
+api_group_folder_id="$(printf "%s" "$api_group_folder" | php -r '$d=json_decode(stream_get_contents(STDIN), true); echo $d["folder"]["id"] ?? "";')"
+test -n "$api_group_folder_id"
+curl -fsS -b "$COOKIE_JAR" -X PUT -H 'Content-Type: application/json' \
+  -d '{"userIds":[1]}' \
+  "http://127.0.0.1:$PORT/api/portal/v1/folders/$api_group_folder_id/users" >/dev/null
+api_folder_users="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/api/portal/v1/folders/$api_group_folder_id/users")"
+printf "%s" "$api_folder_users" | grep -q '"userIds"'
+printf "%s" "$api_folder_users" | grep -q '"login": "admin"'
+api_folder_users_empty="$(
   curl -fsS -b "$COOKIE_JAR" -X PUT -H 'Content-Type: application/json' \
     -d '{"userIds":[]}' \
-    "http://127.0.0.1:$PORT/api/portal/v1/groups/$api_group_id/users"
+    "http://127.0.0.1:$PORT/api/portal/v1/folders/$api_group_folder_id/users"
 )"
-printf "%s" "$api_group_users_empty" | grep -q '"userIds": \[\]'
-api_group_users_added="$(
-  curl -fsS -b "$COOKIE_JAR" -X POST -H 'Content-Type: application/json' \
-    -d '{"userIds":[1]}' \
-    "http://127.0.0.1:$PORT/api/portal/v1/groups/$api_group_id/users"
-)"
-printf "%s" "$api_group_users_added" | grep -q '"login": "admin"'
-api_group_cameras_empty="$(
+printf "%s" "$api_folder_users_empty" | grep -q '"userIds": \[\]'
+curl -fsS -b "$COOKIE_JAR" -X POST -H 'Content-Type: application/json' \
+  -d '{"userIds":[1]}' \
+  "http://127.0.0.1:$PORT/api/portal/v1/folders/$api_group_folder_id/users" | grep -q '"login": "admin"'
+api_folder_cameras_empty="$(
   curl -fsS -b "$COOKIE_JAR" -X DELETE -H 'Content-Type: application/json' \
     -d '{"cameraIds":[1]}' \
-    "http://127.0.0.1:$PORT/api/portal/v1/groups/$api_group_id/cameras"
+    "http://127.0.0.1:$PORT/api/portal/v1/folders/$api_group_folder_id/cameras"
 )"
-printf "%s" "$api_group_cameras_empty" | grep -q '"cameraIds": \[\]'
+printf "%s" "$api_folder_cameras_empty" | grep -q '"cameraIds": \[\]'
 curl -fsS -b "$COOKIE_JAR" -X PUT -H 'Content-Type: application/json' \
   -d '{"cameraIds":[1]}' \
-  "http://127.0.0.1:$PORT/api/portal/v1/groups/$api_group_id/cameras" | grep -q '"Smoke Cam"'
+  "http://127.0.0.1:$PORT/api/portal/v1/folders/$api_group_folder_id/cameras" | grep -q '"Smoke Cam"'
+api_patched_folder="$(
+  curl -fsS -b "$COOKIE_JAR" -X PATCH -H 'Content-Type: application/json' \
+    -d '{"description":"patched folder"}' \
+    "http://127.0.0.1:$PORT/api/portal/v1/folders/$api_group_folder_id"
+)"
+printf "%s" "$api_patched_folder" | grep -q "patched folder"
 api_patched_group="$(
   curl -fsS -b "$COOKIE_JAR" -X PATCH -H 'Content-Type: application/json' \
-    -d '{"description":"api patched","cameraIds":[1]}' \
+    -d '{"description":"api patched"}' \
     "http://127.0.0.1:$PORT/api/portal/v1/groups/$api_group_id"
 )"
 printf "%s" "$api_patched_group" | grep -q "api patched"
@@ -1320,18 +1403,24 @@ test "$admin_view_plain" = "200"
 # Onboarding: admin creates user without password -> default password, must_change_password=1
 onboarding_csrf="$(printf "%s" "$admin_users_page" | sed -n 's/.*name="csrf" value="\([^"]*\)".*/\1/p' | head -n 1)"
 # Create a new user via admin form with empty password (role=user)
-onboarding_create_status="$(
-  curl -sS -o /dev/null -w '%{http_code}' -b "$COOKIE_JAR" -c "$COOKIE_JAR" \
+onboarding_create_response="$(
+  curl -sS -b "$COOKIE_JAR" -c "$COOKIE_JAR" \
     -d "csrf=$onboarding_csrf" -d "action=save" -d "id=0" \
     -d "login=onboard-user" -d "password=" -d "role=user" \
-    -d "group_ids_json=" \
+    -d "folder_ids_json=" \
     "http://127.0.0.1:$PORT/admin/users"
 )"
-test "$onboarding_create_status" = "200"
 # Check that default password was generated (success message contains temporary password)
+printf "%s" "$onboarding_create_response" | grep -q "Временный пароль"
+printf "%s" "$onboarding_create_response" | grep -q "Пользователь сохранён"
+# Check that the user was really created with must_change_password=1
+onboard_user_id="$(php -r 'require getenv("ROOT") . "/app/Portal.php"; $u = \SesamePortal\DB::pdo()->query("SELECT id FROM users WHERE login = '"'"'onboard-user'"'"'")->fetch(PDO::FETCH_ASSOC); echo $u["id"] ?? "";')"
+test -n "$onboard_user_id"
+onboard_mcp_after_create="$(OB_ID="$onboard_user_id" php -r 'require getenv("ROOT") . "/app/Portal.php"; $id = (int)getenv("OB_ID"); echo (string)\SesamePortal\DB::pdo()->query("SELECT must_change_password FROM users WHERE id = $id")->fetch(PDO::FETCH_COLUMN);')"
+test "$onboard_mcp_after_create" = "1"
+# Admin page now lists the new user
 onboarding_admin_page="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/admin/users")"
 printf "%s" "$onboarding_admin_page" | grep -q "onboard-user"
-
 # Admin login does NOT redirect to onboarding (admin exempt)
 # (admin already logged in via COOKIE_JAR, verify / is accessible)
 admin_home_status="$(
@@ -1345,6 +1434,51 @@ onboarding_form_page="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/admin
 printf "%s" "$onboarding_form_page" | grep -q 'name="mosaic_enabled"'
 printf "%s" "$onboarding_form_page" | grep -q 'name="hide_archive"'
 
+# Admin users form has email field for viewing/editing user email
+admin_users_email_form="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/admin/users?edit=3&lang=ru")"
+printf "%s" "$admin_users_email_form" | grep -q 'name="email"'
+# Save email via admin form
+onboarding_email_save_status="$(
+  curl -sS -o /dev/null -w '%{http_code}' -b "$COOKIE_JAR" -c "$COOKIE_JAR" \
+    -d "csrf=$onboarding_csrf" -d "action=save" -d "id=$onboard_user_id" \
+    -d "login=onboard-user" -d "email=onboard@example.com" -d "password=" -d "role=user" \
+    -d "folder_ids_json=" \
+    "http://127.0.0.1:$PORT/admin/users"
+)"
+test "$onboarding_email_save_status" = "200"
+admin_users_email_saved="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/admin/users?edit=$onboard_user_id&lang=ru")"
+printf "%s" "$admin_users_email_saved" | grep -q 'value="onboard@example.com"'
+onboard_email_db="$(OB_ID="$onboard_user_id" php -r 'require getenv("ROOT") . "/app/Portal.php"; $id = (int)getenv("OB_ID"); echo (string)\SesamePortal\DB::pdo()->query("SELECT email FROM users WHERE id = $id")->fetch(PDO::FETCH_COLUMN);')"
+test "$onboard_email_db" = "onboard@example.com"
+# Invalid email is rejected
+onboarding_email_invalid_response="$(
+  curl -fsS -b "$COOKIE_JAR" -c "$COOKIE_JAR" \
+    -d "csrf=$onboarding_csrf" -d "action=save" -d "id=$onboard_user_id" \
+    -d "login=onboard-user" -d "email=not-an-email" -d "password=" -d "role=user" \
+    -d "folder_ids_json=" \
+    "http://127.0.0.1:$PORT/admin/users"
+)"
+printf "%s" "$onboarding_email_invalid_response" | grep -q "Введите корректный email"
+
+# Admin edit of an existing user must NOT reset must_change_password
+OB_ID="$onboard_user_id" php -r 'require getenv("ROOT") . "/app/Portal.php"; \SesamePortal\DB::pdo()->exec("UPDATE users SET must_change_password = 0 WHERE id = " . (int)getenv("OB_ID"));'
+onboarding_mcp_save_status="$(
+  curl -sS -o /dev/null -w '%{http_code}' -b "$COOKIE_JAR" -c "$COOKIE_JAR" \
+    -d "csrf=$onboarding_csrf" -d "action=save" -d "id=$onboard_user_id" \
+    -d "login=onboard-user" -d "email=onboard@example.com" -d "password=" -d "role=user" \
+    -d "folder_ids_json=" \
+    "http://127.0.0.1:$PORT/admin/users"
+)"
+test "$onboarding_mcp_save_status" = "200"
+onboard_mcp_db="$(OB_ID="$onboard_user_id" php -r 'require getenv("ROOT") . "/app/Portal.php"; $id = (int)getenv("OB_ID"); echo (string)\SesamePortal\DB::pdo()->query("SELECT must_change_password FROM users WHERE id = $id")->fetch(PDO::FETCH_COLUMN);')"
+test "$onboard_mcp_db" = "0"
+
+# User deletion requires confirmation dialog with Cancel selected by default
+onboarding_delete_confirm_page="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/admin/users")"
+printf "%s" "$onboarding_delete_confirm_page" | grep -q 'data-confirm="'
+printf "%s" "$onboarding_delete_confirm_page" | grep -q 'data-confirm-ok="'
+printf "%s" "$onboarding_delete_confirm_page" | grep -q 'data-confirm-ok="Удаление пользователя"'
+
 # Login page has forgot password link
 login_page_html="$(curl -fsS "http://127.0.0.1:$PORT/login")"
 printf "%s" "$login_page_html" | grep -q 'href="/forgot"'
@@ -1353,6 +1487,11 @@ printf "%s" "$login_page_html" | grep -q 'href="/forgot"'
 forgot_page="$(curl -fsS "http://127.0.0.1:$PORT/forgot")"
 printf "%s" "$forgot_page" | grep -q 'name="email"'
 printf "%s" "$forgot_page" | grep -q 'href="/login"'
+
+# Forgot password always reports "instructions sent", even for unknown emails (anti-enumeration)
+forgot_unknown="$(curl -fsS -d "email=no-such-user@example.com" "http://127.0.0.1:$PORT/forgot?lang=ru")"
+printf "%s" "$forgot_unknown" | grep -q "Письмо отправлено"
+! printf "%s" "$forgot_unknown" | grep -q "Если email найден"
 
 # Onboarding page exists (GET without login redirects to /login)
 onboarding_no_login="$(
