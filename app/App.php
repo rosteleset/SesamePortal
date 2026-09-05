@@ -48,6 +48,7 @@ final class App
             '/admin/audit' => self::audit(),
             '/admin/settings' => self::settings(),
             '/viewer/map' => self::viewer('map'),
+            '/viewer/events' => self::events(),
             '/viewer/preview' => self::previewProxy(),
             '/viewer/player' => self::player(),
             '/favorite/toggle' => self::toggleFavorite(),

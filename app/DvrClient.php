@@ -108,6 +108,10 @@ final class DvrClient
             $onvifPath = $onvifResult['deviceId'] ?? $name;
             $onvifMsg = self::responseSummary(['status' => $onvifResult['status'] ?? 0, 'body' => json_encode($onvifResult['data'] ?? null)], '/api/onvif/devices/' . rawurlencode((string)$onvifPath));
             $message .= ' | ONVIF: ' . $onvifMsg;
+            if (($onvifResult['status'] ?? 0) >= 200 && ($onvifResult['status'] ?? 0) < 300 && $onvifPath !== null && $onvifPath !== '') {
+                $subscribe = self::apiRequest((int)$camera['server_id'], 'POST', '/api/onvif/devices/' . rawurlencode((string)$onvifPath) . '/events/subscribe');
+                $message .= ' | ONVIF subscribe: ' . self::responseSummary($subscribe, '/api/onvif/devices/' . rawurlencode((string)$onvifPath) . '/events/subscribe');
+            }
         }
 
         return self::storeCameraSync($cameraId, $ok, $message);
@@ -375,6 +379,66 @@ final class DvrClient
         return self::apiRequest($serverId, 'GET', '/api/onvif/devices/' . rawurlencode($id));
     }
 
+    public static function subscribeOnvifEvents(int $serverId, string $streamName): array
+    {
+        $deviceId = self::resolveOnvifDeviceId($serverId, $streamName);
+        if ($deviceId === null) {
+            return ['ok' => false, 'status' => 404, 'message' => 'ONVIF device is not synced yet for stream ' . $streamName, 'data' => null];
+        }
+        return self::apiRequest($serverId, 'POST', '/api/onvif/devices/' . rawurlencode($deviceId) . '/events/subscribe');
+    }
+
+    public static function motionEvents(int $serverId, string $streamName, int $from, int $to): array
+    {
+        if ($streamName === '') {
+            return ['ok' => false, 'status' => 0, 'message' => 'DVR stream name is empty', 'data' => null, 'intervals' => []];
+        }
+        if (!Util::isDvrStreamName($streamName)) {
+            return ['ok' => false, 'status' => 0, 'message' => 'DVR stream name is not valid', 'data' => null, 'intervals' => []];
+        }
+
+        $from = max(0, $from);
+        $to = max($from, $to);
+        $endpoint = '/' . rawurlencode($streamName) . '/motion_events.json?' . http_build_query(['from' => $from, 'to' => $to]);
+        $result = self::apiRequest($serverId, 'GET', $endpoint, null, 15);
+        $result['intervals'] = is_array($result['data']) ? self::normalizeMotionIntervals($result['data']) : [];
+        return $result;
+    }
+
+    public static function timestampPreview(int $cameraId, int $timestamp): array
+    {
+        $camera = Repo::camera($cameraId);
+        if (!$camera || !$camera['server_id']) {
+            return ['status' => 0, 'body' => '', 'contentType' => '', 'message' => 'Camera has no DVR server'];
+        }
+
+        $server = Repo::server((int)$camera['server_id']);
+        $stream = trim((string)($camera['dvr_stream_name'] ?? '') ?: (string)($camera['name'] ?? ''));
+        if (!$server || (int)$server['blocked'] === 1 || $stream === '') {
+            return ['status' => 0, 'body' => '', 'contentType' => '', 'message' => 'DVR server is unavailable or stream is empty'];
+        }
+        if (!Util::isDvrStreamName($stream)) {
+            return ['status' => 0, 'body' => '', 'contentType' => '', 'message' => 'DVR stream name is not valid'];
+        }
+
+        $token = Crypto::decrypt($server['management_token_enc'] ?? null);
+        if ($token === '') {
+            return ['status' => 0, 'body' => '', 'contentType' => '', 'message' => 'Management token is not configured'];
+        }
+
+        $url = rtrim((string)$server['base_url'], '/') . '/' . rawurlencode($stream) . '/' . max(1, $timestamp) . '-preview.jpg';
+        $result = self::request('GET', $url, $token, null, 15);
+        $contentType = (string)($result['content_type'] ?? '');
+        if ($contentType === '' || str_starts_with(strtolower($contentType), 'application/json')) {
+            $contentType = 'image/jpeg';
+        }
+        return [
+            'status' => (int)$result['status'],
+            'body' => (string)($result['body'] ?? ''),
+            'contentType' => $contentType,
+        ];
+    }
+
     private static function resolveOnvifDeviceId(int $serverId, string $streamName): ?string
     {
         if ($streamName === '') {
@@ -521,6 +585,34 @@ final class DvrClient
 
         return ($stream['sourceType'] ?? $stream['source_type'] ?? '') === 'push'
             && ($push['publisherKind'] ?? $push['publisher_kind'] ?? '') === 'agent';
+    }
+
+    private static function normalizeMotionIntervals(array $data): array
+    {
+        $intervals = $data['intervals'] ?? [];
+        if (!is_array($intervals)) {
+            return [];
+        }
+
+        $out = [];
+        foreach ($intervals as $item) {
+            if (!is_array($item)) {
+                continue;
+            }
+            $from = (int)($item['from'] ?? $item['start'] ?? $item['startTime'] ?? $item['minTime'] ?? 0);
+            $to = (int)($item['to'] ?? $item['end'] ?? $item['endTime'] ?? $item['maxTime'] ?? $from);
+            if ($from <= 0 || $to < $from) {
+                continue;
+            }
+            $out[] = [
+                'from' => $from,
+                'to' => $to,
+                'duration' => max(0, (int)($item['duration'] ?? ($to - $from))),
+                'state' => trim((string)($item['state'] ?? 'motion')) !== '' ? trim((string)$item['state']) : 'motion',
+                'deviceId' => trim((string)($item['deviceId'] ?? '')),
+            ];
+        }
+        return $out;
     }
 
     private static function request(string $method, string $url, string $token, ?array $payload, int $timeout = 12): array

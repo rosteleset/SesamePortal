@@ -95,6 +95,9 @@
   initPlayerBackBridge();
   initThemeToggle();
   initStaticTokens();
+  initInstallPrompt();
+  initNavToggle();
+  initCallbackLogin();
 
   function initThemeToggle() {
     const button = document.querySelector("[data-theme-toggle]");
@@ -1320,4 +1323,266 @@ function filterCameraPicker(dialog) {
     var name = item.getAttribute('data-camera-name') || '';
     item.style.display = name.indexOf(query) !== -1 ? '' : 'none';
   });
+}
+
+function initInstallPrompt() {
+  if (window.matchMedia('(display-mode: standalone)').matches || navigator.standalone) return;
+  if (!document.querySelector('.shell')) return;
+
+  var dismissed = localStorage.getItem('installDismissed');
+  if (dismissed && (Date.now() - parseInt(dismissed, 10)) < 30 * 24 * 60 * 60 * 1000) return;
+
+  var deferredPrompt = null;
+  var isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent) && !window.MSStream;
+
+  window.addEventListener('beforeinstallprompt', function (e) {
+    e.preventDefault();
+    deferredPrompt = e;
+    showInstallBanner(deferredPrompt, false);
+  });
+
+  if (isIOS) {
+    showInstallBanner(null, true);
+  }
+
+  function showInstallBanner(deferredPrompt, isIOS) {
+    if (document.querySelector('.install-prompt-banner')) return;
+
+    var banner = document.createElement('div');
+    banner.className = 'install-prompt-banner';
+
+    var text = document.createElement('span');
+    text.innerHTML = isIOS
+      ? 'Установите приложение: нажмите <strong>Share</strong> &rarr; <strong>На экран Домой</strong>'
+      : 'Установите приложение на рабочий стол';
+    banner.appendChild(text);
+
+    if (!isIOS && deferredPrompt) {
+      var btn = document.createElement('button');
+      btn.className = 'install-prompt-btn';
+      btn.textContent = 'Установить';
+      btn.addEventListener('click', function () {
+        deferredPrompt.prompt();
+        deferredPrompt.userChoice.then(function () {
+          deferredPrompt = null;
+          banner.remove();
+        });
+      });
+      banner.appendChild(btn);
+    }
+
+    var closeBtn = document.createElement('button');
+    closeBtn.className = 'install-prompt-close';
+    closeBtn.innerHTML = '&times;';
+    closeBtn.setAttribute('aria-label', 'Закрыть');
+    closeBtn.addEventListener('click', function () {
+      banner.remove();
+      localStorage.setItem('installDismissed', String(Date.now()));
+    });
+    banner.appendChild(closeBtn);
+
+    document.body.appendChild(banner);
+  }
+}
+
+function initNavToggle() {
+  var toggle = document.querySelector('[data-nav-toggle]');
+  var sidebar = document.querySelector('.sidebar');
+  var backdrop = document.querySelector('[data-nav-backdrop]');
+  if (!toggle || !sidebar || !backdrop) return;
+
+  function open() {
+    sidebar.classList.add('nav-open');
+    backdrop.hidden = false;
+    toggle.setAttribute('aria-expanded', 'true');
+  }
+  function close() {
+    sidebar.classList.remove('nav-open');
+    backdrop.hidden = true;
+    toggle.setAttribute('aria-expanded', 'false');
+  }
+
+  toggle.addEventListener('click', function () {
+    if (sidebar.classList.contains('nav-open')) { close(); } else { open(); }
+  });
+  backdrop.addEventListener('click', close);
+  sidebar.querySelectorAll('a').forEach(function (link) {
+    link.addEventListener('click', close);
+  });
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') close();
+  });
+}
+
+function initCallbackLogin() {
+  var tabs = document.querySelectorAll('[data-login-tab]');
+  var panes = document.querySelectorAll('[data-login-pane]');
+  tabs.forEach(function (tab) {
+    tab.addEventListener('click', function () {
+      tabs.forEach(function (t) { t.classList.toggle('active', t === tab); });
+      panes.forEach(function (pane) {
+        pane.classList.toggle('active', pane.getAttribute('data-login-pane') === tab.getAttribute('data-login-tab'));
+      });
+    });
+  });
+
+  var generate = document.querySelector('[data-callback-generate]');
+  if (generate) {
+    generate.addEventListener('click', function () {
+      var input = document.querySelector('[data-callback-token]');
+      if (!input) return;
+      input.value = callbackRandomToken();
+    });
+  }
+
+  var form = document.querySelector('[data-callback-form]');
+  if (!form) return;
+  var pane = form.closest('[data-login-pane]');
+  var status = pane.querySelector('[data-callback-status]');
+  var notice = pane.querySelector('[data-callback-call-notice]');
+  var timerEl = pane.querySelector('[data-callback-timer]');
+  var errorEl = pane.querySelector('[data-callback-error]');
+  var phoneInput = pane.querySelector('[data-callback-phone]');
+  var submit = form.querySelector('button[type="submit"]');
+  var lifetime = parseInt(pane.getAttribute('data-callback-lifetime') || '120', 10);
+  if (isNaN(lifetime) || lifetime <= 0) lifetime = 120;
+  var pollTimer = null;
+  var countdownTimer = null;
+  var stopped = false;
+
+  function showError(text) {
+    if (stopped) return;
+    status.hidden = true;
+    errorEl.textContent = text;
+    errorEl.hidden = false;
+  }
+
+  function stopTimers() {
+    if (pollTimer) clearInterval(pollTimer);
+    if (countdownTimer) clearInterval(countdownTimer);
+    pollTimer = null;
+    countdownTimer = null;
+  }
+
+  function pollPending(pendingId) {
+    if (stopped || pollTimer) return;
+    pollTimer = setInterval(function () {
+      fetch('/api/portal/v1/auth/callback/poll?pending_id=' + encodeURIComponent(pendingId))
+        .then(function (res) { return res.json(); })
+        .then(function (data) {
+          if (stopped) return;
+          if (data.ok && data.status === 'confirmed') {
+            completeLogin(pendingId);
+          } else if (!data.ok || data.status === 'expired') {
+            stopped = true;
+            stopTimers();
+            showError(pane.getAttribute('data-msg-expired') || '');
+          }
+        })
+        .catch(function () {
+          if (stopped) return;
+        });
+    }, 2000);
+  }
+
+  function completeLogin(pendingId) {
+    if (stopped) return;
+    stopped = true;
+    stopTimers();
+    status.hidden = true;
+    submit.disabled = true;
+    fetch('/api/portal/v1/auth/callback/complete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pending_id: pendingId })
+    })
+      .then(function (res) { return res.json(); })
+      .then(function (data) {
+        if (data.ok && data.redirect) {
+          window.location.href = data.redirect;
+        } else {
+          errorEl.textContent = pane.getAttribute('data-msg-failed') || '';
+          errorEl.hidden = false;
+          submit.disabled = false;
+        }
+      })
+      .catch(function () {
+        errorEl.textContent = pane.getAttribute('data-msg-failed') || '';
+        errorEl.hidden = false;
+        submit.disabled = false;
+      });
+  }
+
+  function startCountdown(pendingId) {
+    var remaining = lifetime;
+    timerEl.textContent = String(remaining);
+    countdownTimer = setInterval(function () {
+      remaining -= 1;
+      if (remaining <= 0) {
+        timerEl.textContent = '0';
+        stopped = true;
+        stopTimers();
+        showError(pane.getAttribute('data-msg-expired') || '');
+        submit.disabled = false;
+        return;
+      }
+      timerEl.textContent = String(remaining);
+    }, 1000);
+  }
+
+  form.addEventListener('submit', function (e) {
+    e.preventDefault();
+    if (stopped) { errorEl.hidden = true; return; }
+    var phone = (phoneInput.value || '').trim();
+    if (!phone) { phoneInput.focus(); return; }
+    errorEl.hidden = true;
+    status.hidden = false;
+    notice.textContent = pane.getAttribute('data-msg-waiting') || '';
+    timerEl.textContent = '';
+    submit.disabled = true;
+    fetch('/api/portal/v1/auth/callback/start', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone: phone })
+    })
+      .then(function (res) {
+        return res.json().then(function (data) { return { status: res.status, data: data }; });
+      })
+      .then(function (result) {
+        if (stopped) return;
+        submit.disabled = false;
+        var data = result.data;
+        if (result.status === 200 && data.ok && data.pending_id) {
+          stopped = false;
+          var callMsg = pane.getAttribute('data-msg-call') || '';
+          notice.textContent = callMsg.indexOf('%s') !== -1 ? callMsg.replace('%s', data.callback_phone || '') : callMsg;
+          timerEl.textContent = String(data.lifetime_seconds || lifetime);
+          startCountdown(data.pending_id);
+          pollPending(data.pending_id);
+        } else if (data.error && (data.error.code === 'user_not_found' || data.error.code === 'callback_disabled' || data.error.code === 'callback_not_configured')) {
+          showError(pane.getAttribute('data-msg-rejected') || '');
+        } else if (data.error && (data.error.code === 'rate_limited' || data.error.code === 'pending_exists')) {
+          showError(pane.getAttribute('data-msg-rate') || '');
+        } else {
+          showError(pane.getAttribute('data-msg-failed') || '');
+        }
+      })
+      .catch(function () {
+        if (stopped) return;
+        submit.disabled = false;
+        showError(pane.getAttribute('data-msg-failed') || '');
+      });
+  });
+}
+
+function callbackRandomToken() {
+  var bytes = new Uint8Array(32);
+  if (window.crypto && window.crypto.getRandomValues) {
+    window.crypto.getRandomValues(bytes);
+  } else {
+    for (var i = 0; i < bytes.length; i++) bytes[i] = Math.floor(Math.random() * 256);
+  }
+  var binary = '';
+  for (var j = 0; j < bytes.length; j++) binary += String.fromCharCode(bytes[j]);
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }

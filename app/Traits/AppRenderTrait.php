@@ -16,12 +16,19 @@ trait AppRenderTrait
         if (!in_array($theme, ['light', 'dark'], true)) {
             $theme = '';
         }
-        echo '<!doctype html><html lang="' . Util::h(I18n::htmlLocale()) . '" dir="' . Util::h(I18n::dir()) . '"' . ($theme !== '' ? ' data-theme="' . Util::h($theme) . '"' : '') . '><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">';
+        echo '<!doctype html><html lang="' . Util::h(I18n::htmlLocale()) . '" dir="' . Util::h(I18n::dir()) . '"' . ($theme !== '' ? ' data-theme="' . Util::h($theme) . '"' : '') . '><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">';
         if ($user && $showChrome && $theme === '') {
             echo '<script>if(!document.documentElement.dataset.theme&&window.matchMedia){document.documentElement.dataset.theme=matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light";document.documentElement.dataset.themeAuto="1";}</script>';
         }
         echo '<title>Портал Артель МиК</title>';
         echo '<link rel="icon" href="/assets/favicon.svg" type="image/svg+xml">';
+        echo '<link rel="manifest" href="/manifest.json">';
+        echo '<link rel="apple-touch-icon" href="/assets/apple-touch-icon.png">';
+        echo '<meta name="theme-color" content="#161616">';
+        echo '<meta name="apple-mobile-web-app-capable" content="yes">';
+        echo '<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">';
+        echo '<meta name="apple-mobile-web-app-title" content="Артель МиК">';
+        echo '<meta name="mobile-web-app-capable" content="yes">';
         echo '<link rel="stylesheet" href="' . Util::h(self::assetUrl('/assets/styles.css')) . '">';
         echo '<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">';
         echo '<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css">';
@@ -36,6 +43,7 @@ trait AppRenderTrait
                 self::navLink('/mosaic', self::t('nav.mosaic', 'Мозаика'), 'grid', Util::path() === '/mosaic');
             }
             self::navLink('/viewer/map', self::t('nav.map', 'Карта'), 'map');
+            self::navLink('/viewer/events', self::t('nav.events', 'События'), 'events');
             self::navLink('/?filter=favorites', self::t('filter.favorites', 'Избранное'), 'star', ($_GET['filter'] ?? '') === 'favorites' && Util::path() === '/');
             echo '</nav>';
             if ($user['role'] === 'admin') {
@@ -53,12 +61,13 @@ trait AppRenderTrait
             echo '<div class="sidebar-foot">' . I18n::languageLinks() . '<a class="logout-link" href="/logout">' . self::icon('logout') . self::t('nav.logout', 'Выход') . '</a></div></aside>';
             $initial = strtoupper(substr((string)$user['login'], 0, 1) ?: 'U');
             $toggleIcon = $theme === 'dark' ? 'sun' : 'moon';
-            echo '<main class="main workspace"><div class="topbar"><div><h1>' . Util::h($title) . '</h1></div><div class="topbar-actions"><button type="button" class="theme-toggle" data-theme-toggle title="' . Util::h(self::t('nav.theme', 'Тема')) . '" aria-label="' . Util::h(self::t('nav.theme', 'Тема')) . '" data-title-light="' . Util::h(self::t('nav.theme.toLight', 'Включить светлую тему')) . '" data-title-dark="' . Util::h(self::t('nav.theme.toDark', 'Включить тёмную тему')) . '">' . self::icon($toggleIcon) . '</button><div class="user">' . Util::h($initial) . '</div></div></div>';
+            echo '<main class="main workspace"><div class="topbar"><div class="topbar-left"><button type="button" class="nav-toggle" data-nav-toggle aria-label="' . Util::h(self::t('nav.toggle', 'Меню')) . '" aria-expanded="false">' . self::icon('menu') . '</button><h1>' . Util::h($title) . '</h1></div><div class="topbar-actions"><button type="button" class="theme-toggle" data-theme-toggle title="' . Util::h(self::t('nav.theme', 'Тема')) . '" aria-label="' . Util::h(self::t('nav.theme', 'Тема')) . '" data-title-light="' . Util::h(self::t('nav.theme.toLight', 'Включить светлую тему')) . '" data-title-dark="' . Util::h(self::t('nav.theme.toDark', 'Включить тёмную тему')) . '">' . self::icon($toggleIcon) . '</button><div class="user">' . Util::h($initial) . '</div></div></div>';
             if ($user['role'] === 'admin') {
                 self::portalUpdateBanner();
             }
             $body();
             echo '</main></div>';
+            echo '<div class="nav-backdrop" data-nav-backdrop hidden></div>';
         } else {
             echo '<main class="' . ($user ? 'workspace' : 'login-page') . '">';
             $body();
@@ -66,6 +75,7 @@ trait AppRenderTrait
         }
         echo '<script>window.SESAME_I18N = ' . json_encode(I18n::js(), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . '; window.SESAME_CSRF = ' . json_encode(Csrf::token(), JSON_UNESCAPED_SLASHES) . '; window.SESAME_MAP_PROVIDER = ' . json_encode(Util::mapProvider(), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . '; window.SESAME_MAP_VIEW = ' . json_encode(Util::mapDefaultView(), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . ';</script>';
         echo '<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script><script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script><script src="' . Util::h(self::assetUrl('/assets/app.js')) . '"></script>';
+        echo '<script>if("serviceWorker" in navigator){window.addEventListener("load",function(){navigator.serviceWorker.register("/sw.js")["catch"](function(){})})}</script>';
         echo '</body></html>';
     }
 
@@ -92,6 +102,7 @@ trait AppRenderTrait
         $paths = [
             'grid' => '<path d="M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z"/>',
             'map' => '<path d="m3 6 6-2 6 2 6-2v14l-6 2-6-2-6 2V6z"/><path d="M9 4v14M15 6v14"/>',
+            'events' => '<path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2z"/><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M12 6v6l4 2"/>',
             'star' => '<path d="m12 3 2.7 5.5 6.1.9-4.4 4.3 1 6.1-5.4-2.9-5.4 2.9 1-6.1-4.4-4.3 6.1-.9L12 3z"/>',
             'dashboard' => '<path d="M4 13h7V4H4v9zM13 20h7V4h-7v16zM4 20h7v-5H4v5z"/>',
             'user' => '<path d="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8z"/><path d="M4 20a8 8 0 0 1 16 0"/>',
@@ -116,6 +127,7 @@ trait AppRenderTrait
             'download' => '<path fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" d="M12 3v12M7 10l5 5 5-5M5 21h14"/>',
             'sun' => '<circle cx="12" cy="12" r="4" fill="none" stroke="currentColor" stroke-width="2"/><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
             'moon' => '<path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M20.5 14.5A8.5 8.5 0 0 1 9.5 3.5a8.5 8.5 0 1 0 11 11z"/>',
+            'menu' => '<path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M4 7h16M4 12h16M4 17h16"/>',
         ];
         return '<svg viewBox="0 0 24 24" aria-hidden="true">' . ($paths[$name] ?? $paths['grid']) . '</svg>';
     }
@@ -414,7 +426,7 @@ trait AppRenderTrait
                 echo '<div class="folder-action-dropdown">';
                 echo '<button type="button" class="btn folder-action-trigger">' . self::t('folders.addCamera', 'Добавить камеру') . ' &#9662;</button>';
                 echo '<div class="folder-action-menu" hidden>';
-                echo '<a href="/admin/cameras?new=1&back=' . rawurlencode($groupBack) . '">' . self::t('folders.addNewCamera', 'Добавить новую камеру') . '</a>';
+                echo '<a href="' . Util::h('/admin/cameras?new=1&back=' . rawurlencode($groupBack)) . '">' . self::t('folders.addNewCamera', 'Добавить новую камеру') . '</a>';
                 echo '<button type="button" class="folder-pick-camera-btn" data-folder-id="' . $folderId . '">' . self::t('folders.addExistingCamera', 'Добавить существующую камеру') . '</button>';
                 echo '</div></div> ';
                 echo '<a class="btn" href="/admin/groups?edit=' . (int)$edit['id'] . '&tab=2&edit_folder=' . $folderId . '">' . self::t('action.edit', 'Изменить') . '</a> ';
@@ -871,7 +883,7 @@ trait AppRenderTrait
         $join = '';
 
         if ($filters['q'] !== '') {
-            $columns = ['u.login', 'u.role', 'u.admin_comment'];
+            $columns = ['u.login', 'u.phone', 'u.role', 'u.admin_comment'];
             $where[] = '(' . implode(' OR ', array_map([DB::class, 'caseInsensitiveLike'], $columns)) . ')';
             array_push($params, ...array_fill(0, count($columns), '%' . $filters['q'] . '%'));
         }
@@ -1243,6 +1255,16 @@ trait AppRenderTrait
             echo '<td class="table-technical">';
             self::technicalResult($text);
             echo '</td>';
+            return;
+        }
+
+        if ($column === 'phone') {
+            $phone = trim((string)$value);
+            if ($phone === '') {
+                echo '<td class="muted">-</td>';
+                return;
+            }
+            echo '<td>' . Util::h(self::callbackFormatPhone($phone)) . '</td>';
             return;
         }
 

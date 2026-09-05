@@ -23,6 +23,13 @@ trait AppDataTrait
         return $stmt->fetch() ?: null;
     }
 
+    private static function userByPhone(string $phone): ?array
+    {
+        $stmt = DB::pdo()->prepare('SELECT * FROM users WHERE phone = ?');
+        $stmt->execute([$phone]);
+        return $stmt->fetch() ?: null;
+    }
+
     private static function rowsByIds(string $table, array $ids): array
     {
         $rows = [];
@@ -55,6 +62,22 @@ trait AppDataTrait
         $stmt = DB::pdo()->prepare('SELECT id FROM users WHERE email = ? AND id != ? AND blocked = 0');
         $stmt->execute([$email, $id]);
         return $stmt->fetch() !== false;
+    }
+
+    private static function phoneTakenByOther(string $phone, int $id): bool
+    {
+        $stmt = DB::pdo()->prepare('SELECT id FROM users WHERE phone = ? AND id != ? AND blocked = 0');
+        $stmt->execute([$phone, $id]);
+        return $stmt->fetch() !== false;
+    }
+
+    private static function normalizePhone(mixed $value): string
+    {
+        $digits = preg_replace('/\D+/', '', (string)$value) ?? '';
+        if (strlen($digits) === 11 && str_starts_with($digits, '8')) {
+            $digits = '7' . substr($digits, 1);
+        }
+        return strlen($digits) === 11 && str_starts_with($digits, '7') ? $digits : '';
     }
 
     private static function nullableInt(mixed $value): ?int

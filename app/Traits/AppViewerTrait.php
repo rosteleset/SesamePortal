@@ -202,7 +202,8 @@ trait AppViewerTrait
             self::t('action.back', 'Назад'),
             $settingsUrl,
             self::t('settings.title', 'Настройки'),
-            !self::userArchiveHidden($user)
+            !self::userArchiveHidden($user),
+            self::playerArchiveTimeQuery($user, (string)($_GET['start'] ?? ''), (string)($_GET['end'] ?? ''))
         );
         $watermarkLogin = (int)($camera['watermark_enabled'] ?? 0) === 1 ? (string)$user['login'] : '';
         $watermarkAlpha = number_format(self::watermarkIntensity($camera['watermark_intensity'] ?? 16) / 100, 2, '.', '');
@@ -245,6 +246,27 @@ trait AppViewerTrait
             return;
         }
 
+        $ts = (int)($_GET['ts'] ?? 0);
+        if ($ts > 0) {
+            if (self::userArchiveHidden($user)) {
+                http_response_code(404);
+                echo 'Not found';
+                return;
+            }
+            $ts = min($ts, time());
+            $frame = DvrClient::timestampPreview($cameraId, $ts);
+            if ($frame['status'] === 0 || $frame['status'] >= 400) {
+                http_response_code($frame['status'] >= 400 ? $frame['status'] : 502);
+                echo 'Preview unavailable';
+                return;
+            }
+            header('Content-Type: ' . (string)$frame['contentType']);
+            header('Content-Length: ' . strlen($frame['body']));
+            header('Cache-Control: public, max-age=3600');
+            echo (string)$frame['body'];
+            return;
+        }
+
         $token = (string)($user['daily_token'] ?? '');
         if ($token === '') {
             http_response_code(403);
@@ -256,6 +278,187 @@ trait AppViewerTrait
         header('Pragma: no-cache');
         header('Vary: Cookie');
         header('Location: ' . self::externalPreviewUrl($camera, $token, (string)($_GET['_'] ?? '')), true, 302);
+    }
+
+    private static function events(): void
+    {
+        $user = Auth::requireLogin();
+        $archiveHidden = self::userArchiveHidden($user);
+
+        $cameraId = max(0, (int)($_GET['cameraId'] ?? 0));
+        $hours = (int)($_GET['hours'] ?? 168);
+        $hours = in_array($hours, [24, 72, 168], true) ? $hours : 168;
+        $page = max(1, (int)($_GET['page'] ?? 1));
+        $pageSize = self::eventsPageSize();
+        $now = time();
+        $to = $now;
+        $from = $to - $hours * 3600;
+
+        $events = [];
+        $cameras = [];
+        if (!$archiveHidden) {
+            $cameras = Repo::accessibleCameras($user, 'all', '');
+            foreach ($cameras as $camera) {
+                if ($cameraId > 0 && (int)$camera['id'] !== $cameraId) {
+                    continue;
+                }
+                if (!Repo::cameraAllowedForUser($user, (int)$camera['id'])) {
+                    continue;
+                }
+                $serverId = (int)($camera['server_id'] ?? 0);
+                $stream = trim((string)($camera['dvr_stream_name'] ?? ''));
+                if ($serverId <= 0 || $stream === '') {
+                    continue;
+                }
+                $result = DvrClient::motionEvents($serverId, $stream, $from, $to);
+                if (empty($result['ok'])) {
+                    continue;
+                }
+                foreach ($result['intervals'] ?? [] as $interval) {
+                    if ((int)($interval['from'] ?? 0) <= 0) {
+                        continue;
+                    }
+                    $events[] = [
+                        'cameraId' => (int)$camera['id'],
+                        'cameraName' => (string)($camera['name'] ?? $stream),
+                        'stream' => $stream,
+                        'from' => (int)$interval['from'],
+                        'to' => (int)($interval['to'] ?? $interval['from']),
+                        'duration' => (int)($interval['duration'] ?? 0),
+                        'state' => (string)($interval['state'] ?? 'motion'),
+                    ];
+                }
+            }
+            usort($events, static fn(array $a, array $b): int => $b['from'] <=> $a['from']);
+        }
+
+        $total = count($events);
+        $pages = max(1, (int)ceil($total / $pageSize));
+        $page = min($page, $pages);
+        $rows = array_slice($events, ($page - 1) * $pageSize, $pageSize);
+        $pager = [
+            'total' => $total,
+            'page' => $page,
+            'pageSize' => $pageSize,
+            'rows' => $rows,
+            'cameraId' => $cameraId,
+            'hours' => $hours,
+        ];
+
+        $timezone = (string)Config::get('timezone', 'UTC');
+
+        self::layout(self::t('events.title', 'События'), function () use ($cameras, $cameraId, $hours, $rows, $total, $pager, $timezone): void {
+            echo '<section class="panel events-panel"><form class="events-filter" method="get" action="/viewer/events">';
+            echo '<label>' . Util::h(self::t('events.camera', 'Камера')) . ' <select name="cameraId">';
+            echo '<option value="0"' . ($cameraId === 0 ? ' selected' : '') . '>' . Util::h(self::t('events.allCameras', 'Все камеры')) . '</option>';
+            foreach ($cameras as $camera) {
+                $id = (int)$camera['id'];
+                echo '<option value="' . $id . '"' . ($cameraId === $id ? ' selected' : '') . '>' . Util::h($camera['name']) . '</option>';
+            }
+            echo '</select></label>';
+            echo '<label>' . Util::h(self::t('events.period', 'Период')) . ' <select name="hours">';
+            $periodOptions = [
+                24 => self::t('events.hours24', '24 часа'),
+                72 => self::t('events.days3', '3 дня'),
+                168 => self::t('events.days7', '7 дней'),
+            ];
+            foreach ($periodOptions as $value => $label) {
+                echo '<option value="' . (int)$value . '"' . ($hours === $value ? ' selected' : '') . '>' . Util::h($label) . '</option>';
+            }
+            echo '</select></label>';
+            echo '<button class="primary">' . Util::h(self::t('action.apply', 'Применить')) . '</button>';
+            echo '</form></section>';
+
+            if ($total === 0) {
+                echo '<p class="empty">' . Util::h(self::t('events.empty', 'Нет событий движения за выбранный период')) . '</p>';
+                return;
+            }
+
+            echo '<section class="event-grid">';
+            foreach ($rows as $event) {
+                self::eventsCard($event, $timezone);
+            }
+            echo '</section>';
+            self::pager('/viewer/events', $pager, [
+                'cameraId' => $pager['cameraId'] === 0 ? '' : $pager['cameraId'],
+                'hours' => $pager['hours'],
+            ]);
+        });
+    }
+
+    private static function eventsCard(array $event, string $timezone): void
+    {
+        $player = self::eventsPlayerUrl((int)$event['cameraId'], (int)$event['from']);
+        $preview = '/viewer/preview?id=' . (int)$event['cameraId'] . '&ts=' . (int)$event['from'];
+        try {
+            $time = (new \DateTimeImmutable('@' . (int)$event['from']))->setTimezone(new \DateTimeZone($timezone));
+            $iso = $time->format(\DateTimeInterface::ATOM);
+            $label = $time->format('d.m.Y H:i:s');
+        } catch (\Throwable) {
+            $iso = '';
+            $label = '';
+        }
+        $duration = self::t('events.duration', '%d с.');
+
+        echo '<article class="event-card">';
+        echo '<a class="event-preview" href="' . Util::h($player) . '" title="' . Util::h(self::t('events.openArchive', 'Открыть в архиве')) . '">';
+        echo '<img src="' . Util::h($preview) . '" alt="' . Util::h($event['cameraName']) . '" loading="lazy" decoding="async">';
+        echo '</a>';
+        echo '<div class="event-meta"><strong>' . Util::h($event['cameraName']) . '</strong>';
+        echo '<time class="local-time" datetime="' . Util::h($iso) . '">' . Util::h($label) . '</time>';
+        echo '<span class="event-duration">' . Util::h(self::t('events.motion', 'Движение')) . ' · ' . Util::h(sprintf($duration, (int)$event['duration'])) . '</span>';
+        echo '</div></article>';
+    }
+
+    private static function eventsPlayerUrl(int $cameraId, int $ts): string
+    {
+        $back = self::safeBackPath((string)($_SERVER['REQUEST_URI'] ?? '/viewer/events'));
+        $query = ['id' => $cameraId, 'back' => $back];
+        if ($ts > 0) {
+            $query['start'] = gmdate('Y-m-d\TH:i:s\Z', $ts);
+        }
+        return '/viewer/player?' . http_build_query($query);
+    }
+
+    private static function eventsPageSize(): int
+    {
+        return min(48, max(12, (int)($_GET['pageSize'] ?? 24)));
+    }
+
+    private static function playerArchiveTimeQuery(array $user, string $start, string $end): array
+    {
+        if (self::userArchiveHidden($user)) {
+            return [];
+        }
+
+        $query = [];
+        $startIso = self::normalizeArchiveTime($start);
+        if ($startIso !== null) {
+            $query['start'] = $startIso;
+        }
+        $endIso = self::normalizeArchiveTime($end);
+        if ($endIso !== null) {
+            $query['end'] = $endIso;
+        }
+        return $query;
+    }
+
+    private static function normalizeArchiveTime(string $value): ?string
+    {
+        $value = trim($value);
+        if ($value === '') {
+            return null;
+        }
+        try {
+            $time = new \DateTimeImmutable($value);
+        } catch (\Throwable) {
+            return null;
+        }
+        $ts = $time->getTimestamp();
+        if ($ts <= 0 || $ts > time() + 3600) {
+            return null;
+        }
+        return $time->format('Y-m-d\TH:i:sP');
     }
 
     private static function toggleFavorite(): void

@@ -383,6 +383,7 @@ printf "%s" "$admin_users_page" | grep -F -q 'data-group-tree-clear-all'
 printf "%s" "$admin_users_page" | grep -F -q 'data-submit-progress="Сохраняем пользователя...'
 printf "%s" "$admin_users_page" | grep -F -q 'data-submit-status'
 printf "%s" "$admin_users_page" | grep -F -q 'name="admin_comment"'
+printf "%s" "$admin_users_page" | grep -F -q 'name="phone"'
 printf "%s" "$admin_users_page" | grep -F -q 'name="hide_archive"'
 printf "%s" "$admin_users_page" | grep -F -q 'name="mosaic_enabled"'
 printf "%s" "$admin_users_page" | grep -F -q 'name="folder_id"'
@@ -436,7 +437,7 @@ printf "%s" "$admin_groups" | grep -q "folder-form"
 printf "%s" "$admin_groups" | grep -F -q 'name="folder_name"'
 printf "%s" "$admin_groups" | grep -F -q 'name="action" value="save_folder"'
 printf "%s" "$admin_groups" | grep -q "Smoke Folder"
-printf "%s" "$admin_groups" | grep -F -q 'aria-label="Изменить"'
+printf "%s" "$admin_groups" | grep -F -q '>Изменить</a>'
 printf "%s" "$admin_groups" | grep -F -q 'class="folder-cameras-grid"'
 printf "%s" "$admin_groups" | grep -F -q 'href="/admin/cameras?edit=1&amp;back=%2Fadmin%2Fgroups%3Fedit%3D1%26tab%3D2"'
 printf "%s" "$admin_groups" | grep -q "folder-action-dropdown"
@@ -664,6 +665,19 @@ printf "%s" "$preview_headers" | grep -E -q '^HTTP/[0-9.]+ 302'
 printf "%s" "$preview_headers" | grep -F -q "Location: https://dvr.example.invalid/smoke-cam/preview.jpg?token="
 printf "%s" "$preview_headers" | grep -F -q "_=smoke"
 printf "%s" "$preview_headers" | grep -F -q "Cache-Control: no-store"
+events_page="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/viewer/events?hours=24")"
+printf "%s" "$events_page" | grep -q "event-grid"
+printf "%s" "$events_page" | grep -F -q 'class="events-filter"'
+printf "%s" "$events_page" | grep -F -q 'name="cameraId"'
+printf "%s" "$events_page" | grep -F -q 'name="hours"'
+printf "%s" "$events_page" | grep -q "event-card"
+printf "%s" "$events_page" | grep -q "Движение"
+printf "%s" "$events_page" | grep -F -q 'href="/viewer/player?id='
+printf "%s" "$events_page" | grep -F -q 'src="/viewer/preview?id='
+printf "%s" "$events_page" | grep -F -q '&ts='
+events_frame_headers="$(curl -sS -D - -o /dev/null -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/viewer/preview?id=3&ts=$(date +%s)")"
+printf "%s" "$events_frame_headers" | grep -q "^HTTP/[0-9.]* 200"
+printf "%s" "$events_frame_headers" | grep -i "Content-Type: image/jpeg"
 printf "%s" "$mosaic_page" | grep -q "group-filter"
 ! printf "%s" "$mosaic_page" | grep -q "group-tree-picker"
 ! printf "%s" "$mosaic_page" | grep -q "Smoke Group"
@@ -1499,5 +1513,76 @@ onboarding_no_login="$(
 )"
 # Should redirect (302 or 303) to /login
 test "$onboarding_no_login" = "302" || test "$onboarding_no_login" = "303"
+
+# Phone callback authorization (Вход по звонку)
+callback_phone="79000000001"
+callback_user_login="smoke-callback-user"
+callback_setup_output="$(
+  P="$callback_phone" L="$callback_user_login" php <<'PHP'
+<?php
+require getenv('ROOT') . '/app/Portal.php';
+$phone = getenv('P');
+$login = getenv('L');
+$stmt = \SesamePortal\DB::pdo()->prepare('SELECT id FROM users WHERE phone = ?');
+$stmt->execute([$phone]);
+if ($stmt->fetchColumn() === false) {
+    \SesamePortal\DB::pdo()->prepare('INSERT INTO users(login, phone, password_hash, role, blocked, created_at) VALUES(?, ?, ?, ?, ?, ?)')
+        ->execute([$login, $phone, password_hash('x', PASSWORD_DEFAULT), 'user', 0, '2026-01-01 00:00:00']);
+}
+\SesamePortal\DB::setSetting('callback_enabled', '1');
+\SesamePortal\DB::setSetting('callback_phone', $phone);
+\SesamePortal\DB::setSetting('callback_webhook_token', 'smoke-callback-secret-1');
+echo 'setup ok';
+PHP
+)"
+test "$callback_setup_output" = "setup ok"
+
+# Login page shows the call-sign-in tab and pane
+callback_login_page="$(curl -fsS "http://127.0.0.1:$PORT/login?lang=ru")"
+printf "%s" "$callback_login_page" | grep -q 'data-login-tab="callback"'
+printf "%s" "$callback_login_page" | grep -q 'name="phone" data-callback-phone'
+
+# Start a callback request and extract pending_id
+callback_start_json="$(curl -fsS -X POST -H 'Content-Type: application/json' \
+  -d "{\"phone\":\"$callback_phone\"}" \
+  "http://127.0.0.1:$PORT/api/portal/v1/auth/callback/start")"
+callback_pending_id="$(printf "%s" "$callback_start_json" | php -r '$d = json_decode(stream_get_contents(STDIN), true); echo (string)($d["pending_id"] ?? "");')"
+test -n "$callback_pending_id"
+
+# Wrong webhook token is rejected with 403
+callback_webhook_bad_status="$(
+  curl -sS -o /dev/null -w '%{http_code}' -X POST -H 'Authorization: Bearer wrong-token' -H 'Content-Type: application/json' \
+    -d "{\"phone\":\"$callback_phone\"}" \
+    "http://127.0.0.1:$PORT/api/portal/v1/auth/callback/webhook"
+)"
+test "$callback_webhook_bad_status" = "403"
+
+# Correct webhook token confirms the pending request
+callback_webhook_json="$(curl -fsS -X POST -H 'Authorization: Bearer smoke-callback-secret-1' -H 'Content-Type: application/json' \
+  -d "{\"phone\":\"$callback_phone\",\"call_id\":\"smoke-call-1\"}" \
+  "http://127.0.0.1:$PORT/api/portal/v1/auth/callback/webhook")"
+printf "%s" "$callback_webhook_json" | grep -q '"ok": true'
+
+# Poll shows the request as confirmed
+callback_poll_json="$(curl -fsS "http://127.0.0.1:$PORT/api/portal/v1/auth/callback/poll?pending_id=$callback_pending_id")"
+printf "%s" "$callback_poll_json" | grep -q '"status": "confirmed"'
+
+# Complete signs the user in (a browser session is created) and redirects to /
+CALLBACK_COOKIE_JAR="$STATE_DIR/callback-cookies.txt"
+callback_complete_json="$(curl -fsS -c "$CALLBACK_COOKIE_JAR" -X POST -H 'Content-Type: application/json' \
+  -d "{\"pending_id\":\"$callback_pending_id\"}" \
+  "http://127.0.0.1:$PORT/api/portal/v1/auth/callback/complete")"
+printf "%s" "$callback_complete_json" | grep -q '"redirect": "/"'
+callback_me="$(curl -fsS -b "$CALLBACK_COOKIE_JAR" "http://127.0.0.1:$PORT/api/portal/v1/me")"
+printf "%s" "$callback_me" | grep -q "\"login\": \"$callback_user_login\""
+printf "%s" "$callback_me" | grep -q "\"phone\": \"$callback_phone\""
+
+# Unregistered phone is rejected with 401 (anti-enumeration delay applied)
+callback_unknown_status="$(
+  curl -sS -o /dev/null -w '%{http_code}' -X POST -H 'Content-Type: application/json' \
+    -d '{"phone":"79999999999"}' \
+    "http://127.0.0.1:$PORT/api/portal/v1/auth/callback/start"
+)"
+test "$callback_unknown_status" = "401"
 
 echo "http smoke ok"

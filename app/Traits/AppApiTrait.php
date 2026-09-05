@@ -26,6 +26,7 @@ trait AppApiTrait
                         'favorites',
                         'agents',
                         'audit',
+                        'auth',
                     ],
                 ]),
                 'me' => self::apiMe($parts),
@@ -38,6 +39,7 @@ trait AppApiTrait
                 'favorites' => self::apiFavorites($parts),
                 'agents' => self::apiAgents($parts),
                 'audit' => self::apiAudit($parts),
+                'auth' => self::apiAuthCallback($parts),
                 default => self::apiError(404, 'not_found', 'Unknown API endpoint'),
             };
         } catch (\Throwable $error) {
@@ -216,6 +218,268 @@ trait AppApiTrait
         return array_keys($ids);
     }
 
+    private static function apiAuthCallback(array $parts): void
+    {
+        if (($parts[1] ?? '') !== 'callback') {
+            self::apiError(404, 'not_found', 'Unknown auth endpoint');
+            return;
+        }
+        match ($parts[2] ?? '') {
+            'start' => self::callbackAuthStart(),
+            'webhook' => self::callbackAuthWebhook(),
+            'poll' => self::callbackAuthPoll(),
+            'complete' => self::callbackAuthComplete(),
+            default => self::apiError(404, 'not_found', 'Unknown auth callback endpoint'),
+        };
+    }
+
+    private static function callbackEnabled(): bool
+    {
+        return ((string)DB::setting('callback_enabled', '0')) === '1';
+    }
+
+    private static function callbackWebhookToken(): string
+    {
+        return trim((string)DB::setting('callback_webhook_token', ''));
+    }
+
+    private static function callbackPhoneFromSetting(): string
+    {
+        return trim((string)DB::setting('callback_phone', ''));
+    }
+
+    private static function callbackNormalizePhone(mixed $value): string
+    {
+        return self::normalizePhone($value);
+    }
+
+    private static function callbackFormatPhone(string $digits): string
+    {
+        if (strlen($digits) !== 11) {
+            return $digits !== '' ? $digits : '-';
+        }
+        $rest = substr($digits, 1);
+        return '+7 ' . substr($rest, 0, 3) . ' ' . substr($rest, 3, 3) . ' ' . substr($rest, 6, 2) . ' ' . substr($rest, 8, 2);
+    }
+
+    private static function callbackCleanup(): void
+    {
+        try {
+            DB::pdo()->prepare('DELETE FROM auth_callback_requests WHERE expires_at < ?')
+                ->execute([gmdate('c', time() - 86400)]);
+        } catch (\Throwable) {
+        }
+    }
+
+    private static function callbackAuthStart(): void
+    {
+        if (self::apiMethod() !== 'POST') {
+            self::apiError(405, 'method_not_allowed', 'POST required');
+            return;
+        }
+        self::callbackCleanup();
+        if (!self::callbackEnabled()) {
+            self::apiError(401, 'callback_disabled', 'Callback authorization is not enabled');
+            return;
+        }
+        if (self::callbackPhoneFromSetting() === '') {
+            self::apiError(409, 'callback_not_configured', 'Callback phone number is not configured');
+            return;
+        }
+
+        $input = self::apiInput();
+        $phone = self::callbackNormalizePhone((string)($input['phone'] ?? ''));
+        if ($phone === '') {
+            self::apiError(422, 'invalid_phone', 'Invalid phone number');
+            return;
+        }
+
+        $ip = Audit::clientIp();
+        $rateWindow = gmdate('c', time() - 60);
+        $stmt = DB::pdo()->prepare('SELECT COUNT(*) FROM auth_callback_requests WHERE ip = ? AND created_at > ?');
+        $stmt->execute([$ip, $rateWindow]);
+        if ((int)$stmt->fetchColumn() >= 5) {
+            self::apiError(429, 'rate_limited', 'Too many attempts', ['retry_after_seconds' => 60]);
+            return;
+        }
+
+        $stmt = DB::pdo()->prepare('SELECT id, login, blocked FROM users WHERE phone = ?');
+        $stmt->execute([$phone]);
+        $user = $stmt->fetch();
+        if (!$user || (int)$user['blocked'] === 1) {
+            usleep(500000);
+            self::apiError(401, 'user_not_found', 'No account for this phone number');
+            return;
+        }
+
+        $stmt = DB::pdo()->prepare("SELECT pending_id FROM auth_callback_requests WHERE phone = ? AND status = 'pending' AND expires_at > ?");
+        $stmt->execute([$phone, Util::now()]);
+        if ($stmt->fetchColumn() !== false) {
+            self::apiError(429, 'pending_exists', 'A callback request is already active', ['retry_after_seconds' => 60]);
+            return;
+        }
+
+        $pendingId = Util::randomToken(24);
+        $now = Util::now();
+        $expires = gmdate('c', time() + 120);
+        DB::pdo()->prepare('INSERT INTO auth_callback_requests(pending_id, phone, status, created_at, expires_at, ip) VALUES(?, ?, ?, ?, ?, ?)')
+            ->execute([$pendingId, $phone, 'pending', $now, $expires, $ip]);
+        Audit::logForUser((int)$user['id'], 'auth.callback.started', 'user_id=' . (int)$user['id'] . ' ip=' . $ip);
+
+        self::apiJson([
+            'ok' => true,
+            'pending_id' => $pendingId,
+            'callback_phone' => self::callbackFormatPhone(self::callbackPhoneFromSetting()),
+            'lifetime_seconds' => 120,
+        ]);
+    }
+
+    private static function callbackAuthWebhook(): void
+    {
+        if (self::apiMethod() !== 'POST') {
+            self::apiError(405, 'method_not_allowed', 'POST required');
+            return;
+        }
+        self::callbackCleanup();
+        if (!self::callbackEnabled()) {
+            self::apiError(401, 'callback_disabled', 'Callback authorization is not enabled');
+            return;
+        }
+        $expected = self::callbackWebhookToken();
+        if ($expected === '') {
+            self::apiError(401, 'webhook_not_configured', 'Webhook token is not configured');
+            return;
+        }
+
+        $authorization = (string)($_SERVER['HTTP_AUTHORIZATION'] ?? $_SERVER['REDIRECT_HTTP_AUTHORIZATION'] ?? '');
+        $provided = '';
+        if (preg_match('/^Bearer\s+(.+)$/i', $authorization, $match)) {
+            $provided = trim($match[1]);
+        }
+        if ($provided === '') {
+            $provided = trim((string)($_SERVER['HTTP_X_CALLBACK_TOKEN'] ?? ''));
+        }
+        if (!hash_equals($expected, $provided)) {
+            self::apiError(403, 'invalid_token', 'Invalid webhook token');
+            return;
+        }
+
+        $input = self::apiInput();
+        $phone = self::callbackNormalizePhone((string)($input['phone'] ?? ''));
+        if ($phone === '') {
+            self::apiError(422, 'invalid_phone', 'Invalid phone number');
+            return;
+        }
+
+        $now = Util::now();
+        $stmt = DB::pdo()->prepare("UPDATE auth_callback_requests SET status = 'confirmed', confirmed_at = ? WHERE phone = ? AND status = 'pending' AND expires_at > ?");
+        $stmt->execute([$now, $phone, $now]);
+        if ($stmt->rowCount() <= 0) {
+            self::apiError(404, 'no_active_request', 'No active callback request for this phone');
+            return;
+        }
+
+        $stmt = DB::pdo()->prepare('SELECT id FROM users WHERE phone = ? AND blocked = 0');
+        $stmt->execute([$phone]);
+        $userId = $stmt->fetchColumn();
+        if ($userId !== false && $userId !== null) {
+            Audit::logForUser((int)$userId, 'auth.callback.confirmed', 'user_id=' . (int)$userId . ' phone=' . Audit::cleanValue($phone) . ' ip=' . Audit::clientIp());
+        } else {
+            Audit::logForUser(null, 'auth.callback.confirmed', 'phone=' . Audit::cleanValue($phone) . ' ip=' . Audit::clientIp());
+        }
+
+        self::apiJson(['ok' => true]);
+    }
+
+    private static function callbackAuthPoll(): void
+    {
+        if (self::apiMethod() !== 'GET') {
+            self::apiError(405, 'method_not_allowed', 'GET required');
+            return;
+        }
+        $pendingId = trim((string)($_GET['pending_id'] ?? ''));
+        if ($pendingId === '') {
+            self::apiError(400, 'missing_pending_id', 'Missing pending_id');
+            return;
+        }
+
+        $stmt = DB::pdo()->prepare('SELECT status, expires_at FROM auth_callback_requests WHERE pending_id = ?');
+        $stmt->execute([$pendingId]);
+        $row = $stmt->fetch();
+        if (!$row) {
+            self::apiError(404, 'request_not_found', 'Callback request not found');
+            return;
+        }
+
+        $status = (string)$row['status'];
+        if ($status === 'pending' && strtotime((string)$row['expires_at']) <= time()) {
+            $status = 'expired';
+            DB::pdo()->prepare("UPDATE auth_callback_requests SET status = 'expired' WHERE pending_id = ?")
+                ->execute([$pendingId]);
+        }
+        self::apiJson(['ok' => true, 'status' => $status]);
+    }
+
+    private static function callbackAuthComplete(): void
+    {
+        if (self::apiMethod() !== 'POST') {
+            self::apiError(405, 'method_not_allowed', 'POST required');
+            return;
+        }
+        $input = self::apiInput();
+        $pendingId = trim((string)($input['pending_id'] ?? ''));
+        if ($pendingId === '') {
+            self::apiError(400, 'missing_pending_id', 'Missing pending_id');
+            return;
+        }
+
+        $stmt = DB::pdo()->prepare('SELECT phone, status, expires_at FROM auth_callback_requests WHERE pending_id = ?');
+        $stmt->execute([$pendingId]);
+        $row = $stmt->fetch();
+        if (!$row) {
+            self::apiError(404, 'request_not_found', 'Callback request not found');
+            return;
+        }
+
+        $status = (string)$row['status'];
+        if ($status === 'pending') {
+            self::apiError(409, 'not_confirmed', 'Callback request is not confirmed yet');
+            return;
+        }
+        if ($status !== 'confirmed') {
+            self::apiError(409, 'request_expired', 'Callback request is not confirmable', ['status' => $status]);
+            return;
+        }
+        if (strtotime((string)$row['expires_at']) <= time()) {
+            DB::pdo()->prepare("UPDATE auth_callback_requests SET status = 'expired' WHERE pending_id = ?")
+                ->execute([$pendingId]);
+            self::apiError(409, 'request_expired', 'Callback request has expired');
+            return;
+        }
+
+        $phone = (string)$row['phone'];
+        $stmt = DB::pdo()->prepare('SELECT id FROM users WHERE phone = ? AND blocked = 0');
+        $stmt->execute([$phone]);
+        $user = $stmt->fetch();
+        if (!$user) {
+            self::apiError(401, 'user_not_found', 'No account for this phone number');
+            return;
+        }
+
+        if (session_status() !== PHP_SESSION_ACTIVE) {
+            session_start();
+        }
+        session_regenerate_id(true);
+        $_SESSION['user_id'] = (int)$user['id'];
+        DB::pdo()->prepare("UPDATE auth_callback_requests SET status = 'completed' WHERE pending_id = ?")
+            ->execute([$pendingId]);
+        DB::pdo()->prepare('UPDATE users SET last_login_at = ? WHERE id = ?')
+            ->execute([Util::now(), (int)$user['id']]);
+        Audit::logForUser((int)$user['id'], 'auth.callback.login', 'user_id=' . (int)$user['id'] . ' phone=' . Audit::cleanValue($phone) . ' ip=' . Audit::clientIp());
+
+        self::apiJson(['ok' => true, 'redirect' => '/']);
+    }
+
     private static function formIntArray(string $jsonKey, string $fallbackKey): array
     {
         if (array_key_exists($jsonKey, $_POST)) {
@@ -386,6 +650,12 @@ trait AppApiTrait
         }
 
         $login = trim((string)($input['login'] ?? ($current['login'] ?? '')));
+        $phoneInput = ($input['phone'] ?? ($current['phone'] ?? ''));
+        $phone = self::normalizePhone($phoneInput);
+        if ((string)$phoneInput !== '' && $phone === '') {
+            self::apiError(422, 'validation_failed', 'invalid phone number');
+            return;
+        }
         $password = (string)($input['password'] ?? '');
         $role = ($input['role'] ?? ($current['role'] ?? 'user')) === 'admin' ? 'admin' : 'user';
         $blocked = self::apiBlockedValue($input, $current);
@@ -411,6 +681,12 @@ trait AppApiTrait
             self::apiUserLoginExists($existing);
             return;
         }
+        if ($phone !== '' && self::phoneTakenByOther($phone, $id)) {
+            self::apiError(409, 'phone_exists', 'phone number already exists', [
+                'existingId' => (int)(self::userByPhone($phone)['id'] ?? 0),
+            ]);
+            return;
+        }
         if (array_key_exists('folderIds', $input) || array_key_exists('folder_ids', $input)) {
             $folderIds = self::apiIntArray($input['folderIds'] ?? $input['folder_ids'] ?? []);
             self::apiValidateExistingIds('folderIds', 'group_folders', $folderIds);
@@ -431,15 +707,15 @@ trait AppApiTrait
                         self::apiError(422, 'validation_failed', 'password must be at least 6 characters');
                         return;
                     }
-                    $pdo->prepare('UPDATE users SET login=?, password_hash=?, role=?, blocked=?, hide_archive=?, can_rename_cameras=?, admin_comment=? WHERE id=?')
-                        ->execute([$login, password_hash($password, PASSWORD_DEFAULT), $role, $blocked, $hideArchive, $canRenameCameras, $adminComment, $id]);
+                    $pdo->prepare('UPDATE users SET login=?, phone=?, password_hash=?, role=?, blocked=?, hide_archive=?, can_rename_cameras=?, admin_comment=? WHERE id=?')
+                        ->execute([$login, $phone, password_hash($password, PASSWORD_DEFAULT), $role, $blocked, $hideArchive, $canRenameCameras, $adminComment, $id]);
                 } else {
-                    $pdo->prepare('UPDATE users SET login=?, role=?, blocked=?, hide_archive=?, can_rename_cameras=?, admin_comment=? WHERE id=?')
-                        ->execute([$login, $role, $blocked, $hideArchive, $canRenameCameras, $adminComment, $id]);
+                    $pdo->prepare('UPDATE users SET login=?, phone=?, role=?, blocked=?, hide_archive=?, can_rename_cameras=?, admin_comment=? WHERE id=?')
+                        ->execute([$login, $phone, $role, $blocked, $hideArchive, $canRenameCameras, $adminComment, $id]);
                 }
             } else {
-                $pdo->prepare('INSERT INTO users(login, password_hash, role, blocked, hide_archive, can_rename_cameras, admin_comment, daily_token, daily_token_date, created_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
-                    ->execute([$login, password_hash($password, PASSWORD_DEFAULT), $role, $blocked, $hideArchive, $canRenameCameras, $adminComment, Util::randomToken(), TokenService::today(), Util::now()]);
+                $pdo->prepare('INSERT INTO users(login, phone, password_hash, role, blocked, hide_archive, can_rename_cameras, admin_comment, daily_token, daily_token_date, created_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+                    ->execute([$login, $phone, password_hash($password, PASSWORD_DEFAULT), $role, $blocked, $hideArchive, $canRenameCameras, $adminComment, Util::randomToken(), TokenService::today(), Util::now()]);
                 $id = DB::lastInsertId('users');
             }
             if ($folderIds !== null) {
@@ -456,7 +732,7 @@ trait AppApiTrait
             }
             throw $error;
         }
-        $after = self::rowById('users', $id) ?: ['login' => $login, 'role' => $role, 'blocked' => $blocked, 'hide_archive' => $hideArchive];
+        $after = self::rowById('users', $id) ?: ['login' => $login, 'phone' => $phone, 'role' => $role, 'blocked' => $blocked, 'hide_archive' => $hideArchive];
         $afterFolderIds = self::linkedIds('user_folders', 'user_id', $id, 'folder_id');
         self::logUserSaveAudit($actor, $id, $current, $after, $beforeFolderIds, $afterFolderIds);
         self::apiJson(['user' => self::apiUserRow($after, true, true)], $current ? 200 : 201);
@@ -1432,6 +1708,7 @@ trait AppApiTrait
         $row = [
             'id' => (int)$user['id'],
             'login' => (string)$user['login'],
+            'phone' => (string)($user['phone'] ?? ''),
             'role' => (string)$user['role'],
             'blocked' => (int)($user['blocked'] ?? 0) === 1,
             'hideArchive' => (int)($user['hide_archive'] ?? 0) === 1,

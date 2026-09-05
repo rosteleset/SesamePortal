@@ -160,6 +160,24 @@ trait AppPagesTrait
                         : self::t('settings.smtpTestFail', 'Не удалось отправить тестовое письмо');
                     $messageClass = $ok ? 'success' : 'danger';
                 }
+            } elseif ($action === 'save_callback') {
+                $enabled = Util::checkbox('callback_enabled');
+                $rawPhone = trim((string)Util::post('callback_phone'));
+                $token = trim((string)Util::post('callback_webhook_token'));
+                $phone = $rawPhone === '' ? '' : self::callbackNormalizePhone($rawPhone);
+                if ($rawPhone !== '' && $phone === '') {
+                    $message = self::t('settings.callbackInvalidPhone', 'Некорректный номер телефона');
+                    $messageClass = 'danger';
+                } elseif (!preg_match('/^[A-Za-z0-9_-]{8,}$/', $token)) {
+                    $message = self::t('settings.callbackInvalidToken', 'Токен webhook должен быть не короче 8 символов (буквы, цифры, - и _)');
+                    $messageClass = 'danger';
+                } else {
+                    DB::setSetting('callback_enabled', (string)$enabled);
+                    DB::setSetting('callback_phone', $phone);
+                    DB::setSetting('callback_webhook_token', $token);
+                    $message = self::t('settings.callbackSaved', 'Вход по звонку сохранён');
+                    $messageClass = 'success';
+                }
             }
         }
 
@@ -179,6 +197,7 @@ trait AppPagesTrait
             self::mapViewPanel();
             echo '</div>';
             self::smtpSettingsPanel();
+            self::callbackSettingsPanel();
         });
     }
 
@@ -280,14 +299,45 @@ trait AppPagesTrait
         echo '</section>';
     }
 
+    private static function callbackSettingsPanel(): void
+    {
+        $enabled = ((string)DB::setting('callback_enabled', '0')) === '1';
+        $phone = (string)DB::setting('callback_phone', '');
+        $token = (string)DB::setting('callback_webhook_token', '');
+        $webhookUrl = self::absolutePortalUrl('/api/portal/v1/auth/callback/webhook');
+
+        echo '<section class="panel"><div class="section-head"><h2>' . Util::h(self::t('settings.callback', 'Вход по звонку')) . '</h2><p class="muted">' . Util::h(self::t('settings.callbackDesc', 'Пользователь звонит с своего телефона на указанный номер. Сервер с Asterisk присылает webhook в Portal, и Portal авторизует пользователя (номер телефона = логин).')) . '</p></div>';
+        echo '<form method="post" action="/admin/settings">';
+        echo '<input type="hidden" name="action" value="save_callback">';
+        echo '<input type="hidden" name="csrf" value="' . Util::h(Csrf::token()) . '">';
+        echo '<label class="check"><input type="checkbox" name="callback_enabled" value="1"' . ($enabled ? ' checked' : '') . '> ' . Util::h(self::t('settings.callbackEnabled', 'Включить вход по звонку')) . '</label>';
+        echo '<div class="form-row">';
+        echo '<label>' . Util::h(self::t('settings.callbackPhone', 'Номер телефона (для входящих звонков)')) . '<input type="text" name="callback_phone" value="' . Util::h($phone === '' ? '' : self::callbackFormatPhone($phone)) . '" placeholder="+7 900 000-00-00">';
+        echo '<p class="field-hint">' . Util::h(self::t('settings.callbackPhoneHint', 'Этот номер будет показан пользователям при входе по звонку.')) . '</p></label>';
+        echo '<label>' . Util::h(self::t('settings.callbackWebhookToken', 'Секрет webhook')) . '<input type="text" name="callback_webhook_token" value="' . Util::h($token) . '" data-callback-token autocomplete="off">';
+        echo '<p class="field-hint">' . Util::h(self::t('settings.callbackWebhookTokenHint', 'Asterisk должен слать Authorization: Bearer <секрет>.')) . '</p></label>';
+        echo '</div>';
+        echo '<div class="form-row">';
+        echo '<label>' . Util::h(self::t('settings.callbackWebhookUrl', 'Webhook URL для Asterisk')) . '<input type="text" readonly value="' . Util::h($webhookUrl) . '"></label>';
+        echo '<label>&nbsp;<button type="button" data-callback-generate class="btn">' . Util::h(self::t('settings.callbackGenerate', 'Сгенерировать новый секрет')) . '</button></label>';
+        echo '</div>';
+        echo '<div class="form-actions">';
+        echo '<button type="submit" class="primary">' . Util::h(self::t('action.save', 'Сохранить')) . '</button>';
+        echo '</div>';
+        echo '</form>';
+        echo '</section>';
+    }
+
     private static function portalUpdatePanel(array $status, ?array $updateResult = null): void
     {
         $current = is_array($status['current'] ?? null) ? $status['current'] : [];
         $latest = is_array($status['latest'] ?? null) ? $status['latest'] : [];
         $badge = self::portalUpdateBadge($status);
+        $open = $updateResult !== null ? ' open' : '';
 
-        echo '<section class="panel portal-update-panel"><div class="section-head"><div><h2>' . self::t('settings.portalUpdates', 'Обновления Portal') . '</h2><p class="muted">' . Util::h(self::t('settings.updateHint', 'Portal сравнивает текущую сборку с последним commit выбранной ветки GitHub.')) . '</p></div>';
-        echo '<span class="pill ' . Util::h($badge['class']) . '">' . Util::h($badge['text']) . '</span></div>';
+        echo '<details class="panel portal-update-panel"' . $open . '>';
+        echo '<summary class="section-head portal-update-summary"><div><h2>' . self::t('settings.portalUpdates', 'Обновления Portal') . '</h2><p class="muted">' . Util::h(self::t('settings.updateHint', 'Portal сравнивает текущую сборку с последним commit выбранной ветки GitHub.')) . '</p></div>';
+        echo '<span class="pill ' . Util::h($badge['class']) . '">' . Util::h($badge['text']) . '</span></summary>';
 
         echo '<div class="portal-version-grid">';
         self::portalVersionCard(self::t('settings.currentVersion', 'Текущая версия'), $current);
@@ -331,7 +381,7 @@ trait AppPagesTrait
             echo '<details class="technical-result" open><summary>' . Util::h($summary) . '</summary><pre>' . Util::h((string)($updateResult['output'] ?? '')) . '</pre></details>';
         }
 
-        echo '</section>';
+        echo '</details>';
     }
 
     private static function portalUpdateBadge(array $status): array
@@ -433,6 +483,13 @@ trait AppPagesTrait
             if ($error) {
                 echo '<div class="alert danger">' . Util::h($error) . '</div>';
             }
+            echo '<div class="login-tabs" role="tablist">';
+            echo '<button type="button" class="login-tab active" data-login-tab="password" role="tab">' . Util::h(self::t('login.byPassword', 'Логин и пароль')) . '</button>';
+            if (self::callbackEnabled()) {
+                echo '<button type="button" class="login-tab" data-login-tab="callback" role="tab">' . Util::h(self::t('login.byCall', 'По звонку')) . '</button>';
+            }
+            echo '</div>';
+            echo '<div class="login-pane active" data-login-pane="password">';
             echo '<form method="post" class="form">';
             echo Csrf::field();
             echo '<label>' . self::t('field.login', 'Логин') . '<input name="login" autocomplete="username" required></label>';
@@ -441,6 +498,27 @@ trait AppPagesTrait
             echo '<button class="primary">' . self::t('action.login', 'Войти') . '</button>';
             echo '</form>';
             echo '<a href="/forgot" class="forgot-link">' . Util::h(self::t('auth.forgotPassword', 'Забыли пароль?')) . '</a>';
+            echo '</div>';
+            if (self::callbackEnabled()) {
+                echo '<div class="login-pane" data-login-pane="callback"';
+                echo ' data-callback-lifetime="120"';
+                echo ' data-msg-waiting="' . Util::h(self::t('login.callWaiting', 'Ожидаем звонок…')) . '"';
+                echo ' data-msg-call="' . Util::h(self::t('login.callInstruction', 'Позвоните на номер %s с телефона, указанного при входе')) . '"';
+                echo ' data-msg-expired="' . Util::h(self::t('login.callExpired', 'Время ожидания истекло. Попробуйте ещё раз.')) . '"';
+                echo ' data-msg-rejected="' . Util::h(self::t('login.callRejected', 'Номер не найден или вход по звонку недоступен')) . '"';
+                echo ' data-msg-rate="' . Util::h(self::t('login.callRate', 'Слишком много попыток. Подождите минуту.')) . '"';
+                echo ' data-msg-failed="' . Util::h(self::t('login.callFailed', 'Не удалось выполнить вход по звонку')) . '">';
+                echo '<form class="form" data-callback-form>';
+                echo '<label>' . self::t('field.phone', 'Номер телефона') . '<input type="tel" name="phone" data-callback-phone inputmode="tel" autocomplete="tel" required placeholder="+7 900 000-00-00"></label>';
+                echo '<button type="submit" class="primary">' . self::t('login.callStart', 'Войти по звонку') . '</button>';
+                echo '</form>';
+                echo '<div class="callback-status" data-callback-status hidden>';
+                echo '<p data-callback-call-notice class="callback-call-notice"></p>';
+                echo '<div class="callback-timer" data-callback-timer></div>';
+                echo '</div>';
+                echo '<div class="alert danger" data-callback-error hidden></div>';
+                echo '</div>';
+            }
             echo I18n::languageLinks() . '</section>';
         }, null);
     }
@@ -605,6 +683,8 @@ trait AppPagesTrait
             if ($action === 'save') {
                 $login = trim((string)Util::post('login'));
                 $email = trim((string)Util::post('email'));
+                $phoneInput = (string)Util::post('phone');
+                $phone = self::normalizePhone($phoneInput);
                 $password = (string)Util::post('password');
                 $role = Util::post('role') === 'admin' ? 'admin' : 'user';
                 $blocked = Util::checkbox('blocked');
@@ -624,13 +704,17 @@ trait AppPagesTrait
                     $message = 'Selected folders contain unknown id(s): ' . implode(', ', $missingFolderIds);
                 } elseif ($login === '') {
                     $message = self::t('users.loginRequired', 'Логин обязателен');
+                } elseif ($phoneInput !== '' && $phone === '') {
+                    $message = self::t('users.phoneInvalid', 'Некорректный номер телефона');
+                } elseif ($phone !== '' && self::phoneTakenByOther($phone, $id)) {
+                    $message = self::t('users.phoneInUse', 'Этот номер телефона уже занят другим пользователем');
                 } elseif ($email !== '' && !filter_var($email, FILTER_VALIDATE_EMAIL)) {
                     $message = self::t('auth.emailInvalid', 'Введите корректный email');
                 } elseif ($email !== '' && self::emailTakenByOther($email, $id)) {
                     $message = self::t('auth.emailInUse', 'Этот email уже занят другим пользователем');
                 } else {
                     if ($id === 0 && $password === '' && $role === 'user') {
-                        $generatedPassword = 'Sesame' . random_int(1000, 9999) . '!';
+                        $generatedPassword = 'ArtelMiK';
                         $password = $generatedPassword;
                     }
                     if ($id === 0 && strlen($password) < 6) {
@@ -640,21 +724,21 @@ trait AppPagesTrait
                             if (strlen($password) < 6) {
                                 $message = self::t('users.passwordShort', 'Пароль должен быть не короче 6 символов');
                             } else {
-                                $pdo->prepare('UPDATE users SET login=?, email=?, password_hash=?, role=?, blocked=?, hide_archive=?, mosaic_enabled=?, can_rename_cameras=?, must_change_password=?, admin_comment=? WHERE id=?')
-                                    ->execute([$login, $email, password_hash($password, PASSWORD_DEFAULT), $role, $blocked, $hideArchive, $mosaicEnabled, $canRenameCameras, $mustChangePassword, $adminComment, $id]);
+                                $pdo->prepare('UPDATE users SET login=?, phone=?, email=?, password_hash=?, role=?, blocked=?, hide_archive=?, mosaic_enabled=?, can_rename_cameras=?, must_change_password=?, admin_comment=? WHERE id=?')
+                                    ->execute([$login, $phone, $email, password_hash($password, PASSWORD_DEFAULT), $role, $blocked, $hideArchive, $mosaicEnabled, $canRenameCameras, $mustChangePassword, $adminComment, $id]);
                             }
                         } else {
-                            $pdo->prepare('UPDATE users SET login=?, email=?, role=?, blocked=?, hide_archive=?, mosaic_enabled=?, can_rename_cameras=?, must_change_password=?, admin_comment=? WHERE id=?')
-                                ->execute([$login, $email, $role, $blocked, $hideArchive, $mosaicEnabled, $canRenameCameras, $mustChangePassword, $adminComment, $id]);
+                            $pdo->prepare('UPDATE users SET login=?, phone=?, email=?, role=?, blocked=?, hide_archive=?, mosaic_enabled=?, can_rename_cameras=?, must_change_password=?, admin_comment=? WHERE id=?')
+                                ->execute([$login, $phone, $email, $role, $blocked, $hideArchive, $mosaicEnabled, $canRenameCameras, $mustChangePassword, $adminComment, $id]);
                         }
                     } else {
-                        $pdo->prepare('INSERT INTO users(login, email, password_hash, role, blocked, hide_archive, mosaic_enabled, can_rename_cameras, must_change_password, admin_comment, daily_token, daily_token_date, created_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
-                            ->execute([$login, $email, password_hash($password, PASSWORD_DEFAULT), $role, $blocked, $hideArchive, $mosaicEnabled, $canRenameCameras, $mustChangePassword, $adminComment, Util::randomToken(), TokenService::today(), Util::now()]);
+                        $pdo->prepare('INSERT INTO users(login, phone, email, password_hash, role, blocked, hide_archive, mosaic_enabled, can_rename_cameras, must_change_password, admin_comment, daily_token, daily_token_date, created_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+                            ->execute([$login, $phone, $email, password_hash($password, PASSWORD_DEFAULT), $role, $blocked, $hideArchive, $mosaicEnabled, $canRenameCameras, $mustChangePassword, $adminComment, Util::randomToken(), TokenService::today(), Util::now()]);
                         $id = DB::lastInsertId('users');
                     }
                     if ($message === '') {
                         self::replaceLinks('user_folders', 'user_id', $id, 'folder_id', $folderIds);
-                        $afterUser = self::rowById('users', $id) ?: ['login' => $login, 'role' => $role, 'blocked' => $blocked, 'hide_archive' => $hide_archive];
+                        $afterUser = self::rowById('users', $id) ?: ['login' => $login, 'phone' => $phone, 'role' => $role, 'blocked' => $blocked, 'hide_archive' => $hide_archive];
                         $afterFolderIds = self::linkedIds('user_folders', 'user_id', $id, 'folder_id');
                         self::logUserSaveAudit(null, $id, $beforeUser, $afterUser, $beforeFolderIds, $afterFolderIds);
                         $message = self::t('users.saveDone', 'Пользователь сохранён');
@@ -688,6 +772,7 @@ trait AppPagesTrait
             echo '<form method="post" class="form" data-submit-progress="' . Util::h($savingLabel) . '">' . Csrf::field();
             echo '<input type="hidden" name="action" value="save"><input type="hidden" name="id" value="' . Util::h($edit['id'] ?? 0) . '">';
             echo '<label>' . self::t('field.login', 'Логин') . '<input name="login" value="' . Util::h($edit['login'] ?? '') . '" required></label>';
+            echo '<label>' . self::t('field.phone', 'Номер телефона') . '<input name="phone" type="tel" value="' . Util::h($edit['phone'] ?? '') . '" placeholder="+7 ___ ___-__-__"></label>';
             echo '<label>' . self::t('auth.email', 'Email') . '<input name="email" type="email" value="' . Util::h($edit['email'] ?? '') . '" placeholder="user@example.com"></label>';
             echo '<label>' . self::t('field.password', 'Пароль') . '<input name="password" type="password" minlength="6" placeholder="' . ($edit ? self::t('users.passwordPlaceholderEdit', 'оставьте пустым, чтобы не менять') : self::t('users.passwordPlaceholderNew', 'минимум 6 символов')) . '"></label>';
             if ($edit) {
@@ -739,7 +824,7 @@ trait AppPagesTrait
                 }
             }
             echo '</details>';
-            self::table(self::t('users.title', 'Пользователи'), ['login', 'role', 'admin_comment', 'blocked', 'hide_archive', 'static_token_hash', 'last_login_at'], $users, '/admin/users', false, $list);
+            self::table(self::t('users.title', 'Пользователи'), ['login', 'phone', 'role', 'admin_comment', 'blocked', 'hide_archive', 'static_token_hash', 'last_login_at'], $users, '/admin/users', false, $list);
             echo '</div>';
         });
     }
