@@ -1182,22 +1182,19 @@ tr:last-child td {
   min-width: 112px;
   white-space: nowrap;
 }
-.preview-refresh-control {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
+.form.portal-mosaic-settings-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 12px;
+}
+.portal-mosaic-settings-form label {
+  flex: 0 1 260px;
+  min-width: 0;
+  max-width: 100%;
+}
+.portal-mosaic-settings-form button {
   flex: 0 0 auto;
-  min-width: 210px;
-}
-.preview-refresh-control span {
-  color: var(--muted);
-  font-size: 12px;
-  font-weight: 850;
-  white-space: nowrap;
-}
-.preview-refresh-control select {
-  flex: 0 0 112px;
-  width: 112px;
 }
 .group-filter-results {
   max-width: 100%;

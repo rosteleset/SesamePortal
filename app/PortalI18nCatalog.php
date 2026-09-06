@@ -16,8 +16,74 @@ final class I18nCatalog
             $messages[$locale] ??= [];
             $messages[$locale] += $items;
         }
+        foreach (self::mosaicSettingsTranslations() as $locale => $items) {
+            $messages[$locale] ??= [];
+            $messages[$locale] += $items;
+        }
 
         return $messages;
+    }
+
+    private static function mosaicSettingsTranslations(): array
+    {
+        return [
+            'ru' => [
+                'settings.mosaicSaved' => 'Настройки мозаики сохранены',
+                'settings.previewRefreshInvalid' => 'Выберите допустимый интервал обновления превью.',
+            ],
+            'en' => [
+                'settings.mosaicSaved' => 'Mosaic settings saved',
+                'settings.previewRefreshInvalid' => 'Select a valid preview refresh interval.',
+            ],
+            'de' => [
+                'settings.mosaicSaved' => 'Mosaikeinstellungen gespeichert',
+                'settings.previewRefreshInvalid' => 'Wählen Sie ein gültiges Aktualisierungsintervall für die Vorschau.',
+            ],
+            'fr' => [
+                'settings.mosaicSaved' => 'Paramètres de la mosaïque enregistrés',
+                'settings.previewRefreshInvalid' => 'Sélectionnez un intervalle valide pour actualiser les aperçus.',
+            ],
+            'es' => [
+                'settings.mosaicSaved' => 'Configuración del mosaico guardada',
+                'settings.previewRefreshInvalid' => 'Seleccione un intervalo válido para actualizar las vistas previas.',
+            ],
+            'it' => [
+                'settings.mosaicSaved' => 'Impostazioni del mosaico salvate',
+                'settings.previewRefreshInvalid' => 'Seleziona un intervallo valido per aggiornare le anteprime.',
+            ],
+            'pt' => [
+                'settings.mosaicSaved' => 'Definições do mosaico guardadas',
+                'settings.previewRefreshInvalid' => 'Selecione um intervalo válido para atualizar as prévias.',
+            ],
+            'bg' => [
+                'settings.mosaicSaved' => 'Настройките на мозайката са запазени',
+                'settings.previewRefreshInvalid' => 'Изберете валиден интервал за обновяване на превютата.',
+            ],
+            'pl' => [
+                'settings.mosaicSaved' => 'Ustawienia mozaiki zapisane',
+                'settings.previewRefreshInvalid' => 'Wybierz prawidłowy interwał odświeżania podglądu.',
+            ],
+            'zh' => [
+                'settings.mosaicSaved' => '宫格设置已保存',
+                'settings.previewRefreshInvalid' => '请选择有效的预览刷新间隔。',
+            ],
+            'ja' => [
+                'settings.mosaicSaved' => 'モザイク設定を保存しました',
+                'settings.previewRefreshInvalid' => '有効なプレビュー更新間隔を選択してください。',
+            ],
+            'ko' => [
+                'settings.mosaicSaved' => '모자이크 설정이 저장되었습니다',
+                'settings.previewRefreshInvalid' => '유효한 미리보기 새로고침 간격을 선택하세요.',
+            ],
+            'ar' => [
+                'settings.mosaicSaved' => 'تم حفظ إعدادات الفسيفساء',
+                'settings.previewRefreshInvalid' => 'اختر فترة زمنية صالحة لتحديث المعاينة.',
+            ],
+            'hy' => [
+                'settings.mosaicSaved' => 'Խճանկարի կարգավորումները պահպանվել են',
+                'settings.previewRefreshInvalid' => 'Ընտրեք նախադիտման թարմացման թույլատրելի միջակայք։',
+            ],
+        ];
     }
 
     private static function mapSettingsTranslations(): array

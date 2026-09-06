@@ -769,6 +769,8 @@ final class DB
 
 final class PortalSettings
 {
+    public const DEFAULT_MOSAIC_PREVIEW_REFRESH = '30';
+    public const MOSAIC_PREVIEW_REFRESH_OPTIONS = ['off', '10', '30', '60', '300'];
     public const DEFAULT_MAP_LATITUDE = 25.2048;
     public const DEFAULT_MAP_LONGITUDE = 55.2708;
     public const DEFAULT_MAP_ZOOM = 10;
@@ -777,12 +779,30 @@ final class PortalSettings
     public const DEFAULT_MAP_PROVIDER = 'osm';
     public const MAP_PROVIDERS = ['osm', 'yandex', 'google'];
 
+    private const MOSAIC_PREVIEW_REFRESH_KEY = 'mosaic_preview_refresh';
     private const MAP_LATITUDE_KEY = 'map_default_latitude';
     private const MAP_LONGITUDE_KEY = 'map_default_longitude';
     private const MAP_ZOOM_KEY = 'map_default_zoom';
     private const MAP_PROVIDER_KEY = 'map_provider';
     private const MAP_YANDEX_API_KEY = 'map_yandex_api_key_enc';
     private const MAP_GOOGLE_API_KEY = 'map_google_api_key_enc';
+
+    public static function mosaicPreviewRefresh(): string
+    {
+        $values = self::values([self::MOSAIC_PREVIEW_REFRESH_KEY]);
+        $refresh = $values[self::MOSAIC_PREVIEW_REFRESH_KEY] ?? '';
+        return in_array($refresh, self::MOSAIC_PREVIEW_REFRESH_OPTIONS, true)
+            ? $refresh
+            : self::DEFAULT_MOSAIC_PREVIEW_REFRESH;
+    }
+
+    public static function setMosaicPreviewRefresh(string $refresh): void
+    {
+        if (!in_array($refresh, self::MOSAIC_PREVIEW_REFRESH_OPTIONS, true)) {
+            throw new \InvalidArgumentException('Invalid mosaic preview refresh interval');
+        }
+        self::storeValues([self::MOSAIC_PREVIEW_REFRESH_KEY => $refresh]);
+    }
 
     public static function mapCenter(): array
     {
@@ -6139,6 +6159,7 @@ final class App
         $updateResult = null;
         $forceCheck = false;
         $mapSettings = PortalSettings::mapConfiguration();
+        $previewRefresh = PortalSettings::mosaicPreviewRefresh();
 
         if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
             $action = (string)Util::post('action');
@@ -6151,6 +6172,18 @@ final class App
                     ? self::t('settings.updateDone', 'Обновление Portal выполнено')
                     : self::t('settings.updateFailed', 'Обновление Portal не выполнено');
                 $messageClass = !empty($updateResult['ok']) ? 'success' : 'danger';
+            } elseif ($action === 'save_mosaic_settings') {
+                $refreshInput = Util::post('mosaic_preview_refresh');
+                try {
+                    PortalSettings::setMosaicPreviewRefresh(is_string($refreshInput) ? $refreshInput : '');
+                    $previewRefresh = PortalSettings::mosaicPreviewRefresh();
+                    $message = self::t('settings.mosaicSaved', 'Настройки мозаики сохранены');
+                    $messageClass = 'success';
+                    Audit::log('settings.mosaic.save', 'preview_refresh=' . $previewRefresh . ' ip=' . Audit::clientIp());
+                } catch (\InvalidArgumentException) {
+                    $message = self::t('settings.previewRefreshInvalid', 'Выберите допустимый интервал обновления превью.');
+                    $messageClass = 'danger';
+                }
             } elseif ($action === 'save_map_settings' || $action === 'save_map_center') {
                 $latitudeInput = trim((string)Util::post('map_default_latitude'));
                 $longitudeInput = trim((string)Util::post('map_default_longitude'));
@@ -6248,11 +6281,21 @@ final class App
             $messageClass = empty($status['checkError']) ? 'success' : 'danger';
         }
 
-        self::layout(self::t('settings.title', 'Настройки'), function () use ($message, $messageClass, $status, $updateResult, $mapSettings) {
+        self::layout(self::t('settings.title', 'Настройки'), function () use ($message, $messageClass, $status, $updateResult, $mapSettings, $previewRefresh) {
             self::notice($message, $messageClass);
+            self::portalMosaicSettingsPanel($previewRefresh);
             self::portalMapSettingsPanel($mapSettings);
             self::portalUpdatePanel($status, $updateResult);
         });
+    }
+
+    private static function portalMosaicSettingsPanel(string $previewRefresh): void
+    {
+        echo '<section class="panel portal-mosaic-settings-panel"><h2>' . self::t('nav.mosaic', 'Мозаика') . '</h2>';
+        echo '<form method="post" action="/admin/settings" class="form portal-mosaic-settings-form">' . Csrf::field();
+        echo '<input type="hidden" name="action" value="save_mosaic_settings">';
+        self::previewRefreshSelect($previewRefresh);
+        echo '<button type="submit" class="primary">' . self::t('action.save', 'Сохранить') . '</button></form></section>';
     }
 
     private static function portalMapSettingsPanel(array $mapSettings): void
@@ -7929,7 +7972,7 @@ final class App
         $searchQuery = self::viewerSearchQuery();
         $groups = self::groupRowsWithTreeLabels(Repo::groupsForUser($user));
         $cols = self::viewerColumns($user, $mode !== 'map');
-        $previewRefresh = self::viewerPreviewRefresh();
+        $previewRefresh = PortalSettings::mosaicPreviewRefresh();
         $cameraPager = null;
         if ($mode === 'map') {
             $cameras = Repo::accessibleMapCameras($user, $filter, $searchQuery);
@@ -7941,7 +7984,7 @@ final class App
 
         $title = $mode === 'map' ? self::t('nav.map', 'Карта') : self::t('cameras.title', 'Камеры');
         self::layout($title, function () use ($mode, $groups, $filter, $searchQuery, $cameras, $favorites, $cameraPager, $cols, $previewRefresh) {
-            self::filters($mode, $groups, $filter, $searchQuery, $cols, $previewRefresh);
+            self::filters($mode, $groups, $filter, $searchQuery, $cols);
             if ($mode === 'map') {
                 self::map($cameras, $favorites);
             } else {
@@ -7992,12 +8035,6 @@ final class App
         };
     }
 
-    private static function viewerPreviewRefresh(): string
-    {
-        $refresh = (string)($_GET['refresh'] ?? '30');
-        return in_array($refresh, ['off', '10', '30', '60', '300'], true) ? $refresh : '30';
-    }
-
     private static function mosaic(array $cameras, array $favorites, array $pager, int $cols, string $previewRefresh): void
     {
         $streamUnavailableByServer = self::mapStreamUnavailableByServer($cameras);
@@ -8028,7 +8065,6 @@ final class App
         self::pager('/', $pager, [
             'filter' => ($pager['filter'] ?? 'all') === 'all' ? '' : ($pager['filter'] ?? ''),
             'cols' => $cols,
-            'refresh' => $previewRefresh === '30' ? '' : $previewRefresh,
         ]);
     }
 
@@ -8491,19 +8527,16 @@ final class App
         return '<svg viewBox="0 0 24 24" aria-hidden="true">' . ($paths[$name] ?? $paths['grid']) . '</svg>';
     }
 
-    private static function filters(string $mode, array $groups, string $filter, string $searchQuery, int $cols = 3, string $previewRefresh = '30'): void
+    private static function filters(string $mode, array $groups, string $filter, string $searchQuery, int $cols = 3): void
     {
         $base = $mode === 'map' ? '/viewer/map' : '/';
         $url = static function (array $params = []) use ($base): string {
             $query = http_build_query(array_filter($params, fn($value) => $value !== '' && $value !== null));
             return $base . ($query ? '?' . $query : '');
         };
-        $viewParams = static function (array $params = []) use ($mode, $cols, $previewRefresh): array {
+        $viewParams = static function (array $params = []) use ($mode, $cols): array {
             if ($mode !== 'map') {
                 $params['cols'] = $cols;
-                if ($previewRefresh !== '30') {
-                    $params['refresh'] = $previewRefresh;
-                }
             }
             return $params;
         };
@@ -8524,12 +8557,9 @@ final class App
         echo '<input class="camera-search-input" name="q" value="' . Util::h($searchQuery) . '" placeholder="' . Util::h(self::t('filter.cameraSearchPlaceholder', 'Название, поток или IP')) . '">';
         echo '<a class="camera-search-clear" href="' . Util::h($clearHref) . '" title="' . Util::h(self::t('filter.clearSearch', 'Сбросить поиск')) . '" aria-label="' . Util::h(self::t('filter.clearSearch', 'Сбросить поиск')) . '">&times;<span class="sr-only">' . Util::h(self::t('filter.clearSearch', 'Сбросить поиск')) . '</span></a>';
         echo '<button class="group-filter-submit">' . self::t('action.find', 'Найти') . '</button>';
-        if ($mode !== 'map') {
-            self::previewRefreshSelect($previewRefresh);
-        }
         echo '</form>';
         if ($mode !== 'map') {
-            self::densitySwitch($filter, $searchQuery, $cols, $previewRefresh);
+            self::densitySwitch($filter, $searchQuery, $cols);
         }
         echo '</section>';
     }
@@ -8726,29 +8756,22 @@ final class App
 
     private static function previewRefreshSelect(string $previewRefresh): void
     {
-        $options = [
-            'off' => self::t('viewer.refreshOff', 'Отключено'),
-            '10' => sprintf(self::t('viewer.refreshSeconds', '%d сек.'), 10),
-            '30' => sprintf(self::t('viewer.refreshSeconds', '%d сек.'), 30),
-            '60' => sprintf(self::t('viewer.refreshSeconds', '%d сек.'), 60),
-            '300' => sprintf(self::t('viewer.refreshSeconds', '%d сек.'), 300),
-        ];
-        echo '<label class="preview-refresh-control"><span>' . Util::h(self::t('viewer.previewRefresh', 'Обновление превью')) . '</span><select name="refresh" aria-label="' . Util::h(self::t('viewer.previewRefresh', 'Обновление превью')) . '">';
-        foreach ($options as $value => $label) {
+        echo '<label><span>' . Util::h(self::t('viewer.previewRefresh', 'Обновление превью')) . '</span><select name="mosaic_preview_refresh">';
+        foreach (PortalSettings::MOSAIC_PREVIEW_REFRESH_OPTIONS as $value) {
+            $label = $value === 'off'
+                ? self::t('viewer.refreshOff', 'Отключено')
+                : sprintf(self::t('viewer.refreshSeconds', '%d сек.'), (int)$value);
             echo '<option value="' . Util::h($value) . '"' . ($previewRefresh === $value ? ' selected' : '') . '>' . Util::h($label) . '</option>';
         }
         echo '</select></label>';
     }
 
-    private static function densitySwitch(string $filter, string $searchQuery, int $cols, string $previewRefresh): void
+    private static function densitySwitch(string $filter, string $searchQuery, int $cols): void
     {
         echo '<nav class="density-switch" aria-label="' . Util::h(self::t('viewer.columnsPerRow', 'Камер в ряду')) . '">';
         echo '<span>' . Util::h(self::t('viewer.columnsPerRow', 'Камер в ряду')) . '</span>';
         for ($candidate = 2; $candidate <= 6; $candidate++) {
             $params = ['cols' => $candidate];
-            if ($previewRefresh !== '30') {
-                $params['refresh'] = $previewRefresh;
-            }
             if ($filter !== 'all') {
                 $params['filter'] = $filter;
             }

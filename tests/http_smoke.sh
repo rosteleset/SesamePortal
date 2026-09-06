@@ -76,6 +76,27 @@ PHP
 test "$sqlite_duplicate_group_migration" = "2"
 
 php "$ROOT/bin/portal" migrate >/dev/null
+php <<'PHP'
+<?php
+require getenv('ROOT') . '/app/Portal.php';
+if (\SesamePortal\PortalSettings::mosaicPreviewRefresh() !== '30') {
+    throw new RuntimeException('Unexpected default preview interval');
+}
+\SesamePortal\DB::pdo()->prepare('INSERT INTO portal_settings(setting_key, setting_value, updated_at) VALUES(?, ?, ?)')
+    ->execute(['mosaic_preview_refresh', 'invalid', \SesamePortal\Util::now()]);
+if (\SesamePortal\PortalSettings::mosaicPreviewRefresh() !== '30') {
+    throw new RuntimeException('Invalid stored preview interval must fall back to 30');
+}
+\SesamePortal\DB::pdo()->exec("DELETE FROM portal_settings WHERE setting_key = 'mosaic_preview_refresh'");
+$messages = (new ReflectionMethod(\SesamePortal\I18n::class, 'messages'))->invoke(null, false);
+foreach ($messages as $locale => $items) {
+    foreach (['settings.mosaicSaved', 'settings.previewRefreshInvalid'] as $key) {
+        if (empty($items[$key])) {
+            throw new RuntimeException("Missing translation: $locale/$key");
+        }
+    }
+}
+PHP
 php "$ROOT/bin/portal" create-admin admin admin123 >/dev/null
 
 php <<'PHP'
@@ -314,6 +335,34 @@ grep -F -q 'value="55.2708"' <<<"$settings_page"
 grep -F -q 'value="10"' <<<"$settings_page"
 settings_csrf="$(sed -n 's/.*name="csrf" value="\([^"]*\)".*/\1/p' <<<"$settings_page" | head -n 1)"
 test -n "$settings_csrf"
+grep -F -q 'name="mosaic_preview_refresh"' <<<"$settings_page"
+grep -F -q '<option value="30" selected>30 сек.</option>' <<<"$settings_page"
+preview_settings_csrf_status="$(
+  curl -sS -o /dev/null -w '%{http_code}' -b "$COOKIE_JAR" \
+    -d "action=save_mosaic_settings" -d "mosaic_preview_refresh=off" \
+    "http://127.0.0.1:$PORT/admin/settings"
+)"
+test "$preview_settings_csrf_status" = "419"
+for refresh in off 10 30 300 60; do
+  preview_settings_saved="$(
+    curl -fsS -b "$COOKIE_JAR" \
+      -d "csrf=$settings_csrf" -d "action=save_mosaic_settings" -d "mosaic_preview_refresh=$refresh" \
+      "http://127.0.0.1:$PORT/admin/settings"
+  )"
+  grep -F -q 'Настройки мозаики сохранены' <<<"$preview_settings_saved"
+  grep -F -q "<option value=\"$refresh\" selected>" <<<"$preview_settings_saved"
+done
+for invalid_refresh_field in 'mosaic_preview_refresh=1' 'mosaic_preview_refresh=bogus' 'mosaic_preview_refresh=' 'mosaic_preview_refresh[]=10'; do
+  preview_settings_invalid="$(
+    curl -fsS -b "$COOKIE_JAR" \
+      -d "csrf=$settings_csrf" -d "action=save_mosaic_settings" -d "$invalid_refresh_field" \
+      "http://127.0.0.1:$PORT/admin/settings"
+  )"
+  grep -F -q 'Выберите допустимый интервал обновления превью.' <<<"$preview_settings_invalid"
+  grep -F -q '<option value="60" selected>' <<<"$preview_settings_invalid"
+done
+preview_settings_reloaded="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/admin/settings")"
+grep -F -q '<option value="60" selected>60 сек.</option>' <<<"$preview_settings_reloaded"
 settings_saved="$(
   curl -fsS -b "$COOKIE_JAR" -c "$COOKIE_JAR" \
     -d "csrf=$settings_csrf" -d "action=save_map_settings" -d "map_provider=osm" \
@@ -682,9 +731,10 @@ printf "%s" "$login_audit_page" | grep -q "ip=127.0.0.1"
 mosaic_page="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/")"
 printf "%s" "$mosaic_page" | grep -q "/viewer/player"
 printf "%s" "$mosaic_page" | grep -q "data-preview-refresh-ms"
-printf "%s" "$mosaic_page" | grep -q 'name="refresh"'
-printf "%s" "$mosaic_page" | grep -q 'value="off"'
-printf "%s" "$mosaic_page" | grep -q "preview-refresh-control"
+grep -F -q 'data-preview-refresh="60"' <<<"$mosaic_page"
+grep -F -q 'data-preview-refresh-ms="60000"' <<<"$mosaic_page"
+! grep -F -q 'name="refresh"' <<<"$mosaic_page"
+! grep -F -q 'name="mosaic_preview_refresh"' <<<"$mosaic_page"
 printf "%s" "$mosaic_page" | grep -q 'data-preview-src='
 printf "%s" "$mosaic_page" | grep -q 'data-preview-src="/viewer/preview?id='
 ! printf "%s" "$mosaic_page" | grep -E -q 'data-preview-src="[^"]*token='
@@ -753,9 +803,26 @@ cols5_page="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/?cols=5")"
 printf "%s" "$cols5_page" | grep -q "Показано 1-15"
 cols6_page="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/?cols=6")"
 printf "%s" "$cols6_page" | grep -q "Показано 1-18"
-refresh_off_page="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/?refresh=off")"
-printf "%s" "$refresh_off_page" | grep -q 'data-preview-refresh="off"'
-! printf "%s" "$refresh_off_page" | grep -q "data-preview-refresh-ms"
+for path in '/?refresh=off' '/?q=smoke' '/?filter=group:1' '/?page=2&cols=6'; do
+  preview_settings_viewer="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT$path")"
+  grep -F -q 'data-preview-refresh="60"' <<<"$preview_settings_viewer"
+  grep -F -q 'data-preview-refresh-ms="60000"' <<<"$preview_settings_viewer"
+done
+curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/viewer/player?id=1&back=%2F" >/dev/null
+preview_after_player="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/")"
+grep -F -q 'data-preview-refresh="60"' <<<"$preview_after_player"
+curl -fsS -b "$COOKIE_JAR" \
+  -d "csrf=$settings_csrf" -d "action=save_mosaic_settings" -d "mosaic_preview_refresh=off" \
+  "http://127.0.0.1:$PORT/admin/settings" >/dev/null
+refresh_off_page="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/?refresh=10")"
+grep -F -q 'data-preview-refresh="off"' <<<"$refresh_off_page"
+! grep -F -q 'data-preview-refresh-ms' <<<"$refresh_off_page"
+curl -fsS -b "$COOKIE_JAR" \
+  -d "csrf=$settings_csrf" -d "action=save_mosaic_settings" -d "mosaic_preview_refresh=60" \
+  "http://127.0.0.1:$PORT/admin/settings" >/dev/null
+preview_settings_audit="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/admin/audit?action=settings.mosaic.save&actor=1")"
+grep -F -q 'preview_refresh=60' <<<"$preview_settings_audit"
+grep -F -q 'ip=127.0.0.1' <<<"$preview_settings_audit"
 group_page="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/?filter=group:1")"
 printf "%s" "$group_page" | grep -q "Smoke Cam"
 printf "%s" "$group_page" | grep -q "Read Only Cam"
@@ -820,6 +887,19 @@ plain_login_status="$(
 )"
 test "$plain_login_status" = "303"
 plain_mosaic_page="$(curl -fsS -b "$PLAIN_COOKIE_JAR" "http://127.0.0.1:$PORT/")"
+grep -F -q 'data-preview-refresh="60"' <<<"$plain_mosaic_page"
+plain_csrf="$(sed -n 's/.*name="csrf" value="\([^"]*\)".*/\1/p' <<<"$plain_mosaic_page" | head -n 1)"
+test -n "$plain_csrf"
+plain_settings_status="$(curl -sS -o /dev/null -w '%{http_code}' -b "$PLAIN_COOKIE_JAR" "http://127.0.0.1:$PORT/admin/settings")"
+test "$plain_settings_status" = "403"
+plain_settings_save_status="$(
+  curl -sS -o /dev/null -w '%{http_code}' -b "$PLAIN_COOKIE_JAR" \
+    -d "csrf=$plain_csrf" -d "action=save_mosaic_settings" -d "mosaic_preview_refresh=off" \
+    "http://127.0.0.1:$PORT/admin/settings"
+)"
+test "$plain_settings_save_status" = "403"
+plain_refresh_after_denial="$(curl -fsS -b "$PLAIN_COOKIE_JAR" "http://127.0.0.1:$PORT/")"
+grep -F -q 'data-preview-refresh="60"' <<<"$plain_refresh_after_denial"
 grep -q "camera-grid cols-3" <<<"$plain_mosaic_page"
 grep -F -q 'class="active" href="/?cols=3"' <<<"$plain_mosaic_page"
 plain_player_page="$(curl -fsS -b "$PLAIN_COOKIE_JAR" "http://127.0.0.1:$PORT/viewer/player?id=1")"
