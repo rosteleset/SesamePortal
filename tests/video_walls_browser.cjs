@@ -70,6 +70,44 @@ async function assertControlsAutohide(page) {
   assert.equal(await page.locator('[data-wall-controls]').isVisible(), true);
 }
 
+async function assertTileControlsSeparated(page) {
+  const tile = page.locator('.vw-video-tile').first();
+  const button = tile.locator('[data-wall-camera-zoom]');
+  const wasEnabled = await button.getAttribute('aria-pressed') === 'true';
+  if (!wasEnabled) await button.click();
+  const embed = tile.locator('iframe').contentFrame();
+  await embed.locator('.video-overlay-actions').hover();
+  const stage = await tile.locator('.vw-video-stage').boundingBox();
+  const actions = await tile.locator('.vw-tile-actions').boundingBox();
+  assert.deepEqual(await tile.locator('.vw-tile-actions .icon-action').evaluateAll(elements => elements.map(element => {
+    const box = element.getBoundingClientRect(); return [box.width, box.height];
+  })), [[28, 28], [28, 28]], 'camera action buttons have equal square dimensions');
+  const caption = await tile.locator('.vw-tile-caption').boundingBox();
+  const embedActions = await embed.locator('.video-overlay-actions').boundingBox();
+  assert(actions.y >= stage.y && actions.x + actions.width <= stage.x + stage.width);
+  assert(actions.y + actions.height < stage.y + stage.height / 2, 'Portal controls are in the upper half of the image');
+  assert(actions.y + actions.height <= embedActions.y, 'Portal and embed controls do not overlap');
+  assert(caption.x + caption.width <= embedActions.x, 'camera caption leaves space for embed controls');
+  await embed.locator('#mute-overlay-toggle').evaluate(button => new Promise((resolve, reject) => {
+    const deadline = performance.now() + 3000;
+    const check = () => {
+      if (Number(getComputedStyle(button).opacity) === 1) resolve();
+      else if (performance.now() > deadline) reject(new Error('Embed controls did not appear on hover'));
+      else setTimeout(check, 30);
+    }; check();
+  }));
+  const muted = await embed.locator('video').evaluate(video => video.muted);
+  await embed.locator('#mute-overlay-toggle').click();
+  assert.equal(await embed.locator('video').evaluate(video => video.muted), !muted, 'embed sound control stays accessible');
+  await embed.locator('#mute-overlay-toggle').click();
+  await button.hover();
+  assert.equal(await button.evaluate(button => {
+    const box = button.getBoundingClientRect();
+    return document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2).closest('button') === button;
+  }), true, 'Portal zoom button receives pointer input');
+  if (!wasEnabled) await button.click();
+}
+
 async function assertTimelineWheelZoom(page) {
   const timeline = page.locator('[data-wall-timeline]');
   const range = () => timeline.evaluate(c => ({from: Number(c.getAttribute('aria-valuemin')), to: Number(c.getAttribute('aria-valuemax'))}));
@@ -120,6 +158,7 @@ async function assertCameraZoomToggle(page) {
   assert.equal(await page.evaluate(() => scrollY), scroll, 'enabled camera handles wheel itself');
   assert.equal(await page.locator('[data-wall-camera-zoom][aria-pressed="true"]').count(), 1);
   assert.equal(await page.locator('[data-wall-frame]').nth(1).contentFrame().locator('.stage').evaluate(stage => Number(getComputedStyle(stage).getPropertyValue('--video-zoom-scale'))), 1);
+  await assertTileControlsSeparated(page);
   await tile.screenshot({path: '/tmp/portal-wall-camera-zoom-desktop.png'});
   const zoomed = await scale();
   await button.click();
@@ -235,6 +274,7 @@ async function assertCameraTouchScroll(page, context) {
     await page.locator('.vw-toolbar [data-wall-fullscreen]').click();
     await page.waitForFunction(() => document.fullscreenElement !== null);
     await assertFullscreenLayout(page);
+    await assertTileControlsSeparated(page);
     await assertControlsAutohide(page);
     await page.screenshot({path: '/tmp/portal-wall-view-fullscreen.png'});
     await page.waitForFunction(() => document.querySelector('[data-wall-view]').classList.contains('vw-controls-hidden'));
@@ -319,11 +359,13 @@ async function assertCameraTouchScroll(page, context) {
     await assertToolbarSizes(page);
     assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
     await page.locator('[data-wall-frame]').first().contentFrame().locator('video').evaluate(video => new Promise(resolve => { const check = () => video.readyState >= 2 && video.currentTime > 0.2 ? resolve() : setTimeout(check, 50); check(); }));
+    await assertTileControlsSeparated(page);
     await page.screenshot({path:'/tmp/portal-wall-view-mobile.png',fullPage:true});
     await assertCameraTouchScroll(page, context);
     await page.locator('.vw-toolbar [data-wall-fullscreen]').click();
     await page.waitForFunction(() => document.fullscreenElement !== null);
     await assertFullscreenLayout(page);
+    await assertTileControlsSeparated(page);
     await assertControlsAutohide(page);
     await page.screenshot({path:'/tmp/portal-wall-view-fullscreen-mobile.png'});
     const timelineBox = await page.locator('[data-wall-timeline]').boundingBox();

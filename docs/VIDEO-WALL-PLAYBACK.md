@@ -29,6 +29,10 @@ The DVR implementation is based on `origin/elexir-webrtc` (`a0c72904`).
   restarting playback. Reloading or remounting a tile starts with zoom controls
   off again. Standalone embed players and the shared timeline are unchanged;
   this toggle requires only a Portal update, not a new DVR control protocol.
+- Portal's magnifier and standalone-player link overlay the upper-right corner
+  of each image. The camera caption stays at the lower left and reserves space
+  for the embed player's sound/fullscreen controls at the lower right, including
+  fullscreen and narrow layouts.
 - The clock advances independently of buffering cameras. Large drift triggers
   a correction at most once per 6 seconds per camera; gaps retry every 10 seconds.
   Buffered seeks avoid reloading HLS when the exact UTC target is already mapped

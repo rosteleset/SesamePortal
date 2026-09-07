@@ -225,13 +225,13 @@ trait VideoWallPages
                 } else {
                     echo '<span class="vw-slot-state">' . Util::h($name) . '</span>';
                 }
-                echo '</div><div class="vw-tile-caption"><span>' . ($slot + 1) . '. ' . Util::h($name) . '</span>';
+                echo '</div><div class="vw-tile-caption"><span>' . ($slot + 1) . '. ' . Util::h($name) . '</span></div>';
                 if ($camera) {
                     echo '<div class="vw-tile-actions"><button type="button" class="icon-action" data-wall-camera-zoom aria-pressed="false" aria-label="' . Util::h(self::wt('cameraZoom') . ': ' . $name) . '" title="' . Util::h(self::wt('enableCameraZoom')) . '" disabled>' . self::icon('search') . '</button>';
                     self::iconActionLink('/viewer/player?' . http_build_query(['id' => $cameraId, 'back' => '/video-walls/view?id=' . (int)$wall['id']]), self::wt('open'), 'scan');
                     echo '</div>';
                 }
-                echo '</div></article>';
+                echo '</article>';
             }
             echo '</div><section class="vw-playback" data-wall-controls>';
             if ($archiveAllowed) {
