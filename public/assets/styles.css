@@ -1542,6 +1542,28 @@ tr:last-child td {
   padding: 0 12px;
   color: var(--ink);
 }
+.events-filter input[type="date"] {
+  height: 38px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  padding: 0 12px;
+  color: var(--ink);
+  color-scheme: dark;
+}
+.events-filter .camera-search-input {
+  flex: none;
+  min-width: 200px;
+  height: 38px;
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--ink);
+  font-weight: 700;
+}
+.events-filter .camera-search-input::placeholder {
+  color: var(--muted);
+}
+
 .event-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
@@ -2946,6 +2968,18 @@ body.player-view .player-frame {
 .theme-toggle{width:36px;height:36px;border-radius:50%;display:grid;place-items:center;background:transparent;border:1px solid var(--line-strong);color:var(--muted);cursor:pointer;transition:color .15s,border-color .15s,background .15s}
 .theme-toggle:hover{color:var(--gold);border-color:var(--gold)}
 .theme-toggle svg{width:18px;height:18px}
+
+.user-dropdown{position:relative;display:inline-block}
+.user-dropdown .user{cursor:pointer;border:none;padding:0}
+.user-dropdown .user:hover{background:var(--gold);color:#161616}
+.user-menu{display:none;position:fixed;background:var(--bg,#fff);border:1px solid var(--line,#e0e0e0);border-radius:8px;box-shadow:0 4px 12px rgba(0,0,0,.15);min-width:200px;z-index:9999;padding:4px 0;margin:0}
+.user-dropdown.open .user-menu{display:block}
+.user-menu a{display:flex;align-items:center;gap:10px;width:100%;padding:8px 14px;border:none;background:none;text-align:left;cursor:pointer;font-size:inherit;color:inherit;text-decoration:none}
+.user-menu a svg{width:16px;height:16px;color:var(--muted);flex:none}
+.user-menu a:hover{background:var(--hover-bg,rgba(0,0,0,.05))}
+.user-menu a:hover svg{color:var(--gold)}
+[data-theme="dark"] .user-menu{background:var(--surface);border-color:var(--line-strong)}
+[data-theme="dark"] .user-menu a:hover{background:var(--soft)}
 
 :root{color-scheme:light}
 :root[data-theme="dark"]{

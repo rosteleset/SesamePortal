@@ -35,6 +35,7 @@ final class App
             '/login' => self::login(),
             '/logout' => self::logout(),
             '/onboarding' => self::onboarding(),
+            '/profile' => self::profile(),
             '/forgot' => self::forgotPassword(),
             '/reset' => self::resetPassword(),
             '/admin/dashboard' => self::dashboard(),

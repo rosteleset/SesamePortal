@@ -573,6 +573,73 @@ trait AppPagesTrait
         });
     }
 
+    private static function profile(): void
+    {
+        $user = Auth::requireLogin();
+        $userId = (int)$user['id'];
+        $message = '';
+        $messageClass = '';
+        if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
+            $name = trim((string)Util::post('name'));
+            $email = trim((string)Util::post('email'));
+            $phoneInput = (string)Util::post('phone');
+            $phone = $phoneInput !== '' ? self::normalizePhone($phoneInput) : '';
+            $newPassword = (string)Util::post('new_password');
+            $confirmPassword = (string)Util::post('confirm_password');
+            $passwordMissing = ($newPassword === '') !== ($confirmPassword === '');
+            if (mb_strlen($name) > 255) {
+                $message = self::t('profile.nameTooLong', 'Имя слишком длинное');
+            } elseif ($phoneInput !== '' && $phone === '') {
+                $message = self::t('users.phoneInvalid', 'Некорректный номер телефона');
+            } elseif ($phone !== '' && self::phoneTakenByOther($phone, $userId)) {
+                $message = self::t('users.phoneInUse', 'Этот номер телефона уже занят другим пользователем');
+            } elseif ($email !== '' && !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+                $message = self::t('auth.emailInvalid', 'Введите корректный email');
+            } elseif ($email !== '' && self::emailTakenByOther($email, $userId)) {
+                $message = self::t('auth.emailInUse', 'Этот email уже занят другим пользователем');
+            } elseif ($passwordMissing) {
+                $message = self::t('profile.passwordFillBoth', 'Заполните оба поля пароля');
+            } elseif ($newPassword !== '' && strlen($newPassword) < 6) {
+                $message = self::t('auth.passwordShort', 'Пароль должен быть не короче 6 символов');
+            } elseif ($newPassword !== '' && $newPassword !== $confirmPassword) {
+                $message = self::t('auth.passwordMismatch', 'Пароли не совпадают');
+            } else {
+                if ($newPassword !== '') {
+                    DB::pdo()->prepare('UPDATE users SET name=?, email=?, phone=?, password_hash=? WHERE id=?')
+                        ->execute([$name, $email, $phone, password_hash($newPassword, PASSWORD_DEFAULT), $userId]);
+                    Auth::clearRememberMeCookie($userId);
+                    Audit::logForUser($userId, 'user.profile.update', 'password changed, name=' . Audit::cleanValue($name));
+                } else {
+                    DB::pdo()->prepare('UPDATE users SET name=?, email=?, phone=? WHERE id=?')
+                        ->execute([$name, $email, $phone, $userId]);
+                    Audit::logForUser($userId, 'user.profile.update', 'name=' . Audit::cleanValue($name));
+                }
+                $message = self::t('profile.saved', 'Профиль сохранён');
+                $messageClass = 'success';
+                foreach (['name', 'email', 'phone'] as $column) {
+                    $user[$column] = $column === 'phone' ? $phone : ($column === 'name' ? $name : $email);
+                }
+            }
+        }
+        self::layout(self::t('profile.title', 'Профиль'), function () use ($user, $message, $messageClass): void {
+            self::notice($message, $messageClass);
+            echo '<section class="panel"><div class="section-head"><h2>' . Util::h(self::t('profile.title', 'Профиль')) . '</h2><p class="muted">' . Util::h(self::t('profile.description', 'Отредактируйте личные данные и параметры входа')) . '</p></div>';
+            echo '<form method="post" class="form profile-form">' . Csrf::field();
+            echo '<label>' . self::t('field.login', 'Логин') . '<input name="login" value="' . Util::h((string)$user['login']) . '" readonly disabled></label>';
+            echo '<p class="field-hint">' . Util::h(self::t('profile.loginReadonly', 'Логин изменить нельзя.')) . '</p>';
+            echo '<label>' . self::t('profile.name', 'Имя') . '<input name="name" value="' . Util::h((string)($user['name'] ?? '')) . '" maxlength="255"></label>';
+            echo '<label>' . self::t('auth.email', 'Email') . '<input name="email" type="email" value="' . Util::h((string)($user['email'] ?? '')) . '" placeholder="user@example.com" autocomplete="email"></label>';
+            echo '<label>' . self::t('field.phone', 'Номер телефона') . '<input name="phone" type="tel" value="' . Util::h((string)($user['phone'] ?? '')) . '" placeholder="+7 ___ ___-__-__" autocomplete="tel"></label>';
+            echo '</section>';
+            echo '<section class="panel"><div class="section-head"><h2>' . Util::h(self::t('profile.passwordTitle', 'Смена пароля')) . '</h2><p class="muted">' . Util::h(self::t('profile.passwordDescription', 'Оставьте поля пустыми, чтобы не менять пароль.')) . '</p></div>';
+            echo '<label>' . self::t('auth.newPassword', 'Новый пароль') . '<input name="new_password" type="password" minlength="6" autocomplete="new-password"></label>';
+            echo '<label>' . self::t('auth.confirmPassword', 'Подтверждение') . '<input name="confirm_password" type="password" autocomplete="new-password"></label>';
+            echo '<div class="form-submit-row"><button type="submit" class="primary">' . self::t('action.save', 'Сохранить') . '</button></div>';
+            echo '</form>';
+            echo '</section>';
+        });
+    }
+
     private static function forgotPassword(): void
     {
         $message = '';
@@ -682,6 +749,7 @@ trait AppPagesTrait
 
             if ($action === 'save') {
                 $login = trim((string)Util::post('login'));
+                $name = trim((string)Util::post('name'));
                 $email = trim((string)Util::post('email'));
                 $phoneInput = (string)Util::post('phone');
                 $phone = self::normalizePhone($phoneInput);
@@ -724,16 +792,16 @@ trait AppPagesTrait
                             if (strlen($password) < 6) {
                                 $message = self::t('users.passwordShort', 'Пароль должен быть не короче 6 символов');
                             } else {
-                                $pdo->prepare('UPDATE users SET login=?, phone=?, email=?, password_hash=?, role=?, blocked=?, hide_archive=?, mosaic_enabled=?, can_rename_cameras=?, must_change_password=?, admin_comment=? WHERE id=?')
-                                    ->execute([$login, $phone, $email, password_hash($password, PASSWORD_DEFAULT), $role, $blocked, $hideArchive, $mosaicEnabled, $canRenameCameras, $mustChangePassword, $adminComment, $id]);
+                                $pdo->prepare('UPDATE users SET login=?, name=?, phone=?, email=?, password_hash=?, role=?, blocked=?, hide_archive=?, mosaic_enabled=?, can_rename_cameras=?, must_change_password=?, admin_comment=? WHERE id=?')
+                                    ->execute([$login, $name, $phone, $email, password_hash($password, PASSWORD_DEFAULT), $role, $blocked, $hideArchive, $mosaicEnabled, $canRenameCameras, $mustChangePassword, $adminComment, $id]);
                             }
                         } else {
-                            $pdo->prepare('UPDATE users SET login=?, phone=?, email=?, role=?, blocked=?, hide_archive=?, mosaic_enabled=?, can_rename_cameras=?, must_change_password=?, admin_comment=? WHERE id=?')
-                                ->execute([$login, $phone, $email, $role, $blocked, $hideArchive, $mosaicEnabled, $canRenameCameras, $mustChangePassword, $adminComment, $id]);
+                            $pdo->prepare('UPDATE users SET login=?, name=?, phone=?, email=?, role=?, blocked=?, hide_archive=?, mosaic_enabled=?, can_rename_cameras=?, must_change_password=?, admin_comment=? WHERE id=?')
+                                ->execute([$login, $name, $phone, $email, $role, $blocked, $hideArchive, $mosaicEnabled, $canRenameCameras, $mustChangePassword, $adminComment, $id]);
                         }
                     } else {
-                        $pdo->prepare('INSERT INTO users(login, phone, email, password_hash, role, blocked, hide_archive, mosaic_enabled, can_rename_cameras, must_change_password, admin_comment, daily_token, daily_token_date, created_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
-                            ->execute([$login, $phone, $email, password_hash($password, PASSWORD_DEFAULT), $role, $blocked, $hideArchive, $mosaicEnabled, $canRenameCameras, $mustChangePassword, $adminComment, Util::randomToken(), TokenService::today(), Util::now()]);
+                        $pdo->prepare('INSERT INTO users(login, name, phone, email, password_hash, role, blocked, hide_archive, mosaic_enabled, can_rename_cameras, must_change_password, admin_comment, daily_token, daily_token_date, created_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+                            ->execute([$login, $name, $phone, $email, password_hash($password, PASSWORD_DEFAULT), $role, $blocked, $hideArchive, $mosaicEnabled, $canRenameCameras, $mustChangePassword, $adminComment, Util::randomToken(), TokenService::today(), Util::now()]);
                         $id = DB::lastInsertId('users');
                     }
                     if ($message === '') {
@@ -772,6 +840,7 @@ trait AppPagesTrait
             echo '<form method="post" class="form" data-submit-progress="' . Util::h($savingLabel) . '">' . Csrf::field();
             echo '<input type="hidden" name="action" value="save"><input type="hidden" name="id" value="' . Util::h($edit['id'] ?? 0) . '">';
             echo '<label>' . self::t('field.login', 'Логин') . '<input name="login" value="' . Util::h($edit['login'] ?? '') . '" required></label>';
+            echo '<label>' . self::t('profile.name', 'Имя') . '<input name="name" value="' . Util::h($edit['name'] ?? '') . '" maxlength="255"></label>';
             echo '<label>' . self::t('field.phone', 'Номер телефона') . '<input name="phone" type="tel" value="' . Util::h($edit['phone'] ?? '') . '" placeholder="+7 ___ ___-__-__"></label>';
             echo '<label>' . self::t('auth.email', 'Email') . '<input name="email" type="email" value="' . Util::h($edit['email'] ?? '') . '" placeholder="user@example.com"></label>';
             echo '<label>' . self::t('field.password', 'Пароль') . '<input name="password" type="password" minlength="6" placeholder="' . ($edit ? self::t('users.passwordPlaceholderEdit', 'оставьте пустым, чтобы не менять') : self::t('users.passwordPlaceholderNew', 'минимум 6 символов')) . '"></label>';
@@ -1667,6 +1736,13 @@ trait AppPagesTrait
             echo '<option value="edge_agent" ' . (($form['dvr_control_mode'] ?? '') === 'edge_agent' ? 'selected' : '') . '>' . self::t('cameras.modeEdgeAgent', 'Edge Agent push stream') . '</option>';
             echo '<option value="read_only" ' . (($form['dvr_control_mode'] ?? '') === 'read_only' ? 'selected' : '') . '>' . self::t('cameras.modeReadOnly', 'Read-only поток с DVR') . '</option></select></label>';
             echo '<label>' . self::t('cameras.sourceUrl', 'URL источника') . '<input name="source_url" value="' . Util::h($form['source_url'] ?? '') . '"></label>';
+            $audioCodec = self::cameraAudioCodec($form['audio_codec'] ?? 'copy');
+            echo '<label>' . self::t('cameras.audioCodec', 'Аудиокодек') . '<select name="audio_codec">';
+            echo '<option value="disabled" ' . ($audioCodec === 'disabled' ? 'selected' : '') . '>' . self::t('cameras.audioCodecDisabled', 'Отключено') . '</option>';
+            echo '<option value="copy" ' . ($audioCodec === 'copy' ? 'selected' : '') . '>' . self::t('cameras.audioCodecCopy', 'Копировать') . '</option>';
+            echo '<option value="aac" ' . ($audioCodec === 'aac' ? 'selected' : '') . '>' . self::t('cameras.audioCodecAac', 'Транскодировать AAC') . '</option>';
+            echo '<option value="passthrough" ' . ($audioCodec === 'passthrough' ? 'selected' : '') . '>' . self::t('cameras.audioCodecPassthrough', 'Добавить AAC для HLS и сохранить PCM для WebRTC') . '</option>';
+            echo '</select></label>';
             echo '<div data-camera-onvif-field' . ($edgeAgentMode ? ' hidden' : '') . '>';
             echo '<details class="panel camera-onvif-panel"' . (trim((string)($form['onvif_host'] ?? '')) !== '' ? ' open' : '') . '><summary><h3>ONVIF</h3></summary>';
             echo '<div class="form-grid cols-2">';
@@ -1724,7 +1800,6 @@ trait AppPagesTrait
             echo '<div class="form-row"><label>' . self::t('cameras.direction', 'Направление') . '<input id="camera-direction" name="direction_deg" type="number" min="0" max="359" value="' . Util::h($form['direction_deg'] ?? 0) . '"></label><label>' . self::t('cameras.viewAngle', 'Угол обзора') . '<input name="view_angle_deg" type="number" min="1" max="180" value="' . Util::h($form['view_angle_deg'] ?? 60) . '"></label></div>';
             echo '</details>';
             $timelineRepairMode = self::cameraTimelineRepairMode($form['direct_archive_video_timeline_repair_mode'] ?? null) ?? '';
-            $audioCodec = self::cameraAudioCodec($form['audio_codec'] ?? 'copy');
             $archiveEnabled = !empty($form['archive_enabled']);
             $eventArchiveEnabled = !empty($form['event_archive_retention_enabled']);
             $timelapseEnabled = !empty($form['timelapse_enabled']);
@@ -1747,9 +1822,6 @@ trait AppPagesTrait
             echo '<option value="auto" ' . ($timelineRepairMode === 'auto' ? 'selected' : '') . '>auto</option>';
             echo '<option value="always" ' . ($timelineRepairMode === 'always' ? 'selected' : '') . '>always</option>';
             echo '<option value="off" ' . ($timelineRepairMode === 'off' ? 'selected' : '') . '>off</option>';
-            echo '</select></label><label>' . self::t('cameras.audioCodec', 'Аудиокодек') . '<select name="audio_codec">';
-            echo '<option value="copy" ' . ($audioCodec === 'copy' ? 'selected' : '') . '>' . self::t('cameras.audioCodecCopy', 'Копировать') . '</option>';
-            echo '<option value="aac" ' . ($audioCodec === 'aac' ? 'selected' : '') . '>' . self::t('cameras.audioCodecAac', 'Транскодировать AAC') . '</option>';
             echo '</select></label></div></details>';
             echo '<label class="check"><input type="checkbox" name="blocked" ' . (!empty($form['blocked']) ? 'checked' : '') . '> ' . self::t('cameras.blocked', 'Заблокирована') . '</label>';
             self::folderCheckboxTree(self::t('cameras.folders', 'Папки'), 'folder_ids[]', $folders, $linkedFolders);
@@ -1961,7 +2033,7 @@ trait AppPagesTrait
 
         try {
             $pdo->beginTransaction();
-            $insert = $pdo->prepare('INSERT INTO cameras(name, source_url, server_id, server_selection, latitude, longitude, direction_deg, view_angle_deg, retention_days, archive_enabled, webrtc_fast_start, event_archive_retention_enabled, event_archive_max_bytes, event_archive_max_duration, event_archive_max_age, timelapse_enabled, timelapse_frames_per_hour, timelapse_retention_days, timelapse_playback_fps, direct_archive_video_timeline_repair_mode, audio_codec, dvr_control_mode, agent_id, agent_camera_id, onvif_events_requested, onvif_host, onvif_port, onvif_username, onvif_password, watermark_enabled, watermark_intensity, blocked, dvr_stream_name, last_sync_at, last_sync_ok, last_sync_message, created_at, updated_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+            $insert = $pdo->prepare('INSERT INTO cameras(name, source_url, server_id, server_selection, latitude, longitude, direction_deg, view_angle_deg, retention_days, archive_enabled, webrtc_fast_start, event_archive_retention_enabled, event_archive_max_bytes, event_archive_max_duration, event_archive_max_age, timelapse_enabled, timelapse_frames_per_hour, timelapse_retention_days, timelapse_playback_fps, direct_archive_video_timeline_repair_mode, audio_codec, dvr_control_mode, agent_id, agent_camera_id, onvif_events_requested, onvif_host, onvif_port, onvif_username, onvif_password, watermark_enabled, watermark_intensity, blocked, dvr_stream_name, last_sync_at, last_sync_ok, last_sync_message, created_at, updated_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
             $exists = $pdo->prepare('SELECT 1 FROM cameras WHERE server_id = ? AND dvr_stream_name = ? LIMIT 1');
             $syncMessage = self::t('cameras.readOnlySyncSkipped', 'Read-only mode: DVR management skipped');
             foreach ($selected as $stream) {
@@ -2085,7 +2157,13 @@ trait AppPagesTrait
 
     private static function cameraAudioCodec(mixed $value): string
     {
-        return strtolower(trim((string)$value)) === 'aac' ? 'aac' : 'copy';
+        $codec = strtolower(trim((string)$value));
+        return match ($codec) {
+            'disabled', 'none', 'off' => 'disabled',
+            'aac' => 'aac',
+            'passthrough', 'source' => 'passthrough',
+            default => 'copy',
+        };
     }
 
     private static function cameraPositiveInt(mixed $value, int $default): int

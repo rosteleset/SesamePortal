@@ -104,7 +104,7 @@ final class Auth
         session_destroy();
     }
 
-    private static function setRememberMeCookie(int $userId): void
+    public static function setRememberMeCookie(int $userId): void
     {
         $token = Util::randomToken(32);
         $hash = password_hash($token, PASSWORD_DEFAULT);
@@ -121,7 +121,7 @@ final class Auth
         ]);
     }
 
-    private static function clearRememberMeCookie(int $userId): void
+    public static function clearRememberMeCookie(int $userId): void
     {
         DB::pdo()->prepare('UPDATE users SET remember_me_token_hash = NULL, remember_me_expires = NULL WHERE id = ?')
             ->execute([$userId]);

@@ -20,14 +20,14 @@ trait AppRenderTrait
         if ($user && $showChrome && $theme === '') {
             echo '<script>if(!document.documentElement.dataset.theme&&window.matchMedia){document.documentElement.dataset.theme=matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light";document.documentElement.dataset.themeAuto="1";}</script>';
         }
-        echo '<title>Портал Артель МиК</title>';
+        echo '<title>' . Util::h($title) . ' - SesamePortal</title>';
         echo '<link rel="icon" href="/assets/favicon.svg" type="image/svg+xml">';
         echo '<link rel="manifest" href="/manifest.json">';
         echo '<link rel="apple-touch-icon" href="/assets/apple-touch-icon.png">';
         echo '<meta name="theme-color" content="#161616">';
         echo '<meta name="apple-mobile-web-app-capable" content="yes">';
         echo '<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">';
-        echo '<meta name="apple-mobile-web-app-title" content="Артель МиК">';
+        echo '<meta name="apple-mobile-web-app-title" content="SesamePortal">';
         echo '<meta name="mobile-web-app-capable" content="yes">';
         echo '<link rel="stylesheet" href="' . Util::h(self::assetUrl('/assets/styles.css')) . '">';
         echo '<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">';
@@ -59,9 +59,13 @@ trait AppRenderTrait
                 echo '</nav>';
             }
             echo '<div class="sidebar-foot">' . I18n::languageLinks() . '<a class="logout-link" href="/logout">' . self::icon('logout') . self::t('nav.logout', 'Выход') . '</a></div></aside>';
-            $initial = strtoupper(substr((string)$user['login'], 0, 1) ?: 'U');
+            $displayName = (string)($user['name'] !== '' ? $user['name'] : $user['login']);
+            $initial = strtoupper(mb_substr($displayName, 0, 1) ?: 'U');
             $toggleIcon = $theme === 'dark' ? 'sun' : 'moon';
-            echo '<main class="main workspace"><div class="topbar"><div class="topbar-left"><button type="button" class="nav-toggle" data-nav-toggle aria-label="' . Util::h(self::t('nav.toggle', 'Меню')) . '" aria-expanded="false">' . self::icon('menu') . '</button><h1>' . Util::h($title) . '</h1></div><div class="topbar-actions"><button type="button" class="theme-toggle" data-theme-toggle title="' . Util::h(self::t('nav.theme', 'Тема')) . '" aria-label="' . Util::h(self::t('nav.theme', 'Тема')) . '" data-title-light="' . Util::h(self::t('nav.theme.toLight', 'Включить светлую тему')) . '" data-title-dark="' . Util::h(self::t('nav.theme.toDark', 'Включить тёмную тему')) . '">' . self::icon($toggleIcon) . '</button><div class="user">' . Util::h($initial) . '</div></div></div>';
+            $profileHref = $user['role'] === 'admin'
+                ? '/admin/users?edit=1&id=' . (int)$user['id']
+                : '/profile';
+            echo '<main class="main workspace"><div class="topbar"><div class="topbar-left"><button type="button" class="nav-toggle" data-nav-toggle aria-label="' . Util::h(self::t('nav.toggle', 'Меню')) . '" aria-expanded="false">' . self::icon('menu') . '</button><h1>' . Util::h($title) . '</h1></div><div class="topbar-actions"><button type="button" class="theme-toggle" data-theme-toggle title="' . Util::h(self::t('nav.theme', 'Тема')) . '" aria-label="' . Util::h(self::t('nav.theme', 'Тема')) . '" data-title-light="' . Util::h(self::t('nav.theme.toLight', 'Включить светлую тему')) . '" data-title-dark="' . Util::h(self::t('nav.theme.toDark', 'Включить тёмную тему')) . '">' . self::icon($toggleIcon) . '</button><div class="user-dropdown"><button type="button" class="user" data-user-menu-toggle aria-haspopup="menu" aria-expanded="false" title="' . Util::h(self::t('nav.profile', 'Профиль')) . '" aria-label="' . Util::h(self::t('nav.profile', 'Профиль')) . '">' . Util::h($initial) . '</button><div class="user-menu" role="menu"><a role="menuitem" href="' . Util::h($profileHref) . '">' . self::icon('user') . self::t('nav.profile', 'Профиль') . '</a><a role="menuitem" href="/logout">' . self::icon('logout') . self::t('nav.logout', 'Выход') . '</a></div></div></div></div>';
             if ($user['role'] === 'admin') {
                 self::portalUpdateBanner();
             }
@@ -883,7 +887,7 @@ trait AppRenderTrait
         $join = '';
 
         if ($filters['q'] !== '') {
-            $columns = ['u.login', 'u.phone', 'u.role', 'u.admin_comment'];
+            $columns = ['u.login', 'u.name', 'u.phone', 'u.role', 'u.admin_comment'];
             $where[] = '(' . implode(' OR ', array_map([DB::class, 'caseInsensitiveLike'], $columns)) . ')';
             array_push($params, ...array_fill(0, count($columns), '%' . $filters['q'] . '%'));
         }

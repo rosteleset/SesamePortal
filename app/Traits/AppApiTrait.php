@@ -471,6 +471,7 @@ trait AppApiTrait
         }
         session_regenerate_id(true);
         $_SESSION['user_id'] = (int)$user['id'];
+        Auth::setRememberMeCookie((int)$user['id']);
         DB::pdo()->prepare("UPDATE auth_callback_requests SET status = 'completed' WHERE pending_id = ?")
             ->execute([$pendingId]);
         DB::pdo()->prepare('UPDATE users SET last_login_at = ? WHERE id = ?')
