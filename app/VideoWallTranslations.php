@@ -146,9 +146,26 @@ final class VideoWallTranslations
             'ar' => ['إيقاف مؤقت', 'تشغيل', 'أرشيف الكاميرات', 'لا يوجد تسجيل في هذا الوقت', 'جارٍ التخزين المؤقت', 'حدّث DVR لاستخدام التحكم المشترك', 'الأرشيف غير متاح', 'تعذّر تحميل فترات الأرشيف', 'جارٍ الاتصال', 'جارٍ المزامنة', 'متوقف مؤقتاً', 'التاريخ والوقت', 'الانتقال إلى الوقت', 'السرعة', 'الفترة السابقة', 'الفترة التالية', 'تكبير', 'تصغير'],
             'hy' => ['Դադար', 'Նվագարկել', 'Տեսախցիկների արխիվ', 'Այս պահին գրառում չկա', 'Բուֆերացում', 'Ընդհանուր կառավարման համար թարմացրեք DVR-ը', 'Արխիվն անհասանելի է', 'Չհաջողվեց բեռնել արխիվի միջակայքերը', 'Միացում', 'Համաժամացում', 'Դադարեցված է', 'Ամսաթիվ և ժամ', 'Անցնել նշված ժամին', 'Արագություն', 'Նախորդ միջակայք', 'Հաջորդ միջակայք', 'Մեծացնել', 'Փոքրացնել'],
         ];
+        $zoom = [
+            'ru' => ['Масштаб камеры', 'Включить управление масштабом камеры', 'Выключить управление масштабом камеры'],
+            'en' => ['Camera zoom', 'Enable camera zoom controls', 'Disable camera zoom controls'],
+            'de' => ['Kamerazoom', 'Kamerazoom aktivieren', 'Kamerazoom deaktivieren'],
+            'fr' => ['Zoom de la caméra', 'Activer le zoom de la caméra', 'Désactiver le zoom de la caméra'],
+            'es' => ['Zoom de la cámara', 'Activar el zoom de la cámara', 'Desactivar el zoom de la cámara'],
+            'it' => ['Zoom della telecamera', 'Attiva lo zoom della telecamera', 'Disattiva lo zoom della telecamera'],
+            'pt' => ['Zoom da câmara', 'Ativar o zoom da câmara', 'Desativar o zoom da câmara'],
+            'bg' => ['Мащаб на камерата', 'Включи управлението на мащаба на камерата', 'Изключи управлението на мащаба на камерата'],
+            'pl' => ['Powiększenie kamery', 'Włącz sterowanie powiększeniem kamery', 'Wyłącz sterowanie powiększeniem kamery'],
+            'zh' => ['摄像机缩放', '启用摄像机缩放控制', '关闭摄像机缩放控制'],
+            'ja' => ['カメラのズーム', 'カメラのズーム操作を有効にする', 'カメラのズーム操作を無効にする'],
+            'ko' => ['카메라 확대/축소', '카메라 확대/축소 조작 켜기', '카메라 확대/축소 조작 끄기'],
+            'ar' => ['تكبير الكاميرا', 'تفعيل التحكم بتكبير الكاميرا', 'تعطيل التحكم بتكبير الكاميرا'],
+            'hy' => ['Տեսախցիկի մասշտաբ', 'Միացնել տեսախցիկի մասշտաբի կառավարումը', 'Անջատել տեսախցիկի մասշտաբի կառավարումը'],
+        ];
         $messages = [];
         foreach ($rows as $locale => $values) {
             $messages[$locale] = array_combine($keys, $values) + array_combine(array_map(static fn(string $key): string => 'wall.' . $key, $playbackKeys), $playback[$locale]);
+            $messages[$locale] += array_combine(['wall.cameraZoom', 'wall.enableCameraZoom', 'wall.disableCameraZoom'], $zoom[$locale]);
         }
         return $messages;
     }

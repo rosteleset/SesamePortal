@@ -96,6 +96,64 @@ async function assertTimelineWheelZoom(page) {
   assert.deepEqual(await range(), before, 'horizontal-only wheel movement does not zoom or shift the window');
 }
 
+async function assertCameraZoomToggle(page) {
+  const tile = page.locator('.vw-video-tile').first(), button = tile.locator('[data-wall-camera-zoom]');
+  const frame = tile.locator('iframe').contentFrame();
+  const scale = () => frame.locator('.stage').evaluate(stage => Number(getComputedStyle(stage).getPropertyValue('--video-zoom-scale')));
+  assert.equal(await page.locator('[data-wall-camera-zoom][aria-pressed="false"]:enabled').count(), 4);
+  assert.equal(await tile.locator('iframe').getAttribute('tabindex'), '-1');
+  await tile.locator('.vw-video-stage').hover();
+  let scroll = await page.evaluate(() => scrollY);
+  await page.mouse.wheel(0, 180);
+  await page.waitForFunction(before => scrollY > before, scroll);
+  assert.equal(await scale(), 1, 'wheel over a camera scrolls the page without zooming by default');
+  await button.click();
+  assert.equal(await button.getAttribute('aria-pressed'), 'true');
+  assert.equal(await button.getAttribute('title'), 'Выключить управление масштабом камеры');
+  assert.equal(await tile.locator('iframe').getAttribute('tabindex'), '0');
+  await tile.locator('.vw-video-stage').hover();
+  scroll = await page.evaluate(() => scrollY);
+  await page.mouse.wheel(0, -120);
+  await frame.locator('.stage').evaluate(stage => new Promise(resolve => {
+    const check = () => Number(getComputedStyle(stage).getPropertyValue('--video-zoom-scale')) > 1 ? resolve() : setTimeout(check, 30); check();
+  }));
+  assert.equal(await page.evaluate(() => scrollY), scroll, 'enabled camera handles wheel itself');
+  assert.equal(await page.locator('[data-wall-camera-zoom][aria-pressed="true"]').count(), 1);
+  assert.equal(await page.locator('[data-wall-frame]').nth(1).contentFrame().locator('.stage').evaluate(stage => Number(getComputedStyle(stage).getPropertyValue('--video-zoom-scale'))), 1);
+  await tile.screenshot({path: '/tmp/portal-wall-camera-zoom-desktop.png'});
+  const zoomed = await scale();
+  await button.click();
+  assert.equal(await button.getAttribute('aria-pressed'), 'false');
+  await page.evaluate(() => scrollTo(0, 0));
+  await tile.locator('.vw-video-stage').hover();
+  scroll = await page.evaluate(() => scrollY);
+  await page.mouse.wheel(0, 180);
+  await page.waitForFunction(before => scrollY > before, scroll);
+  assert.equal(await scale(), zoomed, 'disabling zoom restores scrolling without changing framing or reloading');
+  await button.press('Enter');
+  assert.equal(await button.getAttribute('aria-pressed'), 'true', 'toggle is keyboard accessible');
+  await tile.locator('.vw-video-stage').hover();
+  await page.mouse.wheel(0, 120);
+  await frame.locator('.stage').evaluate(stage => new Promise(resolve => {
+    const check = () => Number(getComputedStyle(stage).getPropertyValue('--video-zoom-scale')) === 1 ? resolve() : setTimeout(check, 30); check();
+  }));
+  await button.click();
+}
+
+async function assertCameraTouchScroll(page, context) {
+  const stage = page.locator('.vw-video-stage').first();
+  await page.evaluate(() => scrollTo(0, 0));
+  const box = await stage.boundingBox(), x = box.x + box.width / 2, y = box.y + box.height / 2;
+  const touch = await context.newCDPSession(page);
+  try {
+    await touch.send('Input.dispatchTouchEvent', {type: 'touchStart', touchPoints: [{id: 1, x, y: y + 50}]});
+    for (const dy of [30, 0, -30, -60]) await touch.send('Input.dispatchTouchEvent', {type: 'touchMove', touchPoints: [{id: 1, x, y: y + dy}]});
+    await touch.send('Input.dispatchTouchEvent', {type: 'touchEnd', touchPoints: []});
+    await page.waitForFunction(() => scrollY > 30);
+    assert.equal(await page.locator('[data-wall-camera-zoom][aria-pressed="true"]').count(), 0, 'touch swipe scrolls the page without enabling zoom');
+  } finally { await touch.detach(); }
+}
+
 (async () => {
   const root = resolve(__dirname, '..');
   const state = mkdtempSync(join(tmpdir(), 'portal-wall-browser-'));
@@ -173,6 +231,7 @@ async function assertTimelineWheelZoom(page) {
     const stage = await page.locator('.vw-video-stage').first().boundingBox();
     assert(watermark.y + watermark.height <= stage.y + stage.height + 1);
     await page.screenshot({path: '/tmp/portal-wall-view-desktop.png', fullPage: true});
+    await assertCameraZoomToggle(page);
     await page.locator('.vw-toolbar [data-wall-fullscreen]').click();
     await page.waitForFunction(() => document.fullscreenElement !== null);
     await assertFullscreenLayout(page);
@@ -256,10 +315,12 @@ async function assertTimelineWheelZoom(page) {
     execFileSync('php', ['-r', 'require "app/Portal.php"; SesamePortal\\DB::pdo()->exec("UPDATE users SET hide_archive=0 WHERE login=\'wall-demo\'");'], {cwd: root, env});
     await page.setViewportSize({width:390, height:844});
     await page.goto(wallUrl);
+    assert.equal(await page.locator('[data-wall-camera-zoom][aria-pressed="true"]').count(), 0, 'page reload resets zoom toggles');
     await assertToolbarSizes(page);
     assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
     await page.locator('[data-wall-frame]').first().contentFrame().locator('video').evaluate(video => new Promise(resolve => { const check = () => video.readyState >= 2 && video.currentTime > 0.2 ? resolve() : setTimeout(check, 50); check(); }));
     await page.screenshot({path:'/tmp/portal-wall-view-mobile.png',fullPage:true});
+    await assertCameraTouchScroll(page, context);
     await page.locator('.vw-toolbar [data-wall-fullscreen]').click();
     await page.waitForFunction(() => document.fullscreenElement !== null);
     await assertFullscreenLayout(page);
@@ -268,6 +329,19 @@ async function assertTimelineWheelZoom(page) {
     const timelineBox = await page.locator('[data-wall-timeline]').boundingBox();
     const beforePinch = await page.locator('[data-wall-timeline]').evaluate(c => Number(c.getAttribute('aria-valuemax')) - Number(c.getAttribute('aria-valuemin')));
     const touch = await context.newCDPSession(page);
+    const cameraButton = page.locator('[data-wall-camera-zoom]').first();
+    await cameraButton.click();
+    assert.equal(await cameraButton.getAttribute('aria-pressed'), 'true');
+    const cameraBox = await page.locator('.vw-video-stage').first().boundingBox();
+    const cx = cameraBox.x + cameraBox.width / 2, cy = cameraBox.y + cameraBox.height / 2;
+    await touch.send('Input.dispatchTouchEvent', {type: 'touchStart', touchPoints: [{id: 1, x: cx - 25, y: cy}, {id: 2, x: cx + 25, y: cy}]});
+    await touch.send('Input.dispatchTouchEvent', {type: 'touchMove', touchPoints: [{id: 1, x: cx - 50, y: cy}, {id: 2, x: cx + 50, y: cy}]});
+    await touch.send('Input.dispatchTouchEvent', {type: 'touchEnd', touchPoints: []});
+    await page.locator('[data-wall-frame]').first().contentFrame().locator('.stage').evaluate(stage => new Promise(resolve => {
+      const check = () => Number(getComputedStyle(stage).getPropertyValue('--video-zoom-scale')) > 1 ? resolve() : setTimeout(check, 30); check();
+    }));
+    await page.screenshot({path:'/tmp/portal-wall-camera-zoom-mobile.png'});
+    await cameraButton.click();
     const y = timelineBox.y + 20, x = timelineBox.x;
     await touch.send('Input.dispatchTouchEvent', {type: 'touchStart', touchPoints: [{id: 1, x: x + 80, y}, {id: 2, x: x + 220, y}]});
     await touch.send('Input.dispatchTouchEvent', {type: 'touchMove', touchPoints: [{id: 1, x: x + 43, y}, {id: 2, x: x + 269, y}]});
@@ -312,7 +386,7 @@ async function assertTimelineWheelZoom(page) {
     assert.equal(await page.locator('.vw-library-row').count(), 1);
     await page.screenshot({path:'/tmp/portal-wall-library.png',fullPage:true});
     assert.deepEqual(errors, []);
-    console.log('Video wall browser checks passed: editor, real DVR HLS frames/pixels, shared seek/pause/rate, OR events/recordings, wheel/pinch, overlay captions, zero tile gaps, fullscreen autohide/mouse/touch, archive denial, desktop/mobile, scroll lifecycle.');
+    console.log('Video wall browser checks passed: editor, real DVR HLS frames/pixels, shared seek/pause/rate, OR events/recordings, wheel/pinch, per-camera zoom toggle, mouse/touch page scrolling, overlay captions, zero tile gaps, fullscreen autohide/mouse/touch, archive denial, desktop/mobile, scroll lifecycle.');
     if (process.argv.includes('--demo')) {
       await browser.close(); browser = null; page = null;
       console.log(JSON.stringify({url: wallUrl, login: 'wall-demo', password: 'wall-demo123', archiveTime: new Date((dvr.epoch + 130) * 1000).toISOString()}));

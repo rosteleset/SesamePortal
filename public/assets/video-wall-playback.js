@@ -33,6 +33,7 @@
     const archive = screen.dataset.wallArchive === '1';
     const items = [...screen.querySelectorAll('[data-wall-frame]')].map(frame => ({
       frame, overlay: frame.parentElement.querySelector('[data-wall-state]'), origin: frame.dataset.wallOrigin,
+      tile: frame.closest('.vw-video-tile'), zoomButton: frame.closest('.vw-video-tile').querySelector('[data-wall-camera-zoom]'), zoomEnabled: false,
       visible: false, ready: false, archive: false, state: null, seek: 0, revision: 0,
       ranges: [], events: [], rangesLoaded: false, eventsLoaded: false, eventSupport: false,
       rangeError: null, eventError: null, rangeRequest: 0, lastCorrection: 0,
@@ -41,6 +42,13 @@
     let destroyed = false, timelineWidth = 0, dateDirty = false, rangeTimerPending, controlsTimer;
     let unionDirty = true, recordingUnion = [], eventUnion = [], controlsHovered = false, drag = null, pinch = null;
     const pointers = new Map();
+    function setCameraZoom(item, enabled) {
+      item.zoomEnabled = enabled;
+      item.tile.classList.toggle('vw-zoom-enabled', enabled);
+      item.frame.tabIndex = enabled ? 0 : -1;
+      item.zoomButton.setAttribute('aria-pressed', String(enabled));
+      item.zoomButton.title = labels[enabled ? 'disableCameraZoom' : 'enableCameraZoom'];
+    }
     const isFullscreen = () => (document.fullscreenElement || document.webkitFullscreenElement) === screen;
     function showControls() {
       clearTimeout(controlsTimer);
@@ -104,6 +112,7 @@
     }
     function unmount(item) {
       clearTimeout(item.timer); item.timer = null;
+      setCameraZoom(item, false);
       item.frame.removeAttribute('src'); item.channel = null; item.ready = false; item.state = null;
     }
     function visibility() {
@@ -333,6 +342,11 @@
           else await fullscreen.call(screen);
         } catch (_) { full.blur(); }
       });
+    });
+    items.forEach(item => {
+      setCameraZoom(item, false);
+      item.zoomButton.disabled = false;
+      item.zoomButton.addEventListener('click', () => { setCameraZoom(item, !item.zoomEnabled); showControls(); });
     });
     document.addEventListener('fullscreenchange', showControls);
     document.addEventListener('webkitfullscreenchange', showControls);

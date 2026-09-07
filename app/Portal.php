@@ -8577,6 +8577,8 @@ final class App
     private static function icon(string $name): string
     {
         $paths = [
+            // Lucide Search, matching the existing inline icon helper.
+            'search' => '<g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></g>',
             'pause' => '<path fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" d="M6 4h4v16H6zM14 4h4v16h-4z"/>',
             'play' => '<path fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" d="m6 3 14 9-14 9V3z"/>',
             'grid' => '<path d="M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z"/>',

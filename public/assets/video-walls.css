@@ -45,7 +45,8 @@
 .vw-video-grid { display: grid; grid-template-columns: repeat(var(--wall-cols), minmax(0, 1fr)); gap: 0; }
 .vw-video-tile { position: relative; min-width: 0; background: #171a1c; color: #f0f2f2; overflow: hidden; }
 .vw-video-stage { position: relative; aspect-ratio: 16 / 9; background: #090b0c; overflow: hidden; }
-.vw-video-stage iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
+.vw-video-stage iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; pointer-events: none; }
+.vw-video-tile.vw-zoom-enabled iframe { pointer-events: auto; }
 .vw-screen [hidden] { display: none !important; }
 .vw-playback-state { position: absolute; inset: auto 0 0; padding: 8px; background: #101719d9; color: #e4e9eb; font-size: 12px; text-align: center; pointer-events: none; overflow-wrap: anywhere; }
 .vw-playback-state.vw-state-blocking { inset: 0; display: grid; place-items: center; background: #101719; }
@@ -73,8 +74,10 @@
 .vw-slot-state { position: absolute; inset: 0; display: grid; place-items: center; text-align: center; padding: 12px; color: #a9b0b4; font-size: 13px; }
 .vw-tile-caption { position: absolute; inset: auto var(--wall-caption-x, 8px) var(--wall-caption-y, 8px); z-index: 1; display: flex; align-items: center; justify-content: space-between; gap: 6px; pointer-events: none; }
 .vw-tile-caption > span { min-width: 0; padding: 5px 7px; border-radius: 4px; background: #080b0eb8; font-size: 12px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-.vw-tile-caption a { pointer-events: auto; }
+.vw-tile-actions { display: flex; flex: 0 0 auto; align-items: center; gap: 6px; }
+.vw-tile-caption a, .vw-tile-caption button { pointer-events: auto; }
 .vw-tile-caption .icon-action { width: 28px; height: 28px; flex: 0 0 28px; color: #f0f2f2; background: #080b0eb8; border-color: #51585c; padding: 5px; }
+.vw-tile-caption [data-wall-camera-zoom][aria-pressed="true"] { color: #fff; background: #986820; border-color: #f5c572; box-shadow: 0 0 0 1px #f5c572; }
 .vw-watermark { position: absolute; inset: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: center; gap: 10px; padding: 8%; pointer-events: none; overflow: hidden; }
 .vw-watermark span { color: rgba(255,255,255,var(--watermark-alpha,.16)); font-size: 16px; line-height: 1.2; font-weight: 800; text-align: center; overflow-wrap: anywhere; transform: rotate(-24deg); }
 .vw-screen:fullscreen, .vw-screen:-webkit-full-screen { display: flex; flex-direction: column; width: 100%; height: 100%; overflow: hidden; padding: 0; background: #101314; }

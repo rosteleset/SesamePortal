@@ -22,6 +22,13 @@ The DVR implementation is based on `origin/elexir-webrtc` (`a0c72904`).
   reappears on pointer/touch activity, and stays visible during control interaction.
   The bottom-edge wake zone works even with older DVR players. Exit via Escape or
   the lower fullscreen button. Ordinary view keeps playback controls visible.
+- Each camera has a magnifier toggle, off by default. While off, mouse/touch
+  input passes through the iframe so the Portal page scrolls normally. Enabling
+  it allows the existing embed wheel/pinch zoom and pan in that camera only.
+  Disabling it locks the current framing and restores page scrolling without
+  restarting playback. Reloading or remounting a tile starts with zoom controls
+  off again. Standalone embed players and the shared timeline are unchanged;
+  this toggle requires only a Portal update, not a new DVR control protocol.
 - The clock advances independently of buffering cameras. Large drift triggers
   a correction at most once per 6 seconds per camera; gaps retry every 10 seconds.
   Buffered seeks avoid reloading HLS when the exact UTC target is already mapped

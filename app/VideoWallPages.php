@@ -214,7 +214,7 @@ trait VideoWallPages
                 echo '<article class="vw-video-tile"><div class="vw-video-stage">';
                 if ($camera) {
                     $src = '/video-walls/stream?' . http_build_query(['id' => (int)$wall['id'], 'camera_id' => $cameraId]);
-                    echo '<iframe data-wall-frame data-wall-camera-id="' . $cameraId . '" data-wall-origin="' . Util::h(self::videoWallOrigin((string)$camera['server_url'])) . '" data-src="' . Util::h($src) . '" title="' . Util::h($name) . '" allow="autoplay" referrerpolicy="same-origin"></iframe><span class="vw-playback-state" data-wall-state role="status" hidden></span>';
+                    echo '<iframe data-wall-frame data-wall-camera-id="' . $cameraId . '" data-wall-origin="' . Util::h(self::videoWallOrigin((string)$camera['server_url'])) . '" data-src="' . Util::h($src) . '" title="' . Util::h($name) . '" allow="autoplay" referrerpolicy="same-origin" tabindex="-1"></iframe><span class="vw-playback-state" data-wall-state role="status" hidden></span>';
                     if ((int)($camera['watermark_enabled'] ?? 0) === 1) {
                         echo '<div class="vw-watermark" aria-hidden="true" style="--watermark-alpha:' . number_format(self::watermarkIntensity($camera['watermark_intensity'] ?? 16) / 100, 2, '.', '') . '">';
                         for ($i = 0; $i < 6; $i++) {
@@ -227,7 +227,9 @@ trait VideoWallPages
                 }
                 echo '</div><div class="vw-tile-caption"><span>' . ($slot + 1) . '. ' . Util::h($name) . '</span>';
                 if ($camera) {
+                    echo '<div class="vw-tile-actions"><button type="button" class="icon-action" data-wall-camera-zoom aria-pressed="false" aria-label="' . Util::h(self::wt('cameraZoom') . ': ' . $name) . '" title="' . Util::h(self::wt('enableCameraZoom')) . '" disabled>' . self::icon('search') . '</button>';
                     self::iconActionLink('/viewer/player?' . http_build_query(['id' => $cameraId, 'back' => '/video-walls/view?id=' . (int)$wall['id']]), self::wt('open'), 'scan');
+                    echo '</div>';
                 }
                 echo '</div></article>';
             }
@@ -253,7 +255,7 @@ trait VideoWallPages
             }
             echo '</section><div class="vw-controls-wake" data-wall-wake></div>';
             $labels = [];
-            foreach (['pause', 'play', 'timeline', 'noRecording', 'buffering', 'updateDvr', 'archiveDenied', 'rangesError', 'connecting', 'syncing', 'paused'] as $key) {
+            foreach (['pause', 'play', 'timeline', 'noRecording', 'buffering', 'updateDvr', 'archiveDenied', 'rangesError', 'connecting', 'syncing', 'paused', 'enableCameraZoom', 'disableCameraZoom'] as $key) {
                 $labels[$key] = self::wt($key);
             }
             echo '<script type="application/json" data-wall-playback-labels>' . json_encode($labels, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_UNESCAPED_UNICODE) . '</script></section>';
