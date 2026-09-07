@@ -13,11 +13,11 @@ async function assertToolbarSizes(page) {
     const icon = [...element.querySelectorAll('svg')].find(svg => svg.getBoundingClientRect().width > 0).getBoundingClientRect();
     return {width: box.width, height: box.height, iconWidth: icon.width, iconHeight: icon.height};
   }));
-  assert.equal(dimensions.length, 3);
+  assert.equal(dimensions.length, 2);
   for (const size of dimensions) assert.deepEqual(size, {width: 42, height: 42, iconWidth: 20, iconHeight: 20});
   const back = await page.locator('.vw-screen > .vw-toolbar > .btn').boundingBox();
   assert.equal(back.height, 42);
-  assert.equal(await page.locator('.vw-video-grid').evaluate(grid => getComputedStyle(grid).gap), '10px');
+  assert.equal(await page.locator('.vw-video-grid').evaluate(grid => getComputedStyle(grid).gap), '0px');
 }
 
 async function assertFullscreenLayout(page) {
@@ -31,6 +31,13 @@ async function assertFullscreenLayout(page) {
       grid: grid.getBoundingClientRect().toJSON(),
       tiles: tiles.map(tile => tile.getBoundingClientRect().toJSON()),
       radii: tiles.map(tile => getComputedStyle(tile).borderRadius),
+      captionsInside: tiles.every(tile => {
+        const stage = tile.querySelector('.vw-video-stage').getBoundingClientRect();
+        const caption = tile.querySelector('.vw-tile-caption').getBoundingClientRect();
+        return caption.top >= stage.top && caption.bottom <= stage.bottom && stage.height === tile.getBoundingClientRect().height;
+      }),
+      gridBottom: grid.getBoundingClientRect().bottom,
+      height: innerHeight,
       width: innerWidth,
       overflow: screen.scrollHeight > screen.clientHeight + 1,
     };
@@ -41,10 +48,26 @@ async function assertFullscreenLayout(page) {
   assert.equal(layout.grid.left, 0);
   assert.equal(layout.grid.right, layout.width);
   assert.equal(layout.overflow, false);
+  assert.equal(layout.captionsInside, true);
+  assert.equal(layout.gridBottom, layout.height);
   for (const radius of layout.radii) assert.equal(radius, '0px');
   assert.equal(layout.tiles[0].right, layout.tiles[1].left);
   assert.equal(layout.tiles[0].bottom, layout.tiles[2].top);
   assert.equal(await page.locator('[data-wall-archive-controls]').isVisible(), true);
+}
+
+async function assertControlsAutohide(page) {
+  await page.mouse.move(200, 100);
+  await page.waitForFunction(() => document.querySelector('[data-wall-view]').classList.contains('vw-controls-hidden'));
+  assert.equal(await page.locator('[data-wall-controls]').isVisible(), false);
+  await page.mouse.move(180, 90);
+  await page.waitForFunction(() => !document.querySelector('[data-wall-view]').classList.contains('vw-controls-hidden'));
+  await page.waitForFunction(() => document.querySelector('[data-wall-view]').classList.contains('vw-controls-hidden'));
+  const frame = page.locator('[data-wall-frame]').first().contentFrame();
+  assert(await frame.locator('.player-app').evaluate(app => app.getBoundingClientRect().width <= innerWidth + 1));
+  await frame.locator('video').dispatchEvent('pointerdown', {pointerType: 'touch', bubbles: true});
+  await page.waitForFunction(() => !document.querySelector('[data-wall-view]').classList.contains('vw-controls-hidden'));
+  assert.equal(await page.locator('[data-wall-controls]').isVisible(), true);
 }
 
 (async () => {
@@ -121,17 +144,45 @@ async function assertFullscreenLayout(page) {
     });
     assert(pixels > 500);
     const watermark = await page.locator('.vw-watermark').first().boundingBox();
-    const caption = await page.locator('.vw-tile-caption').first().boundingBox();
-    assert(watermark.y + watermark.height <= caption.y + 1);
+    const stage = await page.locator('.vw-video-stage').first().boundingBox();
+    assert(watermark.y + watermark.height <= stage.y + stage.height + 1);
     await page.screenshot({path: '/tmp/portal-wall-view-desktop.png', fullPage: true});
-    await page.locator('[data-wall-fullscreen]').click();
+    await page.locator('.vw-toolbar [data-wall-fullscreen]').click();
     await page.waitForFunction(() => document.fullscreenElement !== null);
     await assertFullscreenLayout(page);
+    await assertControlsAutohide(page);
     await page.screenshot({path: '/tmp/portal-wall-view-fullscreen.png'});
+    await page.waitForFunction(() => document.querySelector('[data-wall-view]').classList.contains('vw-controls-hidden'));
+    await page.screenshot({path: '/tmp/portal-wall-view-fullscreen-clean.png'});
     await page.evaluate(() => document.exitFullscreen());
     await page.waitForFunction(() => document.fullscreenElement === null);
     await assertToolbarSizes(page);
     await page.waitForFunction(() => document.querySelector('[data-wall-archive-status]').textContent.includes('4 / 4'));
+    // Both event bands contribute to a single track, not only the first camera.
+    await page.waitForFunction(epoch => {
+      const canvas = document.querySelector('[data-wall-timeline]');
+      const from = Number(canvas.getAttribute('aria-valuemin')), to = Number(canvas.getAttribute('aria-valuemax'));
+      const dpr = canvas.width / canvas.clientWidth, ctx = canvas.getContext('2d');
+      return [-900, -600].every(offset => {
+        const x = (1 + (epoch + offset - from) / (to - from) * (canvas.clientWidth - 2)) * dpr;
+        const pixel = ctx.getImageData(Math.floor(x), Math.floor(15 * dpr), 1, 1).data;
+        return pixel[0] === 197 && pixel[1] === 138 && pixel[2] === 37;
+      });
+    }, dvr.epoch);
+    assert.equal(await page.locator('[data-wall-timeline]').evaluate(canvas => canvas.clientHeight), 86);
+    assert.equal(await page.locator('[data-wall-seek]').count(), 0);
+    const windowSpan = () => page.locator('[data-wall-timeline]').evaluate(c => Number(c.getAttribute('aria-valuemax')) - Number(c.getAttribute('aria-valuemin')));
+    const initialSpan = await windowSpan();
+    await page.locator('[data-wall-timeline]').hover();
+    await page.mouse.wheel(0, -120);
+    await page.waitForFunction(initial => {
+      const c = document.querySelector('[data-wall-timeline]');
+      return Number(c.getAttribute('aria-valuemax')) - Number(c.getAttribute('aria-valuemin')) < initial;
+    }, initialSpan);
+    await page.locator('[data-wall-timeline-action="zoomOut"]').click();
+    await page.locator('[data-wall-timeline]').press('ArrowLeft');
+    await page.waitForFunction(() => document.querySelector('[data-wall-live]').getAttribute('aria-pressed') === 'false');
+    await page.locator('[data-wall-live]').click();
     await page.locator('[data-wall-play]').click();
     await frame.locator('video').evaluate(video => new Promise(resolve => { const check = () => video.paused ? resolve() : setTimeout(check, 50); check(); }));
     assert.equal(await page.locator('[data-wall-frame][src]').count(), 4);
@@ -175,13 +226,14 @@ async function assertFullscreenLayout(page) {
     assert.equal(await page.locator('.vw-state-blocking').count(), 4);
     dvr.legacy(false);
     // The Portal restriction itself removes all archive UI and range requests.
+    await page.goto('about:blank');
     execFileSync('php', ['-r', 'require "app/Portal.php"; SesamePortal\\DB::pdo()->exec("UPDATE users SET hide_archive=1 WHERE login=\'wall-demo\'");'], {cwd: root, env});
     const since = dvr.requests.length;
     await page.goto(wallUrl);
     await page.waitForFunction(() => document.querySelectorAll('[data-wall-frame][src]').length === 4);
     await page.waitForTimeout(1200);
     assert.equal(await page.locator('[data-wall-archive-controls]').count(), 0);
-    assert.equal(dvr.requests.slice(since).filter(url => url.pathname.endsWith('/timeline_ranges.json')).length, 0);
+    assert.equal(dvr.requests.slice(since).filter(url => /\/(timeline_ranges|motion_events)\.json$/.test(url.pathname)).length, 0);
     execFileSync('php', ['-r', 'require "app/Portal.php"; SesamePortal\\DB::pdo()->exec("UPDATE users SET hide_archive=0 WHERE login=\'wall-demo\'");'], {cwd: root, env});
     await page.setViewportSize({width:390, height:844});
     await page.goto(wallUrl);
@@ -189,10 +241,24 @@ async function assertFullscreenLayout(page) {
     assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
     await page.locator('[data-wall-frame]').first().contentFrame().locator('video').evaluate(video => new Promise(resolve => { const check = () => video.readyState >= 2 && video.currentTime > 0.2 ? resolve() : setTimeout(check, 50); check(); }));
     await page.screenshot({path:'/tmp/portal-wall-view-mobile.png',fullPage:true});
-    await page.locator('[data-wall-fullscreen]').click();
+    await page.locator('.vw-toolbar [data-wall-fullscreen]').click();
     await page.waitForFunction(() => document.fullscreenElement !== null);
     await assertFullscreenLayout(page);
+    await assertControlsAutohide(page);
     await page.screenshot({path:'/tmp/portal-wall-view-fullscreen-mobile.png'});
+    const timelineBox = await page.locator('[data-wall-timeline]').boundingBox();
+    const beforePinch = await windowSpan();
+    const touch = await context.newCDPSession(page);
+    const y = timelineBox.y + 20, x = timelineBox.x;
+    await touch.send('Input.dispatchTouchEvent', {type: 'touchStart', touchPoints: [{id: 1, x: x + 80, y}, {id: 2, x: x + 220, y}]});
+    await touch.send('Input.dispatchTouchEvent', {type: 'touchMove', touchPoints: [{id: 1, x: x + 43, y}, {id: 2, x: x + 269, y}]});
+    await touch.send('Input.dispatchTouchEvent', {type: 'touchEnd', touchPoints: []});
+    await touch.detach();
+    await page.waitForFunction(before => {
+      const c = document.querySelector('[data-wall-timeline]');
+      const start = Number(c.getAttribute('aria-valuemin')), end = Number(c.getAttribute('aria-valuemax'));
+      return end - start < before && Number.isSafeInteger(start) && Number.isSafeInteger(end);
+    }, beforePinch);
     await page.evaluate(() => document.exitFullscreen());
     await page.waitForFunction(() => document.fullscreenElement === null);
     await assertToolbarSizes(page);
@@ -227,7 +293,7 @@ async function assertFullscreenLayout(page) {
     assert.equal(await page.locator('.vw-library-row').count(), 1);
     await page.screenshot({path:'/tmp/portal-wall-library.png',fullPage:true});
     assert.deepEqual(errors, []);
-    console.log('Video wall browser checks passed: editor, search, capacity, order, persistence, real DVR cross-origin HLS frames/pixels, shared seek, pause/resume, rate, gaps, LIVE, watermark, fullscreen, desktop/mobile, scroll lifecycle.');
+    console.log('Video wall browser checks passed: editor, real DVR HLS frames/pixels, shared seek/pause/rate, OR events/recordings, wheel/pinch, overlay captions, zero tile gaps, fullscreen autohide/mouse/touch, archive denial, desktop/mobile, scroll lifecycle.');
     if (process.argv.includes('--demo')) {
       await browser.close(); browser = null; page = null;
       console.log(JSON.stringify({url: wallUrl, login: 'wall-demo', password: 'wall-demo123', archiveTime: new Date((dvr.epoch + 130) * 1000).toISOString()}));

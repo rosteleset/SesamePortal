@@ -202,7 +202,7 @@ trait VideoWallPages
             if (isset($_GET['saved'])) {
                 self::notice(self::wt('saved'), 'success');
             }
-            echo '<section class="vw-screen" data-wall-view data-wall-archive="' . ($archiveAllowed ? '1' : '0') . '"><div class="vw-toolbar"><a class="btn" href="/video-walls">' . self::t('action.back', 'Назад') . '</a><button type="button" class="icon-action" data-wall-play title="' . Util::h(self::wt('pause')) . '" aria-label="' . Util::h(self::wt('pause')) . '"><span data-wall-play-icon>' . self::icon('pause') . '</span><span data-wall-resume-icon hidden>' . self::icon('play') . '</span></button><button type="button" data-wall-live aria-pressed="true">LIVE</button><output data-wall-clock aria-live="off"></output>';
+            echo '<section class="vw-screen" data-wall-view data-wall-archive="' . ($archiveAllowed ? '1' : '0') . '"><div class="vw-toolbar"><a class="btn" href="/video-walls">' . self::t('action.back', 'Назад') . '</a>';
             self::iconActionLink('/video-walls/edit?id=' . (int)$wall['id'], self::wt('edit'), 'edit');
             echo '<button type="button" class="icon-action" data-wall-fullscreen title="' . Util::h(self::wt('fullscreen')) . '" aria-label="' . Util::h(self::wt('fullscreen')) . '">' . self::icon('scan') . '</button></div>';
             echo '<div class="vw-video-grid" style="--wall-cols:' . (int)$wall['grid_cols'] . ';--wall-rows:' . (int)$wall['grid_rows'] . '">';
@@ -231,18 +231,27 @@ trait VideoWallPages
                 }
                 echo '</div></article>';
             }
-            echo '</div>';
+            echo '</div><section class="vw-playback" data-wall-controls>';
             if ($archiveAllowed) {
-                echo '<section class="vw-archive" data-wall-archive-controls aria-label="' . Util::h(self::wt('timeline')) . '"><form class="vw-archive-toolbar" data-wall-jump><label>' . Util::h(self::wt('dateTime')) . '<input type="datetime-local" step="1" data-wall-date required></label><button type="submit" class="icon-action" title="' . Util::h(self::wt('seek')) . '" aria-label="' . Util::h(self::wt('seek')) . '"><span aria-hidden="true">↦</span></button><label>' . Util::h(self::wt('speed')) . '<select data-wall-speed>';
+                echo '<div class="vw-timeline-panel" data-wall-archive-controls><canvas data-wall-timeline role="slider" tabindex="0" aria-label="' . Util::h(self::wt('timeline')) . '"></canvas><output class="vw-timeline-tooltip" data-wall-tooltip hidden></output></div>';
+            }
+            echo '<form class="vw-control-row" data-wall-jump><button type="button" class="icon-action" data-wall-play title="' . Util::h(self::wt('pause')) . '" aria-label="' . Util::h(self::wt('pause')) . '"><span data-wall-play-icon>' . self::icon('pause') . '</span><span data-wall-resume-icon hidden>' . self::icon('play') . '</span></button>';
+            if ($archiveAllowed) {
+                echo '<select data-wall-speed aria-label="' . Util::h(self::wt('speed')) . '" title="' . Util::h(self::wt('speed')) . '">';
                 foreach ([0.5, 1, 2, 4, 8] as $rate) {
                     echo '<option value="' . $rate . '"' . ($rate === 1 ? ' selected' : '') . '>' . $rate . '×</option>';
                 }
-                echo '</select></label><div class="vw-actions">';
-                foreach (['previousWindow' => '←', 'zoomIn' => '+', 'zoomOut' => '−', 'nextWindow' => '→'] as $action => $icon) {
+                echo '</select><div class="vw-actions">';
+                foreach (['zoomOut' => '−', 'zoomIn' => '+', 'previousWindow' => '←', 'nextWindow' => '→'] as $action => $icon) {
                     echo '<button type="button" class="icon-action" data-wall-timeline-action="' . $action . '" title="' . Util::h(self::wt($action)) . '" aria-label="' . Util::h(self::wt($action)) . '"><span aria-hidden="true">' . $icon . '</span></button>';
                 }
-                echo '</div><output data-wall-window></output></form><p class="vw-archive-status" data-wall-archive-status role="status"></p><div class="vw-timeline-scroll"><canvas data-wall-timeline role="img" aria-label="' . Util::h(self::wt('timeline')) . '"></canvas></div><input type="range" data-wall-seek step="1" aria-label="' . Util::h(self::wt('seek')) . '"></section>';
+                echo '</div><input type="datetime-local" step="1" data-wall-date required aria-label="' . Util::h(self::wt('dateTime')) . '"><button type="submit" class="icon-action" title="' . Util::h(self::wt('seek')) . '" aria-label="' . Util::h(self::wt('seek')) . '"><span aria-hidden="true">→</span></button>';
             }
+            echo '<button type="button" data-wall-live aria-pressed="true">LIVE</button><output data-wall-clock aria-live="off"></output><button type="button" class="icon-action" data-wall-fullscreen title="' . Util::h(self::wt('fullscreen')) . '" aria-label="' . Util::h(self::wt('fullscreen')) . '">' . self::icon('scan') . '</button></form>';
+            if ($archiveAllowed) {
+                echo '<output class="sr-only" data-wall-archive-status role="status"></output>';
+            }
+            echo '</section><div class="vw-controls-wake" data-wall-wake></div>';
             $labels = [];
             foreach (['pause', 'play', 'timeline', 'noRecording', 'buffering', 'updateDvr', 'archiveDenied', 'rangesError', 'connecting', 'syncing', 'paused'] as $key) {
                 $labels[$key] = self::wt($key);

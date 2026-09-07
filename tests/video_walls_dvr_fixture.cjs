@@ -31,6 +31,14 @@ module.exports = async function createDvr(state, playerDir) {
       const ranges = path.startsWith('/demo-4/') ? [{from: epoch - 3600, duration: 3700}, {from: epoch + 200, duration: 3400}] : [{from: epoch - 3600, duration: 7200}];
       send('application/json', JSON.stringify({ ranges: deny ? [] : ranges }), deny ? 403 : 200); return;
     }
+    if (path.endsWith('/motion_events.json')) {
+      const start = path.startsWith('/demo-1/') ? epoch - 1000 : epoch - 800;
+      send('application/json', JSON.stringify({intervals: deny ? [] : [
+        {from: start, duration: 300, state: 'motion'},
+        {from: epoch - 100, duration: 30, state: 'idle'},
+        {from: epoch + 50, duration: 30, state: 'unavailable'},
+      ]}), deny ? 403 : 200); return;
+    }
     if (path.endsWith('.m3u8')) {
       if (deny && path.endsWith('/dvr.m3u8')) { send('text/plain', '', 403); return; }
       const start = url.searchParams.has('start') ? new Date(url.searchParams.get('start')).getTime() / 1000 : Date.now() / 1000 - 60;

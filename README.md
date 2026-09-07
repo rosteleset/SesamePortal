@@ -74,8 +74,10 @@ can manage all walls; other users can only manage their own. The editor provides
 a group tree, search, drag-and-drop/button ordering and a 1×1 to 6×6 grid.
 Selected cameras must fit the grid. Each cell uses a separate DVR embed
 player; Portal does not transcode video. Walls support shared archive seeking,
-play/pause, 0.5x-8x speed, LIVE and full screen. One timeline shows recording
-ranges for each camera; gaps and buffering do not move the other cameras.
+play/pause, 0.5x-8x speed, LIVE and full screen. One embed-style timeline combines
+recordings and events from all cameras into two logical-OR lanes; gaps and
+buffering do not move the other cameras. Captions overlay video, tiles have no
+spacing, and fullscreen playback controls hide when idle.
 Shared playback requires an updated DVR with wall-control protocol v1.
 Users with hidden archive have live controls only. Walls
 preserve camera watermarks, and suspend offscreen players and hidden tabs.
