@@ -214,7 +214,7 @@ trait VideoWallPages
                 echo '<article class="vw-video-tile"><div class="vw-video-stage">';
                 if ($camera) {
                     $src = '/video-walls/stream?' . http_build_query(['id' => (int)$wall['id'], 'camera_id' => $cameraId]);
-                    echo '<iframe data-wall-frame data-wall-camera-id="' . $cameraId . '" data-wall-origin="' . Util::h(self::videoWallOrigin((string)$camera['server_url'])) . '" data-src="' . Util::h($src) . '" title="' . Util::h($name) . '" allow="autoplay" referrerpolicy="same-origin" tabindex="-1"></iframe><span class="vw-playback-state" data-wall-state role="status" hidden></span>';
+                    echo '<iframe data-wall-frame data-wall-camera-id="' . $cameraId . '" data-wall-origin="' . Util::h(self::videoWallOrigin((string)$camera['server_url'])) . '" data-src="' . Util::h($src) . '" title="' . Util::h($name) . '" allow="autoplay" referrerpolicy="same-origin" tabindex="-1" aria-hidden="true"></iframe><span class="vw-playback-state" data-wall-state role="status" hidden></span>';
                     if ((int)($camera['watermark_enabled'] ?? 0) === 1) {
                         echo '<div class="vw-watermark" aria-hidden="true" style="--watermark-alpha:' . number_format(self::watermarkIntensity($camera['watermark_intensity'] ?? 16) / 100, 2, '.', '') . '">';
                         for ($i = 0; $i < 6; $i++) {

@@ -426,6 +426,8 @@ async function assertArchiveGapRecovery(page, dvr, seek) {
     await page.waitForFunction(() => document.querySelector('[data-wall-state]').textContent.includes('Обновите DVR'));
     assert.equal(await page.locator('.vw-state-blocking').count(), 4);
     dvr.legacy(false);
+    await require('./video_walls_bootstrap_browser.cjs')(context, wallUrl);
+    await page.bringToFront();
     // The Portal restriction itself removes all archive UI and range requests.
     await page.goto('about:blank');
     execFileSync('php', ['-r', 'require "app/Portal.php"; SesamePortal\\DB::pdo()->exec("UPDATE users SET hide_archive=1 WHERE login=\'wall-demo\'");'], {cwd: root, env});

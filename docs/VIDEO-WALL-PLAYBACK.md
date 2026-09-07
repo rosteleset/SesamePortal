@@ -69,6 +69,13 @@ The DVR implementation is based on `origin/elexir-webrtc` (`a0c72904`).
 - Hidden tabs and offscreen iframes are unloaded. A newly visible iframe obtains
   a fresh Portal authorization redirect and joins the current shared position.
   Offscreen rows retain their last ranges until remounted; they may be stale.
+- Embed frames remain transparent and non-interactive until their authenticated
+  wall-control `ready` handshake. Portal captions and connection status remain
+  visible while player scripts and playback metadata load, so the embed's initial
+  title, play button and timeline cannot flash inside the wall. Each remount,
+  including ECO toggles, resets this state. A legacy DVR without the handshake
+  stays concealed behind Portal's update/status message. This needs only a Portal
+  update; `hidecontrols=true` continues to be passed to the embed.
 - Users with `hide_archive=1` get no archive UI or range requests and `dvr=false`.
   DVR playback metadata and Auth Backend enforce the underlying permission.
   The existing Flussonic `allowed_dvr_ranges` authorization contract is unchanged.

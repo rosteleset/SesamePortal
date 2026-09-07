@@ -76,7 +76,7 @@
     function setCameraZoom(item, enabled) {
       item.zoomEnabled = enabled;
       item.tile.classList.toggle('vw-zoom-enabled', enabled);
-      item.frame.tabIndex = enabled ? 0 : -1;
+      item.frame.tabIndex = enabled && item.ready ? 0 : -1;
       item.zoomButton.setAttribute('aria-pressed', String(enabled));
       item.zoomButton.title = labels[enabled ? 'disableCameraZoom' : 'enableCameraZoom'];
     }
@@ -138,6 +138,8 @@
     }
     function mount(item) {
       if (item.frame.hasAttribute('src')) return;
+      item.frame.classList.remove('vw-frame-ready');
+      item.frame.setAttribute('aria-hidden', 'true');
       item.channel = [...crypto.getRandomValues(new Uint8Array(16))].map(b => b.toString(16).padStart(2, '0')).join('');
       item.ready = false; item.state = null; item.started = performance.now();
       const url = new URL(item.frame.dataset.src, location.href);
@@ -147,6 +149,8 @@
     }
     function unmount(item) {
       clearTimeout(item.timer); item.timer = null;
+      item.frame.classList.remove('vw-frame-ready');
+      item.frame.setAttribute('aria-hidden', 'true');
       setCameraZoom(item, false);
       item.drift.reset();
       item.rangePending = false;
@@ -167,6 +171,11 @@
       if (m.type === 'ready') {
         const initial = !item.ready;
         item.ready = true; item.archive = m.archive === true; item.eventSupport = m.events === true;
+        // The embed hides its own UI only after asynchronous initialization.
+        // Reveal it on the authenticated handshake, not the iframe load event.
+        item.frame.classList.add('vw-frame-ready');
+        item.frame.setAttribute('aria-hidden', 'false');
+        setCameraZoom(item, item.zoomEnabled);
         if (initial) { command(item, true); ranges(item); }
       } else if (m.type === 'state' && m.revision === item.revision) {
         item.state = m; item.archive = m.archive === true; item.received = performance.now();

@@ -45,8 +45,9 @@
 .vw-video-grid { display: grid; grid-template-columns: repeat(var(--wall-cols), minmax(0, 1fr)); gap: 0; }
 .vw-video-tile { position: relative; min-width: 0; background: #171a1c; color: #f0f2f2; overflow: hidden; }
 .vw-video-stage { position: relative; aspect-ratio: 16 / 9; background: #090b0c; overflow: hidden; }
-.vw-video-stage iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; pointer-events: none; }
-.vw-video-tile.vw-zoom-enabled iframe { pointer-events: auto; }
+.vw-video-stage iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; pointer-events: none; opacity: 0; }
+.vw-video-stage iframe.vw-frame-ready { opacity: 1; }
+.vw-video-tile.vw-zoom-enabled iframe.vw-frame-ready { pointer-events: auto; }
 .vw-screen [hidden] { display: none !important; }
 .vw-playback-state { position: absolute; inset: auto 0 0; padding: 8px; background: #101719d9; color: #e4e9eb; font-size: 12px; text-align: center; pointer-events: none; overflow-wrap: anywhere; }
 .vw-playback-state.vw-state-blocking { inset: 0; display: grid; place-items: center; background: #101719; }
