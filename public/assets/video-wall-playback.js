@@ -2,6 +2,11 @@
   'use strict';
   const protocol = 'sesame-wall';
   const clamp = (n, a, b) => Math.max(a, Math.min(b, n));
+  function wheelZoomFactor(event) {
+    // Match the DVR embed timeline's wheel units and sensitivity.
+    const delta = event.deltaY * (event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? 240 : 1);
+    return Number.isFinite(delta) ? Math.exp(clamp(delta, -600, 600) * 0.0015) : 1;
+  }
   class Clock {
     constructor(now = () => performance.now()) { this.now = now; this.set(Date.now() / 1000, 'live', false, 1); }
     time() { return this.mode === 'live' ? Date.now() / 1000 : this.unix + (this.paused ? 0 : (this.now() - this.anchor) / 1000 * this.rate); }
@@ -300,8 +305,9 @@
       timeline.addEventListener('pointerleave', () => { $('tooltip').hidden = true; });
       timeline.addEventListener('wheel', event => {
         event.preventDefault();
+        const newSpan = clamp(Math.round(span * wheelZoomFactor(event)), 60, 86400);
+        if (newSpan === span) return;
         const at = ratio(event.clientX), anchor = from + at * span;
-        const newSpan = clamp(span * (event.deltaY > 0 ? 1.25 : 0.8), 60, 86400);
         windowAt(anchor + (0.5 - at) * newSpan, newSpan);
       }, { passive: false });
       timeline.addEventListener('keydown', event => {
@@ -353,5 +359,5 @@
     render();
     return { clock, seek, close() { clearTimeout(controlsTimer); clearTimeout(rangeTimerPending); clearInterval(timer); clearInterval(rangeTimer); observer.disconnect(); resize.disconnect(); window.removeEventListener('message', receive); document.removeEventListener('visibilitychange', visibility); document.removeEventListener('fullscreenchange', showControls); document.removeEventListener('webkitfullscreenchange', showControls); destroyed = true; visibility(); } };
   }
-  root.SesameVideoWallPlayback = { init, Clock, normalizeRanges, unionRanges };
+  root.SesameVideoWallPlayback = { init, Clock, normalizeRanges, unionRanges, wheelZoomFactor };
 })(typeof window === 'undefined' ? globalThis : window);

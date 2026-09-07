@@ -13,7 +13,9 @@ The DVR implementation is based on `origin/elexir-webrtc` (`a0c72904`).
   gaps between disjoint intervals remain. There are no per-camera timeline rows
   or separate seek slider. Unknown camera metadata is not treated as a confirmed
   recording gap. Zoom: 1 minute to 24 hours; default: 12 hours. Wheel/pinch zoom,
-  drag pans, click/tap seeks. Dates use the browser timezone.
+  drag pans, click/tap seeks. Wheel zoom uses the same delta normalization and
+  sensitivity as the DVR embed player, anchored at the cursor; horizontal-only
+  scrolling does not zoom. Dates use the browser timezone.
 - Camera tiles have no spacing; captions overlay the fitted video image. In
   fullscreen the top navigation is hidden and the lower playback panel overlays
   the wall, without reserving space. It hides after 2.5 seconds of inactivity,

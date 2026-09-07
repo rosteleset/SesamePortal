@@ -70,6 +70,32 @@ async function assertControlsAutohide(page) {
   assert.equal(await page.locator('[data-wall-controls]').isVisible(), true);
 }
 
+async function assertTimelineWheelZoom(page) {
+  const timeline = page.locator('[data-wall-timeline]');
+  const range = () => timeline.evaluate(c => ({from: Number(c.getAttribute('aria-valuemin')), to: Number(c.getAttribute('aria-valuemax'))}));
+  await timeline.scrollIntoViewIfNeeded();
+  const box = await timeline.boundingBox();
+  const x = Math.round(box.x + 1 + (box.width - 2) * 0.3), at = (x - box.x - 1) / (box.width - 2);
+  await page.mouse.move(x, box.y + box.height / 2);
+  for (const deltaY of [-1, 1, -120, 120]) {
+    const before = await range(), span = before.to - before.from;
+    const expected = Math.round(span * Math.exp(deltaY * 0.0015));
+    await page.mouse.wheel(0, deltaY);
+    await page.waitForFunction(expected => {
+      const c = document.querySelector('[data-wall-timeline]');
+      return Number(c.getAttribute('aria-valuemax')) - Number(c.getAttribute('aria-valuemin')) === expected;
+    }, expected);
+    const after = await range();
+    const anchorDrift = Math.abs((before.from + at * span) - (after.from + at * expected));
+    assert(anchorDrift < 2, `wheel zoom keeps the time under the cursor anchored (drift: ${anchorDrift}s)`);
+    if (Math.abs(deltaY) === 1) assert(Math.abs(expected / span - 1) < 0.002, 'tiny wheel movement changes scale by less than 0.2%');
+  }
+  const before = await range();
+  await page.mouse.wheel(120, 0);
+  await page.waitForTimeout(600);
+  assert.deepEqual(await range(), before, 'horizontal-only wheel movement does not zoom or shift the window');
+}
+
 (async () => {
   const root = resolve(__dirname, '..');
   const state = mkdtempSync(join(tmpdir(), 'portal-wall-browser-'));
@@ -171,14 +197,7 @@ async function assertControlsAutohide(page) {
     }, dvr.epoch);
     assert.equal(await page.locator('[data-wall-timeline]').evaluate(canvas => canvas.clientHeight), 86);
     assert.equal(await page.locator('[data-wall-seek]').count(), 0);
-    const windowSpan = () => page.locator('[data-wall-timeline]').evaluate(c => Number(c.getAttribute('aria-valuemax')) - Number(c.getAttribute('aria-valuemin')));
-    const initialSpan = await windowSpan();
-    await page.locator('[data-wall-timeline]').hover();
-    await page.mouse.wheel(0, -120);
-    await page.waitForFunction(initial => {
-      const c = document.querySelector('[data-wall-timeline]');
-      return Number(c.getAttribute('aria-valuemax')) - Number(c.getAttribute('aria-valuemin')) < initial;
-    }, initialSpan);
+    await assertTimelineWheelZoom(page);
     await page.locator('[data-wall-timeline-action="zoomOut"]').click();
     await page.locator('[data-wall-timeline]').press('ArrowLeft');
     await page.waitForFunction(() => document.querySelector('[data-wall-live]').getAttribute('aria-pressed') === 'false');
@@ -247,7 +266,7 @@ async function assertControlsAutohide(page) {
     await assertControlsAutohide(page);
     await page.screenshot({path:'/tmp/portal-wall-view-fullscreen-mobile.png'});
     const timelineBox = await page.locator('[data-wall-timeline]').boundingBox();
-    const beforePinch = await windowSpan();
+    const beforePinch = await page.locator('[data-wall-timeline]').evaluate(c => Number(c.getAttribute('aria-valuemax')) - Number(c.getAttribute('aria-valuemin')));
     const touch = await context.newCDPSession(page);
     const y = timelineBox.y + 20, x = timelineBox.x;
     await touch.send('Input.dispatchTouchEvent', {type: 'touchStart', touchPoints: [{id: 1, x: x + 80, y}, {id: 2, x: x + 220, y}]});

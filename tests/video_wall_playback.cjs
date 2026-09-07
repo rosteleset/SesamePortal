@@ -4,7 +4,27 @@ const { readFileSync } = require('node:fs');
 const vm = require('node:vm');
 const scope = {};
 vm.runInNewContext(readFileSync(require('node:path').join(__dirname, '../public/assets/video-wall-playback.js'), 'utf8'), scope);
-const { Clock, normalizeRanges, unionRanges } = scope.SesameVideoWallPlayback;
+const { Clock, normalizeRanges, unionRanges, wheelZoomFactor } = scope.SesameVideoWallPlayback;
+test('timeline wheel sensitivity matches the DVR embed exponential curve', () => {
+  for (const deltaY of [-120, -1, -0.25, 0, 0.25, 1, 120]) {
+    assert.equal(wheelZoomFactor({deltaY, deltaMode: 0}), Math.exp(deltaY * 0.0015));
+  }
+  const tiny = wheelZoomFactor({deltaY: -1});
+  assert(tiny > 0.998 && tiny < 1, 'a tiny wheel movement must not trigger a fixed 20% zoom');
+  assert(Math.abs(tiny * wheelZoomFactor({deltaY: 1}) - 1) < 1e-12);
+  assert(Math.abs(tiny ** 120 - wheelZoomFactor({deltaY: -120})) < 1e-12);
+});
+test('timeline wheel units are normalized for pixel, line and page devices', () => {
+  assert.equal(wheelZoomFactor({deltaY: -3, deltaMode: 1}), wheelZoomFactor({deltaY: -48, deltaMode: 0}));
+  assert.equal(wheelZoomFactor({deltaY: 1, deltaMode: 2}), wheelZoomFactor({deltaY: 240, deltaMode: 0}));
+});
+test('timeline wheel ignores horizontal-only and invalid deltas and bounds extreme input', () => {
+  assert.equal(wheelZoomFactor({deltaX: 120, deltaY: 0}), 1);
+  for (const deltaY of [NaN, Infinity, -Infinity, undefined]) assert.equal(wheelZoomFactor({deltaY}), 1);
+  for (const deltaY of [-10000, 10000]) {
+    assert.equal(wheelZoomFactor({deltaY}), Math.exp(Math.sign(deltaY) * 600 * 0.0015));
+  }
+});
 test('shared UTC clock seeks, pauses, resumes and changes rate without discontinuity', () => {
   let now = 0; const clock = new Clock(() => now);
   clock.set(1000, 'archive', false, 1); now = 1000; assert.equal(clock.time(), 1001);
