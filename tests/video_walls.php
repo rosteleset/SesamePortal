@@ -103,7 +103,7 @@ $pdo->exec('DELETE FROM users WHERE id = 2');
 check(VideoWalls::page($admin)['total'] === 0, 'Owner deletion cascades');
 $messages = (new ReflectionMethod(I18n::class, 'messages'))->invoke(null, false);
 foreach (VideoWallTranslations::messages() as $locale => $items) {
-    check(count($items) === 49, 'Locale parity ' . $locale);
+    check(count($items) === 51, 'Locale parity ' . $locale);
     foreach ($items as $key => $text) check(($messages[$locale][$key] ?? '') === $text, 'Translation ' . $locale . '/' . $key);
 }
 echo "video walls: {$count} checks passed\n";

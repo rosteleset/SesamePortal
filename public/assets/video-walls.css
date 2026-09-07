@@ -69,6 +69,8 @@
 .vw-control-row [data-wall-date] { width: 226px; max-width: 100%; background: #111318; }
 .vw-control-row [data-wall-speed] { width: 70px; }
 .vw-control-row [data-wall-live][aria-pressed="true"] { color: #35d892; border-color: #22b573; }
+.vw-control-row [data-wall-eco] { width: 54px; flex: 0 0 54px; }
+.vw-control-row [data-wall-eco][aria-pressed="true"] { color: #a9f4cd; background: #1b4936; border-color: #35d892; }
 [data-wall-clock] { font-size: 14px; font-variant-numeric: tabular-nums; min-width: 180px; max-width: 100%; flex: 1; overflow-wrap: anywhere; }
 .vw-controls-wake { display: none; }
 .vw-slot-state { position: absolute; inset: 0; display: grid; place-items: center; text-align: center; padding: 12px; color: #a9b0b4; font-size: 13px; }

@@ -249,13 +249,13 @@ trait VideoWallPages
                 }
                 echo '</div><input type="datetime-local" step="1" data-wall-date required aria-label="' . Util::h(self::wt('dateTime')) . '"><button type="submit" class="icon-action" title="' . Util::h(self::wt('seek')) . '" aria-label="' . Util::h(self::wt('seek')) . '"><span aria-hidden="true">→</span></button>';
             }
-            echo '<button type="button" data-wall-live aria-pressed="true">LIVE</button><output data-wall-clock aria-live="off"></output><button type="button" class="icon-action" data-wall-fullscreen title="' . Util::h(self::wt('fullscreen')) . '" aria-label="' . Util::h(self::wt('fullscreen')) . '">' . self::icon('scan') . '</button></form>';
+            echo '<button type="button" data-wall-live aria-pressed="true">LIVE</button><button type="button" data-wall-eco aria-pressed="false" title="' . Util::h(self::wt('enableEco')) . '">ECO</button><output data-wall-clock aria-live="off"></output><button type="button" class="icon-action" data-wall-fullscreen title="' . Util::h(self::wt('fullscreen')) . '" aria-label="' . Util::h(self::wt('fullscreen')) . '">' . self::icon('scan') . '</button></form>';
             if ($archiveAllowed) {
                 echo '<output class="sr-only" data-wall-archive-status role="status"></output>';
             }
             echo '</section><div class="vw-controls-wake" data-wall-wake></div>';
             $labels = [];
-            foreach (['pause', 'play', 'timeline', 'noRecording', 'buffering', 'updateDvr', 'archiveDenied', 'rangesError', 'connecting', 'syncing', 'paused', 'enableCameraZoom', 'disableCameraZoom'] as $key) {
+            foreach (['pause', 'play', 'timeline', 'noRecording', 'buffering', 'updateDvr', 'archiveDenied', 'rangesError', 'connecting', 'syncing', 'paused', 'enableCameraZoom', 'disableCameraZoom', 'enableEco', 'disableEco'] as $key) {
                 $labels[$key] = self::wt($key);
             }
             echo '<script type="application/json" data-wall-playback-labels>' . json_encode($labels, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_UNESCAPED_UNICODE) . '</script></section>';
@@ -273,6 +273,13 @@ trait VideoWallPages
             return;
         }
         $extra = ['hidecontrols' => 'true', 'screenshot' => 'false', 'preview' => 'false'];
+        if (isset($_GET['economy'])) {
+            if ($_GET['economy'] !== 'idr') {
+                http_response_code(400);
+                return;
+            }
+            $extra['economy'] = 'idr';
+        }
         if (isset($_GET['controller_id'])) {
             $channel = $_GET['controller_id'];
             if (!is_string($channel) || !preg_match('/^[a-f0-9]{32}$/D', $channel)) {

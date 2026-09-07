@@ -59,7 +59,7 @@ query-параметры и ключи настроек `mosaic_*` сохран�
 | `GET` | `/video-walls/edit[?id=...]` | Создание/редактирование, дерево камер и порядок |
 | `POST` | `/video-walls` | Сохранение: `csrf`, `id` (0 для новой), `name`, `rows`, `columns`, `camera_ids` (JSON-массив); без JS принимается `cameraIds[]` |
 | `GET` | `/video-walls/view?id=...` | Сетка плееров, watermark и общая панель архива с учётом `hide_archive` |
-| `GET` | `/video-walls/stream?id=...&camera_id=...` | Проверка владельца/состава/прав/блокировки DVR, redirect на embed с актуальным token; `Cache-Control: no-store` |
+| `GET` | `/video-walls/stream?id=...&camera_id=...` | Проверка владельца/состава/прав/блокировки DVR, redirect на embed с актуальным token; `Cache-Control: no-store`. Опциональный `economy=idr` включает ECO, другие значения дают 400; без параметра полный поток |
 | `GET` | `/video-walls?delete=...` | Форма подтверждения удаления |
 | `POST` | `/video-walls` | Удаление: `csrf`, `id`, `action=delete`, `confirm_delete=1` |
 

@@ -162,10 +162,27 @@ final class VideoWallTranslations
             'ar' => ['تكبير الكاميرا', 'تفعيل التحكم بتكبير الكاميرا', 'تعطيل التحكم بتكبير الكاميرا'],
             'hy' => ['Տեսախցիկի մասշտաբ', 'Միացնել տեսախցիկի մասշտաբի կառավարումը', 'Անջատել տեսախցիկի մասշտաբի կառավարումը'],
         ];
+        $eco = [
+            'ru' => ['Включить ECO: только ключевые кадры, без звука', 'Выключить ECO: полные видеопотоки'],
+            'en' => ['Enable ECO: keyframes only, no audio', 'Disable ECO: full video streams'],
+            'de' => ['ECO aktivieren: nur Schlüsselbilder, ohne Ton', 'ECO deaktivieren: vollständige Videostreams'],
+            'fr' => ['Activer ECO : images clés uniquement, sans son', 'Désactiver ECO : flux vidéo complets'],
+            'es' => ['Activar ECO: solo fotogramas clave, sin audio', 'Desactivar ECO: flujos de vídeo completos'],
+            'it' => ['Attiva ECO: solo fotogrammi chiave, senza audio', 'Disattiva ECO: flussi video completi'],
+            'pt' => ['Ativar ECO: apenas fotogramas-chave, sem áudio', 'Desativar ECO: fluxos de vídeo completos'],
+            'bg' => ['Включи ECO: само ключови кадри, без звук', 'Изключи ECO: пълни видеопотоци'],
+            'pl' => ['Włącz ECO: tylko klatki kluczowe, bez dźwięku', 'Wyłącz ECO: pełne strumienie wideo'],
+            'zh' => ['启用ECO：仅关键帧，无音频', '关闭ECO：完整视频流'],
+            'ja' => ['ECOを有効にする：キーフレームのみ、音声なし', 'ECOを無効にする：通常の映像ストリーム'],
+            'ko' => ['ECO 켜기: 키 프레임만, 오디오 없음', 'ECO 끄기: 전체 영상 스트림'],
+            'ar' => ['تفعيل ECO: الإطارات الرئيسية فقط، دون صوت', 'تعطيل ECO: بث الفيديو الكامل'],
+            'hy' => ['Միացնել ECO՝ միայն առանցքային կադրեր, առանց ձայնի', 'Անջատել ECO՝ ամբողջական տեսահոսքեր'],
+        ];
         $messages = [];
         foreach ($rows as $locale => $values) {
             $messages[$locale] = array_combine($keys, $values) + array_combine(array_map(static fn(string $key): string => 'wall.' . $key, $playbackKeys), $playback[$locale]);
             $messages[$locale] += array_combine(['wall.cameraZoom', 'wall.enableCameraZoom', 'wall.disableCameraZoom'], $zoom[$locale]);
+            $messages[$locale] += array_combine(['wall.enableEco', 'wall.disableEco'], $eco[$locale]);
         }
         return $messages;
     }

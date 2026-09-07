@@ -62,7 +62,7 @@
       drift: new DriftGuard(),
     }));
     let revision = 0, request = 0, span = 12 * 3600, from = Math.floor(clock.time() - span * 0.8), to = from + span;
-    let destroyed = false, timelineWidth = 0, dateDirty = false, rangeTimerPending, controlsTimer;
+    let destroyed = false, economy = false, timelineWidth = 0, dateDirty = false, rangeTimerPending, controlsTimer;
     let unionDirty = true, recordingUnion = [], eventUnion = [], controlsHovered = false, drag = null, pinch = null;
     const pointers = new Map();
     function setCameraZoom(item, enabled) {
@@ -124,6 +124,7 @@
       clock.set(unix, 'archive');
       if (unix < from || unix > to) windowAt(unix);
       items.forEach(item => command(item, true));
+      visibility();
       render();
     }
     function mount(item) {
@@ -132,12 +133,14 @@
       item.ready = false; item.state = null; item.started = performance.now();
       const url = new URL(item.frame.dataset.src, location.href);
       url.searchParams.set('controller_id', item.channel);
+      if (economy) url.searchParams.set('economy', 'idr');
       item.frame.src = url.href;
     }
     function unmount(item) {
       clearTimeout(item.timer); item.timer = null;
       setCameraZoom(item, false);
       item.drift.reset();
+      item.rangePending = false;
       item.frame.removeAttribute('src'); item.channel = null; item.ready = false; item.state = null;
     }
     function visibility() {
@@ -199,6 +202,8 @@
       $('play-icon').hidden = clock.paused;
       $('resume-icon').hidden = !clock.paused;
       $('live').setAttribute('aria-pressed', String(clock.mode === 'live'));
+      $('eco').setAttribute('aria-pressed', String(economy));
+      $('eco').title = labels[economy ? 'disableEco' : 'enableEco'];
       items.forEach(item => {
         const key = status(item);
         item.overlay.hidden = !key;
@@ -287,9 +292,16 @@
       render();
       draw();
     }
+    $('eco').addEventListener('click', () => {
+      economy = !economy;
+      // Economy is an embed bootstrap option. Fresh channels discard old reports;
+      // the ready handshake joins the unchanged shared clock in the new mode.
+      items.forEach(unmount);
+      visibility(); render(); showControls();
+    });
     $('play').addEventListener('click', () => {
       clock.set(clock.time(), clock.mode, !clock.paused);
-      items.forEach(item => { command(item); if (!item.ready && clock.paused) item.frame.removeAttribute('src'); });
+      items.forEach(item => { command(item); if (!item.ready && clock.paused && clock.mode === 'live') unmount(item); });
       if (!clock.paused) visibility();
       render();
     });

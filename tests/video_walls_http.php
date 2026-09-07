@@ -85,6 +85,7 @@ expect(request('wall-owner', 'PATCH', '/api/portal/v1/video-walls/' . $id, ['col
 expect($status === 200 && substr_count($view, 'data-wall-frame') === 2 && str_contains($view, 'vw-watermark'), 'view and watermark');
 expect(substr_count($view, 'data-wall-camera-zoom aria-pressed="false"') === 2, 'every accessible camera has a disabled-by-default zoom toggle');
 expect(!str_contains($view, 'token='), 'no token baked into view');
+expect(str_contains($view, 'data-wall-eco aria-pressed="false"'), 'ECO is off by default');
 [$status, , $headers] = request('wall-owner', 'GET', '/video-walls/stream?id=' . $id . '&camera_id=' . $cameraIds[0], null, false);
 expect($status === 302 && str_contains($headers, 'dvr=true') && str_contains($headers, 'hidecontrols=true'), 'wall embed permits authorized archive');
 expect(str_contains(strtolower($headers), 'cache-control: no-store'), 'private redirect');
@@ -94,18 +95,28 @@ $channel = str_repeat('a', 32);
 [$status, , $headers] = request('wall-owner', 'GET', $streamPath . '&controller_id=' . $channel, null, false);
 expect($status === 302 && str_contains($headers, 'controller_id=' . $channel) && str_contains($headers, 'controller_version=1'), 'controlled embed');
 expect(str_contains($headers, 'controller_origin=' . rawurlencode($base)), 'exact parent origin set by Portal');
+expect(!str_contains($headers, 'economy='), 'ordinary playback has no economy parameter');
+[$status, , $headers] = request('wall-owner', 'GET', $streamPath . '&controller_id=' . $channel . '&economy=idr', null, false);
+expect($status === 302 && str_contains($headers, 'economy=idr') && str_contains($headers, 'controller_id=' . $channel), 'ECO reaches the controlled embed');
+foreach (['', 'full', 'IDR', 'idr%26token%3Dinjected', 'idr&economy[]=idr'] as $invalid) {
+    expect(request('wall-owner', 'GET', $streamPath . '&economy=' . $invalid, null, false)[0] === 400, 'invalid economy rejected');
+}
 expect(request('wall-owner', 'GET', $streamPath . '&controller_id=bad', null, false)[0] === 400, 'invalid channel rejected');
 $pdo->prepare('UPDATE users SET hide_archive = 1 WHERE id = ?')->execute([$users['wall-owner']['id']]);
 $hidden = request('wall-owner', 'GET', '/video-walls/view?id=' . $id, null, false)[1];
 expect(!str_contains($hidden, 'data-wall-archive-controls') && str_contains($hidden, 'data-wall-archive="0"'), 'archive hidden in wall UI');
 expect(substr_count($hidden, 'data-wall-camera-zoom') === 2, 'camera zoom toggle is independent of archive access');
 expect(str_contains(request('wall-owner', 'GET', $streamPath . '&controller_id=' . $channel, null, false)[2], 'dvr=false'), 'archive disabled in controlled embed for hidden user');
+expect(str_contains($hidden, 'data-wall-eco'), 'live-only users can use ECO');
+$ecoHeaders = request('wall-owner', 'GET', $streamPath . '&controller_id=' . $channel . '&economy=idr', null, false)[2];
+expect(str_contains($ecoHeaders, 'economy=idr') && str_contains($ecoHeaders, 'dvr=false'), 'ECO preserves archive denial');
 $pdo->prepare('UPDATE users SET hide_archive = 0 WHERE id = ?')->execute([$users['wall-owner']['id']]);
 $pdo->prepare('DELETE FROM user_groups WHERE user_id = ?')->execute([$users['wall-owner']['id']]);
 $view = request('wall-owner', 'GET', '/video-walls/view?id=' . $id, null, false)[1];
 expect(!str_contains($view, 'data-wall-frame') && !str_contains($view, 'Wall Camera'), 'revoke removes embeds and names');
 expect(!str_contains($view, 'data-wall-camera-zoom'), 'unavailable cameras have no zoom toggle');
 expect(request('wall-owner', 'GET', '/video-walls/stream?id=' . $id . '&camera_id=' . $cameraIds[0], null, false)[0] === 403, 'revoke denies fresh iframe');
+expect(request('wall-owner', 'GET', $streamPath . '&economy=idr', null, false)[0] === 403, 'ECO cannot bypass camera access');
 $pdo->prepare('INSERT INTO user_groups VALUES(?, ?)')->execute([$users['wall-owner']['id'], $groupId]);
 $pdo->prepare('UPDATE dvr_servers SET blocked = 1 WHERE id = ?')->execute([$serverId]);
 expect(request('wall-owner', 'GET', '/video-walls/stream?id=' . $id . '&camera_id=' . $cameraIds[0], null, false)[0] === 403, 'blocked server denies stream');

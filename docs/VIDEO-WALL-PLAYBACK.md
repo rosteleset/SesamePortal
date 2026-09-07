@@ -7,6 +7,18 @@ The DVR implementation is based on `origin/elexir-webrtc` (`a0c72904`).
 ## Behavior
 
 - One UTC clock controls seek, pause/resume, 0.5x, 1x, 2x, 4x, 8x and LIVE.
+- The ECO toggle next to LIVE switches all tiles to `economy=idr` for both live
+  and archive: keyframes only, without audio or transcoding. Resolution stays
+  unchanged; cadence and bandwidth savings depend on the source keyframe interval.
+  ECO is off by default and lasts for the current wall view, including fullscreen
+  and offscreen tile remounts. It does not change saved camera/DVR settings.
+  Switching reconnects embeds with fresh authorization and control channels,
+  preserving the shared UTC clock, archive position, pause and speed. A paused
+  live wall reconnects only on resume. Switching off restores ordinary playback.
+  DVRs must support `economy=idr` and the IDR endpoints; see DVR's
+  `docs/idr-playback.ru.md` for deployment requirements. A supporting player does
+  not fall back to a full stream when IDR is unavailable. Pre-IDR DVR builds
+  must be upgraded before using ECO. No standalone embed menu toggle is added.
 - One embed-style timeline shows two independent unions (logical OR): events
   in the upper amber lane, recording ranges in the lower green lane. An interval
   is present when at least one camera reports it. Overlaps and duplicates merge;
@@ -62,6 +74,9 @@ The DVR implementation is based on `origin/elexir-webrtc` (`a0c72904`).
 ## Embed Bootstrap
 
 Portal mounts `/video-walls/stream?id=W&camera_id=C&controller_id=NONCE`.
+With ECO enabled it adds `&economy=idr`; the redirect forwards this value to
+the embed. Omit `economy` for normal playback; other values (including arrays)
+return HTTP 400. Authorization and `hide_archive` checks are unchanged.
 The endpoint checks session, wall ownership, membership, camera access and DVR
 block status. It redirects with the current daily token and these extra fields:
 
@@ -123,6 +138,9 @@ Portal: `php tests/video_walls.php`, `bash tests/http_smoke.sh`,
 `node --test tests/video_wall_playback.cjs`.
 
 Cross-origin browser integration with actual DVR player assets and synthetic HLS:
+the fixture includes separate full-rate TS and sparse all-keyframe fMP4 media,
+and checks live/archive ECO requests, decoded frames, pause/rate preservation,
+rapid switching, remounts, fullscreen/mobile controls and no full-stream fallback.
 
 ```sh
 SESAME_DVR_PLAYER_DIR=/path/to/SesameDVR/priv/player node tests/video_walls_browser.cjs

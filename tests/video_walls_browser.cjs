@@ -257,12 +257,13 @@ async function assertArchiveDriftTolerance(page) {
     await context.addInitScript(() => {
       window.__wallTestOffset = 0;
       window.__wallTestSeeks = [];
+      window.__wallTestCommands = [];
       window.addEventListener('message', event => {
         const m = event.data;
         if (m?.protocol !== 'sesame-wall' || m.version !== 1) return;
         if (window === window.top && m.type === 'state' && m.mode === 'archive' && Number.isFinite(m.unix) &&
             event.source === document.querySelector('[data-wall-frame]')?.contentWindow) m.unix += window.__wallTestOffset;
-        if (window !== window.top && event.source === window.parent && m.type === 'set') window.__wallTestSeeks.push(m.seek);
+        if (window !== window.top && event.source === window.parent && m.type === 'set') { window.__wallTestSeeks.push(m.seek); window.__wallTestCommands.push(m); }
       }, true);
     });
     await context.route(dvr.hlsUrl, route => route.fulfill({body: dvr.hls, contentType: 'text/javascript'}));
@@ -318,6 +319,7 @@ async function assertArchiveDriftTolerance(page) {
     const stage = await page.locator('.vw-video-stage').first().boundingBox();
     assert(watermark.y + watermark.height <= stage.y + stage.height + 1);
     await page.screenshot({path: '/tmp/portal-wall-view-desktop.png', fullPage: true});
+    await require('./video_walls_eco_browser.cjs')(page, dvr);
     await assertCameraZoomToggle(page);
     await page.locator('.vw-toolbar [data-wall-fullscreen]').click();
     await page.waitForFunction(() => document.fullscreenElement !== null);
@@ -400,6 +402,9 @@ async function assertArchiveDriftTolerance(page) {
     await page.waitForFunction(() => document.querySelectorAll('[data-wall-frame][src]').length === 4);
     await page.waitForTimeout(1200);
     assert.equal(await page.locator('[data-wall-archive-controls]').count(), 0);
+    await page.locator('[data-wall-eco]').click();
+    await page.waitForFunction(() => [...document.querySelectorAll('[data-wall-frame]')].every(frame => frame.hasAttribute('src') && new URL(frame.src).searchParams.get('economy') === 'idr'));
+    await page.waitForTimeout(1200);
     assert.equal(dvr.requests.slice(since).filter(url => /\/(timeline_ranges|motion_events)\.json$/.test(url.pathname)).length, 0);
     execFileSync('php', ['-r', 'require "app/Portal.php"; SesamePortal\\DB::pdo()->exec("UPDATE users SET hide_archive=0 WHERE login=\'wall-demo\'");'], {cwd: root, env});
     await page.setViewportSize({width:390, height:844});
