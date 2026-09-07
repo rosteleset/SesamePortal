@@ -4,7 +4,7 @@ Languages: [English](README.md) | [Русский](README.ru.md)
 
 SesamePortal is a local PHP surveillance portal for SesameDVR installations. It
 manages DVR servers, users, groups, cameras, per-user playback tokens, favorites,
-and provides mosaic/map viewing pages backed by a SesameDVR auth backend.
+and provides camera list, map and saved video wall pages backed by a SesameDVR auth backend.
 
 ## Local Development
 
@@ -56,18 +56,27 @@ transcoded for this.
 
 ## Viewer UI
 
-The mosaic supports all/favorites/group filtering, case-insensitive search by
+The **List** page (formerly Mosaic, still at `/`) supports all/favorites/group filtering, case-insensitive search by
 camera title or technical stream name, pagination, and a 2-6 cameras-per-row
 density switch. Page size follows the selected density: 4/6/12/15/18 cameras for
 2/3/4/5/6 columns. It uses fixed 16:9 camera cards. Preview images are
 preloaded behind a loader and then swapped in, so refreshes do not show
-half-loaded images. The preview refresh interval is configurable from the viewer
-UI, including an `Off` mode. If a DVR stream is offline, the card shows `Stream
+half-loaded images. The preview refresh interval is configurable in **Personal settings → List**,
+including an `Off` mode. If a DVR stream is offline, the card shows `Stream
 unavailable`; an old preview may still be shown with that status overlay.
 
 The map view supports the same filters and search. It auto-fits the current
 camera set, clusters nearby cameras at lower zoom levels, shows camera
-direction/FOV markers, and exposes the same favorite toggle as the mosaic.
+direction/FOV markers, and exposes the same favorite toggle as the list.
+
+**Video walls** (`/video-walls`) are named, personal camera layouts. Administrators
+can manage all walls; other users can only manage their own. The editor provides
+a group tree, search, drag-and-drop/button ordering and a 1×1 to 6×6 grid.
+Selected cameras must fit the grid. Each cell uses a separate live DVR embed
+player; Portal does not transcode video. Walls support start/stop and full screen,
+preserve camera watermarks, and suspend offscreen players and hidden tabs.
+Resuming a player rechecks access and obtains the current user token.
+Group inheritance and the administrative **Cameras** page remain unchanged.
 
 All UI timestamps are rendered in the browser timezone. The server stores and
 exchanges timestamps as absolute values.

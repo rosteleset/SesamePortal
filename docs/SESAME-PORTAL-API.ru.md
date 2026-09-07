@@ -37,7 +37,10 @@ X-Api-Token: <static-token>
 Daily playback tokens намеренно не принимаются JSON API. Они остаются только
 для playback/auth-backend сценариев SesameDVR.
 
-JSON API не использует CSRF. Все ответы JSON API возвращаются с:
+Для `video-walls` операции записи с session cookie требуют `X-CSRF-Token`
+(или JSON-поле `csrf`) из текущей HTML-сессии. При аутентификации static token
+CSRF не требуется. Остальные существующие JSON endpoints не используют CSRF.
+Все ответы JSON API возвращаются с:
 
 ```text
 Content-Type: application/json; charset=utf-8
@@ -82,6 +85,50 @@ Cache-Control: no-store
 | Метод не поддержан | `405` | `method_not_allowed` |
 
 ## JSON API v1
+
+### Видеостены: /api/portal/v1/video-walls
+
+Именованные персональные наборы камер. Все вошедшие пользователи могут создавать
+свои видеостены. Обычный пользователь читает/меняет только свои; администратор
+видит все. Чужой ID для обычного пользователя возвращает `404`, не раскрывая
+существование объекта. Владелец неизменяемый; создание всегда от имени текущего
+пользователя. Права камер определяются существующим наследованием групп.
+
+| Метод | Endpoint | Результат |
+| --- | --- | --- |
+| `GET` | `/video-walls` | `data: [...]`, `pagination`; параметры `page`, `pageSize` (1–100) |
+| `POST` | `/video-walls` | Создание, `201`, `data: {...}` |
+| `GET` | `/video-walls/{id}` | Одна видеостена, `200`, `data: {...}` |
+| `PUT`, `PATCH` | `/video-walls/{id}` | Обновление переданных полей, `200`, `data: {...}` |
+| `DELETE` | `/video-walls/{id}` | Удаление, `204`, без тела |
+
+В таблице endpoints указаны относительно `/api/portal/v1`.
+
+```bash
+curl -X POST 'https://portal.example.com/api/portal/v1/video-walls' \
+  -H 'Authorization: Bearer <static-token>' \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"Входы и парковка","rows":2,"columns":2,"cameraIds":[17,42,105]}'
+```
+
+Поля: `name` (1–255 символов), `rows` и `columns` (целые 1–6, по умолчанию 3),
+`cameraIds` (упорядоченный непустой массив положительных ID без повторов).
+Число камер не должно превышать `rows * columns`, максимум 36.
+При обновлении пропущенные поля сохраняются. Все выбранные камеры должны быть
+доступны и выполняющему запрос, и владельцу видеостены, включая редактирование
+администратором. Блокированный DVR не может использоваться.
+
+Ответ содержит `id`, `userId`, `ownerLogin`, `name`, `rows`, `columns`,
+`cameraIds`, `createdAt`, `updatedAt`. `cameraIds` описывает сохранённые места:
+после удаления камеры или отзыва прав ID остаётся в раскладке, но UI не отдаёт
+плеер или название недоступной камеры. При сохранении такую камеру нужно убрать.
+Токены, RTSP URL и management credentials в ответ не включаются.
+
+Ошибки: `422 invalid_video_wall` с `reason` (`wall.invalidName`,
+`wall.invalidGrid`, `wall.invalidSelection`, `wall.cameraUnavailable`),
+`419 csrf_mismatch`, стандартные `401`, `404`, `405`.
+Создание, изменение и удаление записываются в audit как `video_wall.create`,
+`video_wall.update`, `video_wall.delete` с ID пользователя и IP.
 
 Для списков поддерживаются `q`, `page`, `pageSize`/`page_size`, если это
 применимо. `pageSize` ограничивается сервером, чтобы интеграция не могла

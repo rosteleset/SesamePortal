@@ -47,6 +47,38 @@ csrf=<token из текущей HTML-формы>
 
 ## Auth/session endpoints
 
+### Видеостены и переименование списка
+
+Бывший пункт «Мозаика» в «Просмотре» теперь называется «Список»; его URL `/`,
+query-параметры и ключи настроек `mosaic_*` сохранены для совместимости.
+Административный пункт «Камеры» не менялся.
+
+| Метод | Route | Назначение |
+| --- | --- | --- |
+| `GET` | `/video-walls?page=1` | Персональные видеостены; администратор видит все |
+| `GET` | `/video-walls/edit[?id=...]` | Создание/редактирование, дерево камер и порядок |
+| `POST` | `/video-walls` | Сохранение: `csrf`, `id` (0 для новой), `name`, `rows`, `columns`, `camera_ids` (JSON-массив); без JS принимается `cameraIds[]` |
+| `GET` | `/video-walls/view?id=...` | Сетка live-плееров и watermark |
+| `GET` | `/video-walls/stream?id=...&camera_id=...` | Проверка владельца/состава/прав/блокировки DVR, redirect на embed с актуальным token; `Cache-Control: no-store` |
+| `GET` | `/video-walls?delete=...` | Форма подтверждения удаления |
+| `POST` | `/video-walls` | Удаление: `csrf`, `id`, `action=delete`, `confirm_delete=1` |
+
+Во всех routes обязательна сессия. Чужая видеостена возвращает `404`.
+Недоступная камера на stream endpoint возвращает `403`. Только `POST` меняет
+состояние. JSON API вынесен отдельно, см. `/api/portal/v1/video-walls`.
+Реализация: `VideoWalls.php` (данные), `VideoWallPages.php` (UI/API),
+`VideoWallTranslations.php` (14 локализаций), `video-walls.js/css`.
+
+Проверки: `php tests/video_walls.php` (изолированная SQLite, права, валидация,
+backup/restore, локализации); `bash tests/http_smoke.sh` (включает JSON API и
+HTML-сценарии видеостен). Браузерный тест: `node tests/video_walls_browser.cjs`,
+требует PHP, FFmpeg и Playwright с установленным Chromium. Он сам создаёт и
+удаляет временную БД и локальный PHP-сервер, проверяет видео, порядок камер,
+поиск, fullscreen и mobile, не подключается к рабочим DVR.
+
+Проверки: `php tests/video_walls.php` и `bash tests/http_smoke.sh` (включая
+`tests/video_walls_http.php`). Новая таблица включена в CLI backup/restore.
+
 ### GET /login
 
 Показывает форму входа.

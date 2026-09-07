@@ -11,6 +11,9 @@ use PDO;
 use RuntimeException;
 
 require_once __DIR__ . '/PortalI18nCatalog.php';
+require_once __DIR__ . '/VideoWalls.php';
+require_once __DIR__ . '/VideoWallPages.php';
+require_once __DIR__ . '/VideoWallTranslations.php';
 
 final class Config
 {
@@ -140,6 +143,8 @@ final class DB
         foreach (self::schemaStatements() as $statement) {
             $pdo->exec($statement);
         }
+        VideoWalls::migrate();
+        self::ensureIndex('video_walls', 'idx_video_walls_user', 'user_id');
 
         self::ensureColumn('users', 'admin_comment', 'TEXT');
         self::ensureColumn('users', 'hide_archive', 'INTEGER NOT NULL DEFAULT 0');
@@ -3087,6 +3092,9 @@ final class I18n
         ];
 
         $messages = I18nCatalog::complete($messages);
+        foreach (VideoWallTranslations::messages() as $locale => $items) {
+            $messages[$locale] = array_replace($messages[$locale] ?? [], $items);
+        }
 
         if (!$includeFallback) {
             return $messages;
@@ -4384,6 +4392,20 @@ final class Repo
         return $stmt->fetchAll();
     }
 
+    public static function accessibleCamerasByIds(array $user, array $ids): array
+    {
+        $ids = array_values(array_unique(array_filter(array_map('intval', $ids), static fn(int $id): bool => $id > 0)));
+        if (!$ids) {
+            return [];
+        }
+        [$join, $where, $params] = self::accessibleCameraScope($user, 'all');
+        $where[] = 'c.id IN (' . self::placeholders($ids) . ')';
+        $where[] = 's.blocked = 0';
+        $stmt = DB::pdo()->prepare('SELECT DISTINCT c.*, s.name AS server_name, s.base_url AS server_url FROM cameras c ' . $join . ' WHERE ' . implode(' AND ', $where));
+        $stmt->execute([...$params, ...$ids]);
+        return $stmt->fetchAll();
+    }
+
     public static function accessibleCamerasPage(array $user, string $filter, string $query, int $page, int $pageSize): array
     {
         [$join, $where, $params] = self::accessibleCameraScope($user, $filter, $query);
@@ -4552,6 +4574,8 @@ final class Repo
 
 final class App
 {
+    use VideoWallPages;
+
     private static function t(string $key, string $fallback): string
     {
         return I18n::t($key, $fallback);
@@ -4589,6 +4613,7 @@ final class App
             '/viewer/map/google-attribution' => self::googleMapAttribution(),
             '/viewer/preview' => self::previewProxy(),
             '/viewer/player' => self::player(),
+            '/video-walls', '/video-walls/edit', '/video-walls/view', '/video-walls/stream' => self::videoWallsPage(),
             '/favorite/toggle' => self::toggleFavorite(),
             '/api/sesamedvr/auth' => self::authBackend(),
             default => self::viewer('mosaic'),
@@ -4612,6 +4637,7 @@ final class App
                         'servers',
                         'cameras',
                         'favorites',
+                        'video-walls',
                         'agents',
                         'audit',
                     ],
@@ -4623,6 +4649,7 @@ final class App
                 'servers' => self::apiServers($parts),
                 'cameras' => self::apiCameras($parts),
                 'favorites' => self::apiFavorites($parts),
+                'video-walls' => self::apiVideoWalls($parts),
                 'agents' => self::apiAgents($parts),
                 'audit' => self::apiAudit($parts),
                 default => self::apiError(404, 'not_found', 'Unknown API endpoint'),
@@ -8024,7 +8051,7 @@ final class App
         }
         $favorites = Repo::favoritesMap((int)$user['id']);
 
-        $title = $mode === 'map' ? self::t('nav.map', 'Карта') : self::t('cameras.title', 'Камеры');
+        $title = $mode === 'map' ? self::t('nav.map', 'Карта') : self::t('nav.mosaic', 'Список');
         self::layout($title, function () use ($mode, $groups, $filter, $searchQuery, $cameras, $favorites, $cameraPager, $cols, $previewRefresh) {
             self::filters($mode, $groups, $filter, $searchQuery, $cols);
             if ($mode === 'map') {
@@ -8478,6 +8505,9 @@ final class App
         echo '<title>' . Util::h($title) . ' - SesamePortal</title>';
         echo '<link rel="icon" href="/assets/favicon.svg" type="image/svg+xml">';
         echo '<link rel="stylesheet" href="' . Util::h(self::assetUrl('/assets/styles.css')) . '">';
+        if (str_starts_with(Util::path(), '/video-walls')) {
+            echo '<link rel="stylesheet" href="' . Util::h(self::assetUrl('/assets/video-walls.css')) . '">';
+        }
         echo '<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">';
         echo '<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css">';
         echo '</head><body' . ($bodyClass !== '' ? ' class="' . Util::h($bodyClass) . '"' : '') . '>';
@@ -8486,7 +8516,8 @@ final class App
             echo '<a class="brand-logo-link" href="/"><img class="brand-logo-full" src="/assets/logo-sesameportal-inverse.svg" alt="SesamePortal"></a>';
             echo '<div class="nav-section">' . Util::h(self::t('nav.section.view', 'Просмотр')) . '</div><nav class="nav">';
             $viewerFilter = (string)($_GET['filter'] ?? 'all');
-            self::navLink('/', self::t('nav.mosaic', 'Мозаика'), 'grid', Util::path() === '/' && $viewerFilter !== 'favorites');
+            self::navLink('/', self::t('nav.mosaic', 'Список'), 'grid', Util::path() === '/' && $viewerFilter !== 'favorites');
+            self::navLink('/video-walls', self::t('wall.title', 'Видеостены'), 'dashboard', str_starts_with(Util::path(), '/video-walls'));
             self::navLink('/viewer/map', self::t('nav.map', 'Карта'), 'map');
             self::navLink('/?filter=favorites', self::t('filter.favorites', 'Избранное'), 'star', ($_GET['filter'] ?? '') === 'favorites' && Util::path() === '/');
             self::navLink('/settings', self::t('settings.personalTitle', 'Личные настройки'), 'settings');
@@ -8518,6 +8549,9 @@ final class App
         }
         echo '<script>window.SESAME_I18N = ' . json_encode(I18n::js(), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . '; window.SESAME_CSRF = ' . json_encode(Csrf::token(), JSON_UNESCAPED_SLASHES) . ';</script>';
         echo '<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script><script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script><script src="' . Util::h(self::assetUrl('/assets/app.js')) . '"></script>';
+        if (str_starts_with(Util::path(), '/video-walls')) {
+            echo '<script src="' . Util::h(self::assetUrl('/assets/video-walls.js')) . '"></script>';
+        }
         echo '</body></html>';
     }
 
@@ -9866,7 +9900,8 @@ final class App
         string $backLabel = '',
         string $settings = '',
         string $settingsLabel = '',
-        bool $dvr = true
+        bool $dvr = true,
+        array $extraQuery = []
     ): string
     {
         if (empty($camera['server_url'])) {
@@ -9889,7 +9924,7 @@ final class App
             $query['settings_label'] = $settingsLabel !== '' ? $settingsLabel : self::t('settings.title', 'Настройки');
         }
 
-        return rtrim($camera['server_url'], '/') . '/' . rawurlencode($camera['dvr_stream_name']) . '/embed.html?' . http_build_query($query);
+        return rtrim($camera['server_url'], '/') . '/' . rawurlencode($camera['dvr_stream_name']) . '/embed.html?' . http_build_query(array_replace($query, $extraQuery));
     }
 
     private static function playerUrl(array $camera): string
@@ -10556,6 +10591,7 @@ final class Cli
         'cameras',
         'camera_groups',
         'favorites',
+        'video_walls',
         'audit_logs',
         'portal_settings',
     ];
@@ -10696,6 +10732,9 @@ final class Cli
                     $sql = 'INSERT INTO ' . $table . '(' . implode(', ', $columns) . ') VALUES(' . $placeholders . ')';
                     $pdo->prepare($sql)->execute(array_values($row));
                 }
+            }
+            if (DB::driver() === 'pgsql') {
+                $pdo->query("SELECT setval(pg_get_serial_sequence('video_walls', 'id'), COALESCE(MAX(id), 1), COUNT(*) > 0) FROM video_walls");
             }
             DB::setForeignKeys(true);
             $pdo->commit();

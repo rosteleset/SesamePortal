@@ -267,19 +267,19 @@ while IFS='|' read -r locale title; do
   printf "%s" "$localized_viewer" | grep -F -q "<h1>$title</h1>"
   ! printf "%s" "$localized_viewer" | grep -F -q "<h1>Камеры</h1>"
 done <<'LOCALES'
-en|Cameras
-de|Kameras
-fr|Caméras
-es|Cámaras
-it|Telecamere
-pt|Câmaras
-bg|Камери
-pl|Kamery
-zh|摄像机
-ja|カメラ
-ko|카메라
-ar|الكاميرات
-hy|Տեսախցիկներ
+en|List
+de|Liste
+fr|Liste
+es|Lista
+it|Elenco
+pt|Lista
+bg|Списък
+pl|Lista
+zh|列表
+ja|一覧
+ko|목록
+ar|القائمة
+hy|Ցանկ
 LOCALES
 curl -fsS -b "$COOKIE_JAR" -c "$COOKIE_JAR" "http://127.0.0.1:$PORT/?lang=ru" >/dev/null
 
@@ -349,7 +349,7 @@ for refresh in off 10 30 300 60; do
       -d "csrf=$settings_csrf" -d "action=save_mosaic_settings" -d "mosaic_preview_refresh=$refresh" \
       "http://127.0.0.1:$PORT/admin/settings"
   )"
-  grep -F -q 'Настройки мозаики сохранены' <<<"$preview_settings_saved"
+  grep -F -q 'Настройки списка сохранены' <<<"$preview_settings_saved"
   grep -F -q "<option value=\"$refresh\" selected>" <<<"$preview_settings_saved"
 done
 for invalid_refresh_field in 'mosaic_preview_refresh=1' 'mosaic_preview_refresh=bogus' 'mosaic_preview_refresh=' 'mosaic_preview_refresh[]=10'; do
@@ -926,7 +926,7 @@ for refresh in off 10 30 60 300; do
       -d "csrf=$plain_csrf" -d 'action=save_mosaic_settings' -d "mosaic_preview_refresh=$refresh" -d 'user_id=1' \
       "http://127.0.0.1:$PORT/settings"
   )"
-  grep -F -q 'Настройки мозаики сохранены' <<<"$personal_saved"
+  grep -F -q 'Настройки списка сохранены' <<<"$personal_saved"
   grep -F -q "<option value=\"$refresh\" selected>" <<<"$personal_saved"
   personal_mosaic="$(curl -fsS -b "$PLAIN_COOKIE_JAR" "http://127.0.0.1:$PORT/?refresh=60")"
   grep -F -q "data-preview-refresh=\"$refresh\"" <<<"$personal_mosaic"
@@ -1409,4 +1409,5 @@ printf "%s" "$archive_audit_page" | grep -q "from=1700000000"
 printf "%s" "$archive_audit_page" | grep -q "duration=60"
 printf "%s" "$archive_audit_page" | grep -q "ip=203.0.113.9"
 
+php "$ROOT/tests/video_walls_http.php" "$PORT"
 echo "http smoke ok"
