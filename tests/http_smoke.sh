@@ -737,14 +737,16 @@ grep -F -q 'data-preview-refresh-ms="60000"' <<<"$mosaic_page"
 ! grep -F -q 'name="mosaic_preview_refresh"' <<<"$mosaic_page"
 printf "%s" "$mosaic_page" | grep -q 'data-preview-src='
 printf "%s" "$mosaic_page" | grep -q 'data-preview-src="/viewer/preview?id='
+grep -F -q '<canvas data-preview-src=' <<<"$mosaic_page"
+! grep -F -q '<img data-preview-src=' <<<"$mosaic_page"
 ! printf "%s" "$mosaic_page" | grep -E -q 'data-preview-src="[^"]*token='
 printf "%s" "$mosaic_page" | grep -q 'class="preview is-loading"'
 printf "%s" "$mosaic_page" | grep -q "stream-unavailable"
-printf "%s" "$mosaic_page" | grep -q 'decoding="async" hidden'
+printf "%s" "$mosaic_page" | grep -q 'aria-hidden="true" hidden></canvas>'
 ! printf "%s" "$mosaic_page" | grep -E -q '<img src="[^"]*preview\.jpg'
 preview_headers="$(curl -sS -D - -o /dev/null -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/viewer/preview?id=1&_=smoke")"
 printf "%s" "$preview_headers" | grep -E -q '^HTTP/[0-9.]+ 302'
-printf "%s" "$preview_headers" | grep -F -q "Location: https://dvr.example.invalid/smoke-cam/preview.jpg?token="
+printf "%s" "$preview_headers" | grep -F -q "Location: https://dvr.example.invalid/smoke-cam/preview.mp4?token="
 printf "%s" "$preview_headers" | grep -F -q "_=smoke"
 printf "%s" "$preview_headers" | grep -F -q "Cache-Control: no-store"
 printf "%s" "$mosaic_page" | grep -q "group-filter"
@@ -856,7 +858,8 @@ grep -q "camera-marker-icon" <<<"$styles_css_asset"
 grep -q "setPlainLeafletAttribution" <<<"$app_js_asset"
 grep -q "map-popup-actions" <<<"$app_js_asset"
 grep -q "/favorite/toggle" <<<"$app_js_asset"
-grep -q "new Image" <<<"$app_js_asset"
+grep -q 'document.createElement("video")' <<<"$app_js_asset"
+grep -q 'drawImage(video' <<<"$app_js_asset"
 grep -q "previewLoading" <<<"$app_js_asset"
 grep -q "is-loading" <<<"$app_js_asset"
 grep -q "initDensitySwitch" <<<"$app_js_asset"

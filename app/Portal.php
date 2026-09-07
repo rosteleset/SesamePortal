@@ -8120,11 +8120,11 @@ final class App
             echo '<article class="camera-card">';
             echo '<a class="' . Util::h($previewClass) . '" href="' . Util::h($player) . '" aria-label="' . Util::h($openPlayerLabel) . '">';
             if ($preview) {
-                echo '<img data-preview-src="' . Util::h($preview) . '" data-preview-refresh="' . Util::h($previewRefresh) . '"';
+                echo '<canvas data-preview-src="' . Util::h($preview) . '" data-preview-refresh="' . Util::h($previewRefresh) . '"';
                 if ($previewRefresh !== 'off') {
                     echo ' data-preview-refresh-ms="' . Util::h((string)((int)$previewRefresh * 1000)) . '"';
                 }
-                echo ' alt="" loading="lazy" decoding="async" hidden>';
+                echo ' width="640" height="360" aria-hidden="true" hidden></canvas>';
             }
             echo '<span class="preview-spinner" aria-hidden="true"></span><span class="preview-state">' . Util::h($stateText) . '</span><span class="preview-play" aria-hidden="true"></span><span class="sr-only">' . Util::h($openPlayerLabel) . '</span></a><div class="camera-meta"><strong>' . Util::h($camera['name']) . '</strong><span>' . Util::h($camera['server_name'] ?? self::t('common.noServer', 'Без сервера')) . '</span></div>';
             self::favoriteButton((int)$camera['id'], isset($favorites[(int)$camera['id']]));
@@ -10009,7 +10009,7 @@ final class App
             $query['_'] = $cacheBust;
         }
 
-        return rtrim((string)$camera['server_url'], '/') . '/' . rawurlencode((string)$camera['dvr_stream_name']) . '/preview.jpg?' . http_build_query($query);
+        return rtrim((string)$camera['server_url'], '/') . '/' . rawurlencode((string)$camera['dvr_stream_name']) . '/preview.mp4?' . http_build_query($query);
     }
 
     private static function cameraStreamUnavailable(array $camera): bool

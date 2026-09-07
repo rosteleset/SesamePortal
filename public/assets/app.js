@@ -1,5 +1,10 @@
 (function () {
   const messages = window.SESAME_I18N || {};
+  const previewStates = new Map();
+  let previewObserver = null;
+  let previewTimer = null;
+  let previewLifecycleBound = false;
+  let previewPageSuspended = false;
   initMapProviderSettings();
   initMap();
   initCameraPositionEditor();
@@ -37,6 +42,7 @@
 
     fitMapToCameras(map, visibleCameras);
     map.on("popupopen", (event) => initPreviewRefresh(event.popup.getElement()));
+    map.on("popupclose", (event) => disposePreviewRefresh(event.popup.getElement()));
   }
 
   function initCameraPositionEditor() {
@@ -637,7 +643,7 @@
     const unavailableClass = camera.streamUnavailable ? " stream-unavailable" : "";
     const previewLabel = tr("openPlayer", tr("openVideo", "Открыть видео"));
     const preview = camera.preview
-      ? `<a class="map-popup-preview is-loading${unavailableClass}" href="${escapeHtml(camera.player)}" aria-label="${escapeHtml(previewLabel)}"><img data-preview-src="${escapeHtml(camera.preview)}" data-preview-refresh="off" alt="" loading="lazy" decoding="async" hidden><span class="preview-spinner" aria-hidden="true"></span><span class="preview-state map-popup-preview-state">${escapeHtml(stateText)}</span><span class="preview-play" aria-hidden="true"></span></a>`
+      ? `<a class="map-popup-preview is-loading${unavailableClass}" href="${escapeHtml(camera.player)}" aria-label="${escapeHtml(previewLabel)}"><canvas data-preview-src="${escapeHtml(camera.preview)}" data-preview-refresh="off" width="640" height="360" aria-hidden="true" hidden></canvas><span class="preview-spinner" aria-hidden="true"></span><span class="preview-state map-popup-preview-state">${escapeHtml(stateText)}</span><span class="preview-play" aria-hidden="true"></span></a>`
       : `<div class="map-popup-preview no-preview${unavailableClass}"><span class="preview-spinner" aria-hidden="true"></span><span class="preview-state map-popup-preview-state">${escapeHtml(stateText)}</span></div>`;
     const favoriteTitle = camera.favorite
       ? tr("removeFavorite", "Удалить из избранного")
@@ -663,30 +669,93 @@
   }
 
   function initPreviewRefresh(root = document) {
-    const images = Array.from(root.querySelectorAll("img[data-preview-src]"));
-    if (!images.length) return;
+    const canvases = Array.from(root?.querySelectorAll("canvas[data-preview-src]") || []);
+    if (!canvases.length) return;
 
-    images.forEach((image, index) => {
-      if (image.dataset.previewRefreshBound === "1") return;
-      image.dataset.previewRefreshBound = "1";
-      image.addEventListener("load", () => markPreviewReady(image));
-      image.addEventListener("error", () => markPreviewMissing(image));
-      if (!image.getAttribute("src")) {
-        loadPreviewImage(image, image.dataset.previewSrc, { markMissingOnError: true });
-      } else if (image.complete) {
-        if (image.naturalWidth > 0) {
-          markPreviewReady(image);
-        } else {
-          markPreviewMissing(image);
-        }
+    if (!previewLifecycleBound) {
+      previewLifecycleBound = true;
+      document.addEventListener("visibilitychange", runPreviewRefresh);
+      window.addEventListener("pagehide", () => {
+        previewPageSuspended = true;
+        runPreviewRefresh();
+      });
+      window.addEventListener("pageshow", () => {
+        previewPageSuspended = false;
+        queuePreviewRefresh();
+      });
+      window.addEventListener("resize", () => queuePreviewRefresh());
+      document.addEventListener("scroll", () => queuePreviewRefresh(), { capture: true, passive: true });
+      if (window.IntersectionObserver) {
+        previewObserver = new IntersectionObserver(() => queuePreviewRefresh());
       }
-      if (image.dataset.previewRefresh === "off") return;
-      const intervalMs = Math.max(10000, Number(image.dataset.previewRefreshMs) || 30000);
-      window.setTimeout(function refreshLoop() {
-        refreshPreview(image);
-        window.setTimeout(refreshLoop, intervalMs);
-      }, intervalMs + Math.min(index * 1200, intervalMs));
+    }
+    canvases.forEach((canvas) => {
+      if (previewStates.has(canvas)) return;
+      const container = canvas.closest(".preview, .map-popup-preview");
+      if (!container) return;
+      previewStates.set(canvas, {
+        canvas,
+        container,
+        intervalMs: canvas.dataset.previewRefresh === "off"
+          ? Infinity : Math.max(10000, Number(canvas.dataset.previewRefreshMs) || 30000),
+        nextAt: 0,
+        cancel: null,
+      });
+      previewObserver?.observe(container);
     });
+    queuePreviewRefresh();
+  }
+
+  function disposePreviewRefresh(root) {
+    for (const [canvas, state] of previewStates) {
+      if (!canvas.isConnected || root?.contains(canvas)) {
+        previewStates.delete(canvas);
+        previewObserver?.unobserve(state.container);
+        state.cancel?.();
+      }
+    }
+    queuePreviewRefresh();
+  }
+
+  function previewVisible(state) {
+    if (document.hidden || previewPageSuspended || !state.canvas.isConnected) return false;
+    const rect = state.container.getBoundingClientRect();
+    return rect.width > 0 && rect.height > 0 && rect.bottom > 0 && rect.right > 0
+      && rect.top < window.innerHeight && rect.left < window.innerWidth;
+  }
+
+  function queuePreviewRefresh(delay = 0) {
+    window.clearTimeout(previewTimer);
+    previewTimer = window.setTimeout(runPreviewRefresh, delay);
+  }
+
+  function runPreviewRefresh() {
+    window.clearTimeout(previewTimer);
+    let active = 0;
+    let nextAt = Infinity;
+    for (const [canvas, state] of previewStates) {
+      if (!canvas.isConnected) {
+        previewStates.delete(canvas);
+        previewObserver?.unobserve(state.container);
+        state.cancel?.();
+      } else if (!previewVisible(state)) {
+        state.cancel?.();
+      } else if (state.cancel) {
+        active += 1;
+      }
+    }
+    for (const state of [...previewStates.values()].sort((a, b) => a.nextAt - b.nextAt)) {
+      if (!previewVisible(state) || state.cancel) continue;
+      if (state.nextAt <= Date.now()) {
+        // Bound simultaneous decoders/requests even on dense camera grids.
+        if (active >= 4) continue;
+        loadPreviewFrame(state);
+        active += 1;
+      } else {
+        nextAt = Math.min(nextAt, state.nextAt);
+      }
+    }
+    if (Number.isFinite(nextAt)) queuePreviewRefresh(Math.max(0, nextAt - Date.now()));
   }
 
   function initAssignmentPickers() {
@@ -1049,64 +1118,74 @@
     });
   }
 
-  function refreshPreview(image) {
-    const source = image.dataset.previewSrc;
-    if (!source) return;
-    if (image.dataset.previewLoading === "1") return;
-
-    const separator = source.includes("?") ? "&" : "?";
-    const nextSrc = `${source}${separator}_=${Date.now()}`;
-    loadPreviewImage(image, nextSrc, { markMissingOnError: false });
-  }
-
-  function loadPreviewImage(image, nextSrc, options = {}) {
-    if (!nextSrc) return;
-    const preloader = new Image();
-    preloader.decoding = "async";
-    image.dataset.previewLoading = "1";
-    const container = image.closest(".preview, .map-popup-preview");
-    const showLoader = options.showLoader ?? (image.hidden || !image.getAttribute("src"));
-    if (showLoader) {
-      container?.classList.add("is-loading");
-    }
-
-    const finish = () => {
-      delete image.dataset.previewLoading;
-      container?.classList.remove("is-loading");
+  function loadPreviewFrame(state) {
+    const { canvas, container } = state;
+    const startedAt = Date.now();
+    const video = document.createElement("video");
+    video.muted = true;
+    video.defaultMuted = true;
+    video.playsInline = true;
+    video.preload = "auto";
+    video.setAttribute("muted", "");
+    video.setAttribute("playsinline", "");
+    canvas.dataset.previewLoading = "1";
+    if (canvas.hidden) container.classList.add("is-loading");
+    let finished = false;
+    let timeout;
+    const finish = (outcome) => {
+      if (finished) return;
+      finished = true;
+      window.clearTimeout(timeout);
+      video.onloadeddata = video.oncanplay = video.onerror = null;
+      video.pause();
+      video.removeAttribute("src");
+      video.load();
+      state.cancel = null;
+      delete canvas.dataset.previewLoading;
+      container.classList.remove("is-loading");
+      if (outcome !== "cancelled") state.nextAt = startedAt + state.intervalMs;
+      if (outcome === "error" && canvas.hidden && canvas.isConnected) markPreviewMissing(canvas);
+      queuePreviewRefresh();
     };
-    preloader.onload = async () => {
-      try {
-        await preloader.decode?.();
-      } catch {
-        // The image is already loaded; decode is only used to avoid visible swaps.
-      }
-      if (!image.isConnected) {
-        finish();
+    state.cancel = () => finish("cancelled");
+    const drawFrame = () => {
+      if (finished || video.readyState < 2 || !video.videoWidth || !video.videoHeight) return;
+      if (!previewVisible(state)) {
+        finish("cancelled");
         return;
       }
-      image.src = nextSrc;
-      markPreviewReady(image);
-      finish();
-    };
-    preloader.onerror = () => {
-      if (options.markMissingOnError && image.isConnected) {
-        markPreviewMissing(image);
+      try {
+        // Keep the canvas and its old pixels until a complete new frame is available.
+        const scale = Math.max(canvas.width / video.videoWidth, canvas.height / video.videoHeight);
+        const width = canvas.width / scale;
+        const height = canvas.height / scale;
+        canvas.getContext("2d").drawImage(video,
+          (video.videoWidth - width) / 2, (video.videoHeight - height) / 2, width, height,
+          0, 0, canvas.width, canvas.height);
+        markPreviewReady(canvas);
+        finish("ready");
+      } catch {
+        finish("error");
       }
-      finish();
     };
-    preloader.src = nextSrc;
+    video.onloadeddata = video.oncanplay = drawFrame;
+    video.onerror = () => finish("error");
+    timeout = window.setTimeout(() => finish("error"), 20000);
+    const source = canvas.dataset.previewSrc;
+    video.src = `${source}${source.includes("?") ? "&" : "?"}_=${startedAt}`;
+    video.load();
   }
 
-  function markPreviewReady(image) {
-    image.hidden = false;
-    const container = image.closest(".preview, .map-popup-preview");
+  function markPreviewReady(canvas) {
+    canvas.hidden = false;
+    const container = canvas.closest(".preview, .map-popup-preview");
     container?.classList.remove("no-preview", "is-loading");
     container?.classList.add("has-preview");
   }
 
-  function markPreviewMissing(image) {
-    image.hidden = true;
-    const container = image.closest(".preview, .map-popup-preview");
+  function markPreviewMissing(canvas) {
+    canvas.hidden = true;
+    const container = canvas.closest(".preview, .map-popup-preview");
     container?.classList.remove("is-loading");
     container?.classList.remove("has-preview");
     container?.classList.add("no-preview");

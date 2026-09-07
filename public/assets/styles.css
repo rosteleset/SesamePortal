@@ -1243,9 +1243,19 @@ tr:last-child td {
   background: linear-gradient(135deg,#171717,#35322d);
 }
 .preview img,
-.map-popup-preview img {
+.map-popup-preview img,
+.preview canvas,
+.map-popup-preview canvas {
   position: relative;
   z-index: 1;
+}
+.preview canvas,
+.map-popup-preview canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  pointer-events: none;
 }
 .preview-spinner {
   display: none;
@@ -1593,7 +1603,9 @@ tr:last-child td {
   display: block;
 }
 .preview img[hidden],
-.map-popup-preview img[hidden] {
+.map-popup-preview img[hidden],
+.preview canvas[hidden],
+.map-popup-preview canvas[hidden] {
   display: none;
 }
 .map-popup-preview.no-preview {
