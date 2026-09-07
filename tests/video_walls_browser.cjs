@@ -193,6 +193,42 @@ async function assertCameraTouchScroll(page, context) {
   } finally { await touch.detach(); }
 }
 
+async function assertArchiveDriftTolerance(page) {
+  const frame = page.locator('[data-wall-frame]').first().contentFrame();
+  await page.locator('[data-wall-speed]').selectOption('1');
+  await frame.locator('video').evaluate(video => new Promise(resolve => {
+    const check = () => !video.paused && video.playbackRate === 1 ? resolve() : setTimeout(check, 50); check();
+  }));
+  await page.waitForFunction(() => document.querySelector('[data-wall-state]').hidden);
+  const initialSeek = await frame.locator('body').evaluate(() => window.__wallTestSeeks.at(-1));
+  assert(Number.isSafeInteger(initialSeek), 'fixture observes actual Portal seek commands');
+  for (const offset of [4, -4]) {
+    const time = await frame.locator('video').evaluate(video => video.currentTime);
+    await page.evaluate(offset => { window.__wallTestOffset = offset; }, offset);
+    await page.waitForTimeout(7500);
+    assert.equal(await page.locator('[data-wall-state]').first().isHidden(), true, 'small UTC drift does not cover playing video');
+    assert.equal(await frame.locator('body').evaluate(() => window.__wallTestSeeks.at(-1)), initialSeek, 'small UTC drift does not seek after the recovery cooldown');
+    assert(await frame.locator('video').evaluate(video => video.currentTime) > time + 6, 'video keeps playing without interruption');
+  }
+  await page.evaluate(() => { window.__wallTestOffset = 12; });
+  await page.waitForTimeout(1500);
+  assert.equal(await page.locator('[data-wall-state]').first().isHidden(), true, 'brief larger drift does not flash a synchronization overlay');
+  assert.equal(await frame.locator('body').evaluate(() => window.__wallTestSeeks.at(-1)), initialSeek);
+  await page.evaluate(() => { window.__wallTestOffset = 0; });
+  await page.waitForTimeout(1000);
+  await page.evaluate(() => { window.__wallTestOffset = 12; });
+  await frame.locator('body').evaluate((_body, initialSeek) => new Promise((resolve, reject) => {
+    const deadline = performance.now() + 10000;
+    const check = () => {
+      if (window.__wallTestSeeks.at(-1) > initialSeek) resolve();
+      else if (performance.now() > deadline) reject(new Error(`Persistent drift was not corrected: initial=${initialSeek}, commands=${window.__wallTestSeeks.slice(-8)}`));
+      else setTimeout(check, 50);
+    }; check();
+  }), initialSeek);
+  await page.evaluate(() => { window.__wallTestOffset = 0; });
+  await page.waitForFunction(() => document.querySelector('[data-wall-state]').hidden);
+}
+
 (async () => {
   const root = resolve(__dirname, '..');
   const state = mkdtempSync(join(tmpdir(), 'portal-wall-browser-'));
@@ -217,6 +253,18 @@ async function assertCameraTouchScroll(page, context) {
     }
     browser = await chromium.launch({headless: true, channel: 'chromium'});
     const context = await browser.newContext({ viewport: {width: 1600, height: 1000} });
+    // Perturb only reported UTC in the isolated fixture; the real DVR still decodes HLS.
+    await context.addInitScript(() => {
+      window.__wallTestOffset = 0;
+      window.__wallTestSeeks = [];
+      window.addEventListener('message', event => {
+        const m = event.data;
+        if (m?.protocol !== 'sesame-wall' || m.version !== 1) return;
+        if (window === window.top && m.type === 'state' && m.mode === 'archive' && Number.isFinite(m.unix) &&
+            event.source === document.querySelector('[data-wall-frame]')?.contentWindow) m.unix += window.__wallTestOffset;
+        if (window !== window.top && event.source === window.parent && m.type === 'set') window.__wallTestSeeks.push(m.seek);
+      }, true);
+    });
     await context.route(dvr.hlsUrl, route => route.fulfill({body: dvr.hls, contentType: 'text/javascript'}));
     await context.route('https://unpkg.com/**', (route) => route.fulfill({body: '', contentType: route.request().url().includes('.css') ? 'text/css' : 'application/javascript'}));
     page = await context.newPage();
@@ -319,6 +367,7 @@ async function assertCameraTouchScroll(page, context) {
     await page.locator('[data-wall-play]').click();
     await page.locator('[data-wall-speed]').selectOption('2');
     await frame.locator('video').evaluate(video => new Promise(resolve => { const check = () => !video.paused && video.playbackRate === 2 ? resolve() : setTimeout(check, 50); check(); }));
+    await assertArchiveDriftTolerance(page);
     await seek(dvr.epoch + 130);
     await page.waitForFunction(() => document.querySelectorAll('[data-wall-state]')[2].textContent.includes('Нет записи'));
     await page.waitForFunction(() => document.querySelector('[data-wall-state]').hidden);

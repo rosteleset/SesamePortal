@@ -4,7 +4,74 @@ const { readFileSync } = require('node:fs');
 const vm = require('node:vm');
 const scope = {};
 vm.runInNewContext(readFileSync(require('node:path').join(__dirname, '../public/assets/video-wall-playback.js'), 'utf8'), scope);
-const { Clock, normalizeRanges, unionRanges, wheelZoomFactor } = scope.SesameVideoWallPlayback;
+const { Clock, DriftGuard, normalizeRanges, unionRanges, wheelZoomFactor } = scope.SesameVideoWallPlayback;
+function driftFixture(rate = 1, paused = false) {
+  let now = 0;
+  const clock = new Clock(() => now), guard = new DriftGuard();
+  clock.set(1000, 'archive', paused, rate);
+  const sample = (offset, patch = {}) => {
+    const state = {mode: 'archive', ready: true, busy: false, ended: false, paused, rate, unix: clock.time() + offset, ...patch};
+    guard.update(state, clock, now, now); return state;
+  };
+  return {clock, guard, sample, advance: ms => { now += ms; }, now: () => now};
+}
+test('running cameras tolerate both lead and lag up to 10 seconds at every playback speed', () => {
+  for (const rate of [0.5, 1, 2, 4, 8]) for (const offset of [-10, -4, 0, 4, 10]) {
+    const f = driftFixture(rate);
+    for (let n = 0; n < 40; n++) {
+      f.sample(offset); assert.equal(f.guard.required, false); f.advance(500);
+    }
+  }
+});
+test('moderate drift needs three seconds of persistent deviation in the same direction', () => {
+  for (const sign of [-1, 1]) {
+    const f = driftFixture();
+    f.sample(sign * 11); f.advance(2999); f.sample(sign * 12);
+    assert.equal(f.guard.required, false);
+    f.advance(1); f.sample(sign * 11);
+    assert.equal(f.guard.required, true);
+    f.sample(sign * 4); assert.equal(f.guard.required, false);
+    f.sample(sign * 12); f.advance(2500); f.sample(sign * -12);
+    assert.equal(f.guard.required, false, 'changing direction starts a new observation period');
+    f.advance(500); f.sample(sign * -12); assert.equal(f.guard.required, false);
+    f.advance(2500); f.sample(sign * -12); assert.equal(f.guard.required, true);
+  }
+});
+test('large drift skips the grace period and pause retains the previous stricter tolerance', () => {
+  for (const offset of [-30.01, 30.01]) {
+    const f = driftFixture(); f.sample(offset); assert.equal(f.guard.required, true);
+  }
+  for (const offset of [-30, 30]) {
+    const f = driftFixture(); f.sample(offset); assert.equal(f.guard.required, false);
+  }
+  const paused = driftFixture(1, true);
+  paused.sample(3); assert.equal(paused.guard.required, false);
+  paused.sample(4); assert.equal(paused.guard.required, true);
+  paused.guard.reset(); assert.equal(paused.guard.required, false);
+  assert.equal(paused.guard.since, null);
+});
+test('drift comparison accounts for state age and actual player speed, but not a paused player', () => {
+  const f = driftFixture(8), state = f.sample(-8);
+  f.advance(500); f.guard.update(state, f.clock, f.now(), 0);
+  assert.equal(f.guard.since, null, 'an aligned older sample is not additional drift at 8x');
+  f.guard.update({...state, paused: true}, f.clock, f.now(), 0);
+  assert.equal(f.guard.since, 500, 'a paused player must not be extrapolated');
+  f.guard.reset(); f.guard.update({...state, rate: 1}, f.clock, f.now(), 0);
+  assert.equal(f.guard.since, 500, 'use the player rate, not the requested wall rate');
+});
+test('buffering, errors, ended playback, invalid/stale reports and live mode reset drift history', () => {
+  for (const patch of [{ready: false}, {busy: true}, {error: 'noRecording'}, {error: 'archiveDenied'}, {ended: true}, {unix: null}, {unix: Infinity}, {mode: 'live'}]) {
+    const f = driftFixture(); f.sample(12); f.advance(2000); f.sample(12, patch);
+    assert.equal(f.guard.since, null); assert.equal(f.guard.required, false);
+    f.sample(12); f.advance(1000); f.sample(12); assert.equal(f.guard.required, false);
+  }
+  const f = driftFixture(), state = f.sample(12);
+  f.advance(3001); f.guard.update(state, f.clock, f.now(), 0);
+  assert.equal(f.guard.since, null);
+  f.sample(12); f.guard.update(null, f.clock, f.now(), f.now()); assert.equal(f.guard.since, null);
+  f.sample(12); f.clock.set(1000, 'live'); f.guard.update(state, f.clock, f.now(), f.now());
+  assert.equal(f.guard.required, false);
+});
 test('timeline wheel sensitivity matches the DVR embed exponential curve', () => {
   for (const deltaY of [-120, -1, -0.25, 0, 0.25, 1, 120]) {
     assert.equal(wheelZoomFactor({deltaY, deltaMode: 0}), Math.exp(deltaY * 0.0015));

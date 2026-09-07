@@ -33,8 +33,16 @@ The DVR implementation is based on `origin/elexir-webrtc` (`a0c72904`).
   of each image. The camera caption stays at the lower left and reserves space
   for the embed player's sound/fullscreen controls at the lower right, including
   fullscreen and narrow layouts.
-- The clock advances independently of buffering cameras. Large drift triggers
-  a correction at most once per 6 seconds per camera; gaps retry every 10 seconds.
+- The clock advances independently of buffering cameras. During playback, up to
+  10 seconds of lead or lag is tolerated without a synchronization overlay or
+  seek. Greater drift must persist in the same direction for 3 seconds; returning
+  within tolerance clears that observation period. Drift above 30 seconds skips
+  the grace period. State age and the player's reported speed are accounted for
+  when comparing clocks. On pause the previous stricter tolerance remains
+  (`2 + playback rate` seconds), without a grace period. Manual seeks are immediate.
+  Corrections/recovery remain limited to once per 6 seconds per camera; gaps retry
+  every 10 seconds. Buffering, errors, archive denial and wrong playback mode are
+  not treated as acceptable drift.
   Buffered seeks avoid reloading HLS when the exact UTC target is already mapped
   and buffered. This is time alignment, **not frame-accurate synchronization**.
 - The DVR verifies exact recording ranges before opening an archive target.

@@ -12,6 +12,28 @@
     time() { return this.mode === 'live' ? Date.now() / 1000 : this.unix + (this.paused ? 0 : (this.now() - this.anchor) / 1000 * this.rate); }
     set(unix, mode = this.mode, paused = this.paused, rate = this.rate) { Object.assign(this, { unix, mode, paused, rate, anchor: this.now() }); }
   }
+  class DriftGuard {
+    constructor() { this.reset(); }
+    reset() { this.since = null; this.direction = 0; this.required = false; }
+    update(state, clock, now, received) {
+      if (clock.mode !== 'archive' || !state || state.mode !== 'archive' || !state.ready || state.busy || state.error || state.ended ||
+          !Number.isFinite(state.unix) || !Number.isFinite(received) || now - received > 3000) {
+        this.reset(); return;
+      }
+      // Compare at the same instant; state reports arrive only every 500 ms.
+      const age = Math.max(0, now - received) / 1000;
+      const rate = !state.paused && Number.isFinite(state.rate) && state.rate > 0 ? state.rate : 0;
+      const offset = state.unix + age * rate - clock.time();
+      const tolerance = clock.paused ? 2 + clock.rate : 10;
+      if (Math.abs(offset) <= tolerance) { this.reset(); return; }
+      if (clock.paused || Math.abs(offset) > 30) { this.required = true; return; }
+      const direction = Math.sign(offset);
+      if (this.since === null || direction !== this.direction) {
+        this.since = now; this.direction = direction; this.required = false;
+      }
+      this.required = now - this.since >= 3000;
+    }
+  }
   function normalizeRanges(input) {
     return Array.isArray(input) ? input.filter(r => r && Number.isFinite(r.from) && Number.isFinite(r.duration) && Number.isFinite(r.from + r.duration) && r.from >= 0 && r.duration > 0).slice(0, 20000) : [];
   }
@@ -37,6 +59,7 @@
       visible: false, ready: false, archive: false, state: null, seek: 0, revision: 0,
       ranges: [], events: [], rangesLoaded: false, eventsLoaded: false, eventSupport: false,
       rangeError: null, eventError: null, rangeRequest: 0, lastCorrection: 0,
+      drift: new DriftGuard(),
     }));
     let revision = 0, request = 0, span = 12 * 3600, from = Math.floor(clock.time() - span * 0.8), to = from + span;
     let destroyed = false, timelineWidth = 0, dateDirty = false, rangeTimerPending, controlsTimer;
@@ -74,6 +97,7 @@
     }
     function command(item, seek = false) {
       if (!item.ready) return;
+      item.drift.reset();
       if (seek) { item.seek++; item.state = null; item.lastCorrection = performance.now(); }
       item.revision = ++revision;
       send(item, 'set', { revision: item.revision, seek: item.seek, mode: clock.mode, unix: clock.time(), paused: clock.paused, rate: clock.mode === 'live' ? 1 : clock.rate });
@@ -113,6 +137,7 @@
     function unmount(item) {
       clearTimeout(item.timer); item.timer = null;
       setCameraZoom(item, false);
+      item.drift.reset();
       item.frame.removeAttribute('src'); item.channel = null; item.ready = false; item.state = null;
     }
     function visibility() {
@@ -133,6 +158,7 @@
         if (initial) { command(item, true); ranges(item); }
       } else if (m.type === 'state' && m.revision === item.revision) {
         item.state = m; item.archive = m.archive === true; item.received = performance.now();
+        item.drift.update(m, clock, item.received, item.received);
         if (Number.isFinite(m.videoWidth) && Number.isFinite(m.videoHeight) && m.videoWidth > 0 && m.videoHeight > 0 && m.videoWidth <= 32768 && m.videoHeight <= 32768) item.aspect = m.videoWidth / m.videoHeight;
         positionCaption(item);
         if (!item.archive) { item.ranges = []; item.events = []; item.rangesLoaded = false; item.eventsLoaded = false; unionDirty = true; }
@@ -160,7 +186,7 @@
         if (!s) return 'syncing';
         if (s.error && Object.hasOwn(labels, s.error)) return s.error;
         if (!s.ready || s.busy || s.ended) return 'buffering';
-        if (s.mode !== 'archive' || !Number.isFinite(s.unix) || Math.abs(s.unix - clock.time()) > 2 + clock.rate) return 'syncing';
+        if (s.mode !== 'archive' || !Number.isFinite(s.unix) || item.drift.required) return 'syncing';
         if (!clock.paused && s.paused) return 'buffering';
       }
       return null;
@@ -252,10 +278,11 @@
         if (clock.mode !== 'archive' || !item.archive) return;
         const s = item.state, now = performance.now();
         const stale = !s || now - item.received > 3000;
-        const drift = Number.isFinite(s?.unix) ? Math.abs(s.unix - clock.time()) : Infinity;
+        item.drift.update(s, clock, now, item.received);
+        const invalidPosition = s?.mode !== 'archive' || !Number.isFinite(s?.unix);
         // Bound recovery traffic even for offline cameras and permanent gaps.
         const cooldown = s?.error === 'noRecording' ? 10000 : 6000;
-        if (now - item.lastCorrection > cooldown && (stale || s?.error || s?.ended || (!s?.busy && drift > 2 + clock.rate))) command(item, true);
+        if (now - item.lastCorrection > cooldown && (stale || s?.error || s?.ended || (!s?.busy && (invalidPosition || item.drift.required)))) command(item, true);
       });
       render();
       draw();
@@ -373,5 +400,5 @@
     render();
     return { clock, seek, close() { clearTimeout(controlsTimer); clearTimeout(rangeTimerPending); clearInterval(timer); clearInterval(rangeTimer); observer.disconnect(); resize.disconnect(); window.removeEventListener('message', receive); document.removeEventListener('visibilitychange', visibility); document.removeEventListener('fullscreenchange', showControls); document.removeEventListener('webkitfullscreenchange', showControls); destroyed = true; visibility(); } };
   }
-  root.SesameVideoWallPlayback = { init, Clock, normalizeRanges, unionRanges, wheelZoomFactor };
+  root.SesameVideoWallPlayback = { init, Clock, DriftGuard, normalizeRanges, unionRanges, wheelZoomFactor };
 })(typeof window === 'undefined' ? globalThis : window);
