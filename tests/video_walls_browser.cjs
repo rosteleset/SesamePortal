@@ -7,6 +7,7 @@ const { join, resolve } = require('node:path');
 const { createServer } = require('node:net');
 
 async function assertToolbarSizes(page) {
+  assert.equal(await page.locator('.vw-screen > .vw-toolbar').isVisible(), true);
   const dimensions = await page.locator('.vw-screen > .vw-toolbar .icon-action').evaluateAll(elements => elements.map(element => {
     const box = element.getBoundingClientRect();
     const icon = [...element.querySelectorAll('svg')].find(svg => svg.getBoundingClientRect().width > 0).getBoundingClientRect();
@@ -16,6 +17,34 @@ async function assertToolbarSizes(page) {
   for (const size of dimensions) assert.deepEqual(size, {width: 42, height: 42, iconWidth: 20, iconHeight: 20});
   const back = await page.locator('.vw-screen > .vw-toolbar > .btn').boundingBox();
   assert.equal(back.height, 42);
+  assert.equal(await page.locator('.vw-video-grid').evaluate(grid => getComputedStyle(grid).gap), '10px');
+}
+
+async function assertFullscreenLayout(page) {
+  assert.equal(await page.locator('.vw-screen > .vw-toolbar').isVisible(), false);
+  const layout = await page.locator('[data-wall-view]').evaluate(screen => {
+    const grid = screen.querySelector('.vw-video-grid');
+    const tiles = [...grid.children];
+    return {
+      padding: getComputedStyle(screen).padding,
+      gap: getComputedStyle(grid).gap,
+      grid: grid.getBoundingClientRect().toJSON(),
+      tiles: tiles.map(tile => tile.getBoundingClientRect().toJSON()),
+      radii: tiles.map(tile => getComputedStyle(tile).borderRadius),
+      width: innerWidth,
+      overflow: screen.scrollHeight > screen.clientHeight + 1,
+    };
+  });
+  assert.equal(layout.padding, '0px');
+  assert.equal(layout.gap, '0px');
+  assert.equal(layout.grid.top, 0);
+  assert.equal(layout.grid.left, 0);
+  assert.equal(layout.grid.right, layout.width);
+  assert.equal(layout.overflow, false);
+  for (const radius of layout.radii) assert.equal(radius, '0px');
+  assert.equal(layout.tiles[0].right, layout.tiles[1].left);
+  assert.equal(layout.tiles[0].bottom, layout.tiles[2].top);
+  assert.equal(await page.locator('[data-wall-archive-controls]').isVisible(), true);
 }
 
 (async () => {
@@ -97,10 +126,11 @@ async function assertToolbarSizes(page) {
     await page.screenshot({path: '/tmp/portal-wall-view-desktop.png', fullPage: true});
     await page.locator('[data-wall-fullscreen]').click();
     await page.waitForFunction(() => document.fullscreenElement !== null);
-    await assertToolbarSizes(page);
-    assert(await page.locator('[data-wall-view]').evaluate((screen) => screen.scrollHeight <= screen.clientHeight + 1));
+    await assertFullscreenLayout(page);
     await page.screenshot({path: '/tmp/portal-wall-view-fullscreen.png'});
     await page.evaluate(() => document.exitFullscreen());
+    await page.waitForFunction(() => document.fullscreenElement === null);
+    await assertToolbarSizes(page);
     await page.waitForFunction(() => document.querySelector('[data-wall-archive-status]').textContent.includes('4 / 4'));
     await page.locator('[data-wall-play]').click();
     await frame.locator('video').evaluate(video => new Promise(resolve => { const check = () => video.paused ? resolve() : setTimeout(check, 50); check(); }));
@@ -159,6 +189,13 @@ async function assertToolbarSizes(page) {
     assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
     await page.locator('[data-wall-frame]').first().contentFrame().locator('video').evaluate(video => new Promise(resolve => { const check = () => video.readyState >= 2 && video.currentTime > 0.2 ? resolve() : setTimeout(check, 50); check(); }));
     await page.screenshot({path:'/tmp/portal-wall-view-mobile.png',fullPage:true});
+    await page.locator('[data-wall-fullscreen]').click();
+    await page.waitForFunction(() => document.fullscreenElement !== null);
+    await assertFullscreenLayout(page);
+    await page.screenshot({path:'/tmp/portal-wall-view-fullscreen-mobile.png'});
+    await page.evaluate(() => document.exitFullscreen());
+    await page.waitForFunction(() => document.fullscreenElement === null);
+    await assertToolbarSizes(page);
     await page.setViewportSize({width:390, height:600});
     await page.locator('[data-wall-frame]').last().scrollIntoViewIfNeeded();
     await page.waitForFunction(() => {
