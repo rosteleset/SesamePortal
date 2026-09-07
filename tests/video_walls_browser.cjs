@@ -229,6 +229,37 @@ async function assertArchiveDriftTolerance(page) {
   await page.waitForFunction(() => document.querySelector('[data-wall-state]').hidden);
 }
 
+async function assertArchiveGapRecovery(page, dvr, seek) {
+  const tile = page.locator('.vw-video-tile').nth(2), frame = tile.locator('iframe').contentFrame();
+  await page.locator('[data-wall-speed]').selectOption('1');
+  await seek(dvr.epoch + 197);
+  await page.waitForFunction(() => document.querySelectorAll('[data-wall-state]')[2].textContent.includes('Нет записи'));
+  const initial = await frame.locator('body').evaluate(() => window.__wallTestCommands.at(-1));
+  assert(initial.unix < dvr.epoch + 200);
+  await frame.locator('body').evaluate((_body, initial) => new Promise((resolve, reject) => {
+    const deadline = performance.now() + 5000;
+    const check = () => {
+      if (window.__wallTestCommands.at(-1)?.seek > initial.seek) resolve();
+      else if (performance.now() > deadline) reject(new Error('Camera stayed in noRecording after its next archive range started'));
+      else setTimeout(check, 30);
+    }; check();
+  }), initial);
+  const resumed = await frame.locator('body').evaluate(() => window.__wallTestCommands.at(-1));
+  assert(resumed.unix >= dvr.epoch + 200 && resumed.unix < dvr.epoch + 201,
+    `Gap recovery must follow the camera range boundary, not the 10s retry timer: ${JSON.stringify(resumed)}`);
+  await page.waitForFunction(() => document.querySelectorAll('[data-wall-state]')[2].hidden);
+  const before = await frame.locator('video').evaluate(video => video.getVideoPlaybackQuality().totalVideoFrames);
+  await frame.locator('video').evaluate((video, before) => new Promise((resolve, reject) => {
+    const deadline = performance.now() + 4000;
+    const check = () => {
+      if (!video.paused && video.readyState >= 2 && video.getVideoPlaybackQuality().totalVideoFrames > before + 2) resolve();
+      else if (performance.now() > deadline) reject(new Error('Archive recovery did not decode new frames'));
+      else setTimeout(check, 30);
+    }; check();
+  }), before);
+  await tile.screenshot({path: '/tmp/portal-wall-archive-gap-recovered.png'});
+}
+
 (async () => {
   const root = resolve(__dirname, '..');
   const state = mkdtempSync(join(tmpdir(), 'portal-wall-browser-'));
@@ -375,6 +406,7 @@ async function assertArchiveDriftTolerance(page) {
     await page.waitForFunction(() => document.querySelector('[data-wall-state]').hidden);
     assert(await frame.locator('video').evaluate(video => !video.paused && video.readyState >= 2));
     await page.screenshot({path: '/tmp/portal-wall-archive-desktop.png', fullPage: true});
+    await assertArchiveGapRecovery(page, dvr, seek);
     await page.locator('[data-wall-live]').click();
     await page.waitForFunction(() => document.querySelector('[data-wall-live]').getAttribute('aria-pressed') === 'true');
     await page.waitForFunction(() => document.querySelectorAll('[data-wall-frame][src]').length === 4);

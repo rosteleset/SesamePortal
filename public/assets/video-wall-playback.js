@@ -48,6 +48,14 @@
     }
     return merged;
   }
+  function shouldResumeAtRecording(item, clock) {
+    if (clock.mode !== 'archive' || clock.paused || !item.archive || !item.rangesLoaded ||
+        item.state?.error !== 'noRecording' || item.state.busy || !Number.isFinite(item.seekUnix)) return false;
+    const unix = clock.time();
+    // One attempt when this camera's next range begins, never for another
+    // camera's contribution to the shared timeline or again within this range.
+    return item.ranges.some(r => r.from > item.seekUnix && r.from <= unix && unix < r.from + r.duration);
+  }
   function init(screen) {
     const $ = name => screen.querySelector(`[data-wall-${name}]`);
     const labels = JSON.parse($('playback-labels').textContent);
@@ -56,7 +64,7 @@
     const items = [...screen.querySelectorAll('[data-wall-frame]')].map(frame => ({
       frame, overlay: frame.parentElement.querySelector('[data-wall-state]'), origin: frame.dataset.wallOrigin,
       tile: frame.closest('.vw-video-tile'), zoomButton: frame.closest('.vw-video-tile').querySelector('[data-wall-camera-zoom]'), zoomEnabled: false,
-      visible: false, ready: false, archive: false, state: null, seek: 0, revision: 0,
+      visible: false, ready: false, archive: false, state: null, seek: 0, seekUnix: null, revision: 0,
       ranges: [], events: [], rangesLoaded: false, eventsLoaded: false, eventSupport: false,
       rangeError: null, eventError: null, rangeRequest: 0, lastCorrection: 0,
       drift: new DriftGuard(),
@@ -97,10 +105,11 @@
     }
     function command(item, seek = false) {
       if (!item.ready) return;
+      const unix = clock.time();
       item.drift.reset();
-      if (seek) { item.seek++; item.state = null; item.lastCorrection = performance.now(); }
+      if (seek) { item.seek++; item.seekUnix = unix; item.state = null; item.lastCorrection = performance.now(); }
       item.revision = ++revision;
-      send(item, 'set', { revision: item.revision, seek: item.seek, mode: clock.mode, unix: clock.time(), paused: clock.paused, rate: clock.mode === 'live' ? 1 : clock.rate });
+      send(item, 'set', { revision: item.revision, seek: item.seek, mode: clock.mode, unix, paused: clock.paused, rate: clock.mode === 'live' ? 1 : clock.rate });
     }
     function ranges(item) {
       if (!archive || !item.ready || !item.archive) return;
@@ -287,7 +296,8 @@
         const invalidPosition = s?.mode !== 'archive' || !Number.isFinite(s?.unix);
         // Bound recovery traffic even for offline cameras and permanent gaps.
         const cooldown = s?.error === 'noRecording' ? 10000 : 6000;
-        if (now - item.lastCorrection > cooldown && (stale || s?.error || s?.ended || (!s?.busy && (invalidPosition || item.drift.required)))) command(item, true);
+        const recordingStarted = !stale && shouldResumeAtRecording(item, clock);
+        if (recordingStarted || (now - item.lastCorrection > cooldown && (stale || s?.error || s?.ended || (!s?.busy && (invalidPosition || item.drift.required))))) command(item, true);
       });
       render();
       draw();
@@ -412,5 +422,5 @@
     render();
     return { clock, seek, close() { clearTimeout(controlsTimer); clearTimeout(rangeTimerPending); clearInterval(timer); clearInterval(rangeTimer); observer.disconnect(); resize.disconnect(); window.removeEventListener('message', receive); document.removeEventListener('visibilitychange', visibility); document.removeEventListener('fullscreenchange', showControls); document.removeEventListener('webkitfullscreenchange', showControls); destroyed = true; visibility(); } };
   }
-  root.SesameVideoWallPlayback = { init, Clock, DriftGuard, normalizeRanges, unionRanges, wheelZoomFactor };
+  root.SesameVideoWallPlayback = { init, Clock, DriftGuard, normalizeRanges, unionRanges, wheelZoomFactor, shouldResumeAtRecording };
 })(typeof window === 'undefined' ? globalThis : window);

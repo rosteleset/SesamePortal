@@ -53,8 +53,14 @@ The DVR implementation is based on `origin/elexir-webrtc` (`a0c72904`).
   when comparing clocks. On pause the previous stricter tolerance remains
   (`2 + playback rate` seconds), without a grace period. Manual seeks are immediate.
   Corrections/recovery remain limited to once per 6 seconds per camera; gaps retry
-  every 10 seconds. Buffering, errors, archive denial and wrong playback mode are
-  not treated as acceptable drift.
+  every 10 seconds unless the running clock enters that camera's next known
+  recording range. In that case Portal requests playback on the next 500 ms tick,
+  without waiting for the gap retry timer. This is one attempt per entered range;
+  paused clocks, missing ranges and repeated failures retain the normal limit.
+  A different camera's contribution to the shared timeline does not trigger it.
+  This recovery change needs only a Portal update, not new DVR assets/protocol.
+  Buffering, errors, archive denial and wrong playback mode are not treated as
+  acceptable drift.
   Buffered seeks avoid reloading HLS when the exact UTC target is already mapped
   and buffered. This is time alignment, **not frame-accurate synchronization**.
 - The DVR verifies exact recording ranges before opening an archive target.

@@ -4,7 +4,52 @@ const { readFileSync } = require('node:fs');
 const vm = require('node:vm');
 const scope = {};
 vm.runInNewContext(readFileSync(require('node:path').join(__dirname, '../public/assets/video-wall-playback.js'), 'utf8'), scope);
-const { Clock, DriftGuard, normalizeRanges, unionRanges, wheelZoomFactor } = scope.SesameVideoWallPlayback;
+const { Clock, DriftGuard, normalizeRanges, unionRanges, wheelZoomFactor, shouldResumeAtRecording } = scope.SesameVideoWallPlayback;
+function gapFixture() {
+  return {
+    archive: true, rangesLoaded: true, seekUnix: 197,
+    state: {error: 'noRecording', busy: false},
+    ranges: [{from: 100, duration: 90}, {from: 200, duration: 10}, {from: 215, duration: 5}],
+  };
+}
+const archiveClock = unix => ({mode: 'archive', paused: false, time: () => unix});
+test('gap recovery starts on the next per-camera range, including fractional boundaries', () => {
+  const item = gapFixture();
+  for (const unix of [197, 199.999, 210, 214.999, 220]) assert.equal(shouldResumeAtRecording(item, archiveClock(unix)), false);
+  for (const unix of [200, 200.001, 209.999, 215]) assert.equal(shouldResumeAtRecording(item, archiveClock(unix)), true);
+  item.ranges = [{from: 200.25, duration: 0.5}];
+  assert.equal(shouldResumeAtRecording(item, archiveClock(200.249)), false);
+  assert.equal(shouldResumeAtRecording(item, archiveClock(200.25)), true);
+  assert.equal(shouldResumeAtRecording(item, archiveClock(200.75)), false);
+});
+test('one immediate attempt per entered range; repeated failures retain the normal retry limit', () => {
+  const item = gapFixture();
+  assert.equal(shouldResumeAtRecording(item, archiveClock(200.4)), true);
+  item.seekUnix = 200.4;
+  for (const unix of [200.4, 201, 209.999]) assert.equal(shouldResumeAtRecording(item, archiveClock(unix)), false);
+  assert.equal(shouldResumeAtRecording(item, archiveClock(215)), true);
+  item.seekUnix = 200;
+  assert.equal(shouldResumeAtRecording(item, archiveClock(201)), false, 'a failed seek exactly at a range start is not retried on every tick');
+});
+test('no gap shortcut for paused/live clocks, pending seeks, other errors or unavailable ranges', () => {
+  const clock = archiveClock(201);
+  for (const patch of [{archive: false}, {rangesLoaded: false}, {ranges: []}, {seekUnix: null}, {seekUnix: NaN}, {state: null}, {state: {error: 'noRecording', busy: true}}, {state: {error: 'archiveDenied'}}, {state: {error: 'buffering'}}, {state: {error: null}}]) {
+    assert.equal(shouldResumeAtRecording({...gapFixture(), ...patch}, clock), false);
+  }
+  assert.equal(shouldResumeAtRecording(gapFixture(), {...clock, mode: 'live'}), false);
+  assert.equal(shouldResumeAtRecording(gapFixture(), {...clock, paused: true}), false);
+  assert.equal(shouldResumeAtRecording({...gapFixture(), ranges: [{from: 100, duration: 500}]}, clock), false,
+    'an existing coarse range or another camera recording does not justify repeated early retries');
+});
+test('gap recovery follows the shared media time at every playback rate', () => {
+  for (const rate of [0.5, 1, 2, 4, 8]) {
+    let now = 0;
+    const clock = new Clock(() => now);
+    clock.set(197, 'archive', false, rate);
+    now = 2999 / rate; assert.equal(shouldResumeAtRecording(gapFixture(), clock), false);
+    now = 3000 / rate; assert.equal(shouldResumeAtRecording(gapFixture(), clock), true);
+  }
+});
 function driftFixture(rate = 1, paused = false) {
   let now = 0;
   const clock = new Clock(() => now), guard = new DriftGuard();
