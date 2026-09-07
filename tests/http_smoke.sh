@@ -90,7 +90,7 @@ if (\SesamePortal\PortalSettings::mosaicPreviewRefresh() !== '30') {
 \SesamePortal\DB::pdo()->exec("DELETE FROM portal_settings WHERE setting_key = 'mosaic_preview_refresh'");
 $messages = (new ReflectionMethod(\SesamePortal\I18n::class, 'messages'))->invoke(null, false);
 foreach ($messages as $locale => $items) {
-    foreach (['settings.mosaicSaved', 'settings.previewRefreshInvalid'] as $key) {
+    foreach (['settings.mosaicSaved', 'settings.previewRefreshInvalid', 'settings.personalTitle', 'settings.previewRefreshDefault', 'settings.portalDefault'] as $key) {
         if (empty($items[$key])) {
             throw new RuntimeException("Missing translation: $locale/$key");
         }
@@ -900,6 +900,77 @@ plain_settings_save_status="$(
 test "$plain_settings_save_status" = "403"
 plain_refresh_after_denial="$(curl -fsS -b "$PLAIN_COOKIE_JAR" "http://127.0.0.1:$PORT/")"
 grep -F -q 'data-preview-refresh="60"' <<<"$plain_refresh_after_denial"
+grep -F -q 'href="/settings"' <<<"$plain_mosaic_page"
+anonymous_preferences_status="$(curl -sS -o /dev/null -w '%{http_code}' "http://127.0.0.1:$PORT/settings")"
+test "$anonymous_preferences_status" = "303"
+personal_settings="$(curl -fsS -b "$PLAIN_COOKIE_JAR" "http://127.0.0.1:$PORT/settings")"
+grep -F -q 'Личные настройки' <<<"$personal_settings"
+grep -F -q '<option value="default" selected>По умолчанию в Portal: 60 сек.</option>' <<<"$personal_settings"
+! grep -F -q 'portal-map-settings-panel' <<<"$personal_settings"
+! grep -F -q 'portal-update-panel' <<<"$personal_settings"
+personal_no_csrf_status="$(
+  curl -sS -o /dev/null -w '%{http_code}' -b "$PLAIN_COOKIE_JAR" \
+    -d 'action=save_mosaic_settings' -d 'mosaic_preview_refresh=off' \
+    "http://127.0.0.1:$PORT/settings"
+)"
+test "$personal_no_csrf_status" = "419"
+personal_update_status="$(
+  curl -sS -o /dev/null -w '%{http_code}' -b "$PLAIN_COOKIE_JAR" \
+    -d "csrf=$plain_csrf" -d 'action=run_update' \
+    "http://127.0.0.1:$PORT/settings"
+)"
+test "$personal_update_status" = "400"
+for refresh in off 10 30 60 300; do
+  personal_saved="$(
+    curl -fsS -b "$PLAIN_COOKIE_JAR" \
+      -d "csrf=$plain_csrf" -d 'action=save_mosaic_settings' -d "mosaic_preview_refresh=$refresh" -d 'user_id=1' \
+      "http://127.0.0.1:$PORT/settings"
+  )"
+  grep -F -q 'Настройки мозаики сохранены' <<<"$personal_saved"
+  grep -F -q "<option value=\"$refresh\" selected>" <<<"$personal_saved"
+  personal_mosaic="$(curl -fsS -b "$PLAIN_COOKIE_JAR" "http://127.0.0.1:$PORT/?refresh=60")"
+  grep -F -q "data-preview-refresh=\"$refresh\"" <<<"$personal_mosaic"
+done
+for field in 'mosaic_preview_refresh=1' 'mosaic_preview_refresh=' 'mosaic_preview_refresh[]=off'; do
+  personal_invalid="$(
+    curl -fsS -b "$PLAIN_COOKIE_JAR" \
+      -d "csrf=$plain_csrf" -d 'action=save_mosaic_settings' -d "$field" \
+      "http://127.0.0.1:$PORT/settings"
+  )"
+  grep -F -q 'Выберите допустимый интервал обновления превью.' <<<"$personal_invalid"
+  grep -F -q '<option value="300" selected>' <<<"$personal_invalid"
+done
+php <<'PHP'
+<?php
+require getenv('ROOT') . '/app/Portal.php';
+$rows = \SesamePortal\DB::pdo()->query("SELECT login, mosaic_preview_refresh FROM users WHERE login IN ('admin', 'plain-user')")->fetchAll(PDO::FETCH_KEY_PAIR);
+if ($rows['admin'] !== null || $rows['plain-user'] !== '300' || \SesamePortal\PortalSettings::mosaicPreviewRefresh() !== '60') {
+    throw new RuntimeException('Personal preview preference changed another user or the portal default');
+}
+PHP
+PERSONAL_SECOND_COOKIE="$STATE_DIR/personal-second-cookies.txt"
+curl -fsS -c "$PERSONAL_SECOND_COOKIE" -d 'login=plain-user' -d 'password=user123' "http://127.0.0.1:$PORT/login" >/dev/null
+personal_new_session="$(curl -fsS -b "$PERSONAL_SECOND_COOKIE" "http://127.0.0.1:$PORT/")"
+grep -F -q 'data-preview-refresh="300"' <<<"$personal_new_session"
+curl -fsS -b "$PLAIN_COOKIE_JAR" "http://127.0.0.1:$PORT/viewer/player?id=1&back=%2F" >/dev/null
+for path in '/' '/?q=smoke' '/?filter=group:1'; do
+  personal_return="$(curl -fsS -b "$PLAIN_COOKIE_JAR" "http://127.0.0.1:$PORT$path")"
+  grep -F -q 'data-preview-refresh="300"' <<<"$personal_return"
+done
+admin_unchanged="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/")"
+grep -F -q 'data-preview-refresh="60"' <<<"$admin_unchanged"
+curl -fsS -b "$COOKIE_JAR" -d "csrf=$settings_csrf" -d 'action=save_mosaic_settings' -d 'mosaic_preview_refresh=10' \
+  "http://127.0.0.1:$PORT/admin/settings" >/dev/null
+personal_override="$(curl -fsS -b "$PLAIN_COOKIE_JAR" "http://127.0.0.1:$PORT/")"
+grep -F -q 'data-preview-refresh="300"' <<<"$personal_override"
+curl -fsS -b "$PLAIN_COOKIE_JAR" -d "csrf=$plain_csrf" -d 'action=save_mosaic_settings' -d 'mosaic_preview_refresh=default' \
+  "http://127.0.0.1:$PORT/settings" >/dev/null
+personal_inherited="$(curl -fsS -b "$PLAIN_COOKIE_JAR" "http://127.0.0.1:$PORT/")"
+grep -F -q 'data-preview-refresh="10"' <<<"$personal_inherited"
+curl -fsS -b "$COOKIE_JAR" -d "csrf=$settings_csrf" -d 'action=save_mosaic_settings' -d 'mosaic_preview_refresh=60' \
+  "http://127.0.0.1:$PORT/admin/settings" >/dev/null
+personal_default_updated="$(curl -fsS -b "$PERSONAL_SECOND_COOKIE" "http://127.0.0.1:$PORT/")"
+grep -F -q 'data-preview-refresh="60"' <<<"$personal_default_updated"
 grep -q "camera-grid cols-3" <<<"$plain_mosaic_page"
 grep -F -q 'class="active" href="/?cols=3"' <<<"$plain_mosaic_page"
 plain_player_page="$(curl -fsS -b "$PLAIN_COOKIE_JAR" "http://127.0.0.1:$PORT/viewer/player?id=1")"

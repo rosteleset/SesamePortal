@@ -144,6 +144,7 @@ final class DB
         self::ensureColumn('users', 'admin_comment', 'TEXT');
         self::ensureColumn('users', 'hide_archive', 'INTEGER NOT NULL DEFAULT 0');
         self::ensureColumn('users', 'mosaic_columns', 'INTEGER NOT NULL DEFAULT 3');
+        self::ensureColumn('users', 'mosaic_preview_refresh', 'VARCHAR(16)');
         self::ensureColumn('portal_groups', 'parent_group_id', self::driver() === 'mysql' ? 'BIGINT NULL' : 'INTEGER');
         self::dropPortalGroupNameUniqueConstraint();
         self::ensureIndex('camera_groups', 'idx_camera_groups_group', 'group_id');
@@ -246,6 +247,7 @@ final class DB
                 admin_comment TEXT,
                 hide_archive INTEGER NOT NULL DEFAULT 0,
                 mosaic_columns INTEGER NOT NULL DEFAULT 3,
+                mosaic_preview_refresh VARCHAR(16),
                 created_at TEXT NOT NULL,
                 last_login_at TEXT
             )',
@@ -353,6 +355,7 @@ final class DB
                 admin_comment TEXT,
                 hide_archive INTEGER NOT NULL DEFAULT 0,
                 mosaic_columns INTEGER NOT NULL DEFAULT 3,
+                mosaic_preview_refresh VARCHAR(16),
                 created_at TEXT NOT NULL,
                 last_login_at TEXT
             )",
@@ -461,6 +464,7 @@ final class DB
                 admin_comment TEXT,
                 hide_archive INTEGER NOT NULL DEFAULT 0,
                 mosaic_columns INTEGER NOT NULL DEFAULT 3,
+                mosaic_preview_refresh VARCHAR(16),
                 created_at VARCHAR(64) NOT NULL,
                 last_login_at VARCHAR(64)
             ){$suffix}",
@@ -787,8 +791,12 @@ final class PortalSettings
     private const MAP_YANDEX_API_KEY = 'map_yandex_api_key_enc';
     private const MAP_GOOGLE_API_KEY = 'map_google_api_key_enc';
 
-    public static function mosaicPreviewRefresh(): string
+    public static function mosaicPreviewRefresh(?array $user = null): string
     {
+        $personalRefresh = $user['mosaic_preview_refresh'] ?? null;
+        if (in_array($personalRefresh, self::MOSAIC_PREVIEW_REFRESH_OPTIONS, true)) {
+            return $personalRefresh;
+        }
         $values = self::values([self::MOSAIC_PREVIEW_REFRESH_KEY]);
         $refresh = $values[self::MOSAIC_PREVIEW_REFRESH_KEY] ?? '';
         return in_array($refresh, self::MOSAIC_PREVIEW_REFRESH_OPTIONS, true)
@@ -4565,6 +4573,7 @@ final class App
         match ($path) {
             '/login' => self::login(),
             '/logout' => self::logout(),
+            '/settings' => self::personalSettings(),
             '/admin/dashboard' => self::dashboard(),
             '/admin/users' => self::users(),
             '/admin/groups' => self::groups(),
@@ -6289,12 +6298,45 @@ final class App
         });
     }
 
-    private static function portalMosaicSettingsPanel(string $previewRefresh): void
+    private static function personalSettings(): void
+    {
+        $user = Auth::requireLogin();
+        $previewRefresh = $user['mosaic_preview_refresh'] ?? 'default';
+        if (!in_array($previewRefresh, PortalSettings::MOSAIC_PREVIEW_REFRESH_OPTIONS, true)) {
+            $previewRefresh = 'default';
+        }
+        $message = '';
+        $messageClass = '';
+        if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
+            if (Util::post('action') !== 'save_mosaic_settings') {
+                http_response_code(400);
+                return;
+            }
+            $refreshInput = Util::post('mosaic_preview_refresh');
+            if ($refreshInput === 'default' || in_array($refreshInput, PortalSettings::MOSAIC_PREVIEW_REFRESH_OPTIONS, true)) {
+                DB::pdo()->prepare('UPDATE users SET mosaic_preview_refresh = ? WHERE id = ?')
+                    ->execute([$refreshInput === 'default' ? null : $refreshInput, (int)$user['id']]);
+                $previewRefresh = $refreshInput;
+                $message = self::t('settings.mosaicSaved', 'Настройки мозаики сохранены');
+                $messageClass = 'success';
+                Audit::log('user.preferences.save', 'preview_refresh=' . $previewRefresh . ' ip=' . Audit::clientIp());
+            } else {
+                $message = self::t('settings.previewRefreshInvalid', 'Выберите допустимый интервал обновления превью.');
+                $messageClass = 'danger';
+            }
+        }
+        self::layout(self::t('settings.personalTitle', 'Личные настройки'), function () use ($previewRefresh, $message, $messageClass): void {
+            self::notice($message, $messageClass);
+            self::portalMosaicSettingsPanel($previewRefresh, true);
+        });
+    }
+
+    private static function portalMosaicSettingsPanel(string $previewRefresh, bool $personal = false): void
     {
         echo '<section class="panel portal-mosaic-settings-panel"><h2>' . self::t('nav.mosaic', 'Мозаика') . '</h2>';
-        echo '<form method="post" action="/admin/settings" class="form portal-mosaic-settings-form">' . Csrf::field();
+        echo '<form method="post" action="' . ($personal ? '/settings' : '/admin/settings') . '" class="form portal-mosaic-settings-form">' . Csrf::field();
         echo '<input type="hidden" name="action" value="save_mosaic_settings">';
-        self::previewRefreshSelect($previewRefresh);
+        self::previewRefreshSelect($previewRefresh, $personal);
         echo '<button type="submit" class="primary">' . self::t('action.save', 'Сохранить') . '</button></form></section>';
     }
 
@@ -7972,7 +8014,7 @@ final class App
         $searchQuery = self::viewerSearchQuery();
         $groups = self::groupRowsWithTreeLabels(Repo::groupsForUser($user));
         $cols = self::viewerColumns($user, $mode !== 'map');
-        $previewRefresh = PortalSettings::mosaicPreviewRefresh();
+        $previewRefresh = PortalSettings::mosaicPreviewRefresh($user);
         $cameraPager = null;
         if ($mode === 'map') {
             $cameras = Repo::accessibleMapCameras($user, $filter, $searchQuery);
@@ -8447,6 +8489,7 @@ final class App
             self::navLink('/', self::t('nav.mosaic', 'Мозаика'), 'grid', Util::path() === '/' && $viewerFilter !== 'favorites');
             self::navLink('/viewer/map', self::t('nav.map', 'Карта'), 'map');
             self::navLink('/?filter=favorites', self::t('filter.favorites', 'Избранное'), 'star', ($_GET['filter'] ?? '') === 'favorites' && Util::path() === '/');
+            self::navLink('/settings', self::t('settings.personalTitle', 'Личные настройки'), 'settings');
             echo '</nav>';
             if ($user['role'] === 'admin') {
                 echo '<div class="nav-section">' . Util::h(self::t('nav.section.admin', 'Администрирование')) . '</div><nav class="nav">';
@@ -8754,9 +8797,20 @@ final class App
         }
     }
 
-    private static function previewRefreshSelect(string $previewRefresh): void
+    private static function previewRefreshSelect(string $previewRefresh, bool $personal = false): void
     {
-        echo '<label><span>' . Util::h(self::t('viewer.previewRefresh', 'Обновление превью')) . '</span><select name="mosaic_preview_refresh">';
+        $label = $personal
+            ? self::t('viewer.previewRefresh', 'Обновление превью')
+            : self::t('settings.previewRefreshDefault', 'Обновление превью по умолчанию');
+        echo '<label><span>' . Util::h($label) . '</span><select name="mosaic_preview_refresh">';
+        if ($personal) {
+            $defaultRefresh = PortalSettings::mosaicPreviewRefresh();
+            $defaultLabel = $defaultRefresh === 'off'
+                ? self::t('viewer.refreshOff', 'Отключено')
+                : sprintf(self::t('viewer.refreshSeconds', '%d сек.'), (int)$defaultRefresh);
+            echo '<option value="default"' . ($previewRefresh === 'default' ? ' selected' : '') . '>'
+                . Util::h(sprintf(self::t('settings.portalDefault', 'По умолчанию в Portal: %s'), $defaultLabel)) . '</option>';
+        }
         foreach (PortalSettings::MOSAIC_PREVIEW_REFRESH_OPTIONS as $value) {
             $label = $value === 'off'
                 ? self::t('viewer.refreshOff', 'Отключено')

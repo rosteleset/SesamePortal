@@ -13,7 +13,7 @@ if ($token !== 'import-management-secret') {
     return;
 }
 
-if ($path === '/api/streams') {
+if ($path === '/api/streams' && ($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET') {
     echo json_encode([
         'streams' => [
             [
