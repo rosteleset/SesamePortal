@@ -286,18 +286,30 @@ trait AppViewerTrait
         $archiveHidden = self::userArchiveHidden($user);
 
         $cameraId = max(0, (int)($_GET['cameraId'] ?? 0));
-        $hours = (int)($_GET['hours'] ?? 168);
-        $hours = in_array($hours, [24, 72, 168], true) ? $hours : 168;
         $page = max(1, (int)($_GET['page'] ?? 1));
         $pageSize = self::eventsPageSize();
+        $searchQuery = trim((string)($_GET['q'] ?? ''));
+
+        $timezone = (string)Config::get('timezone', 'UTC');
+        $date = trim((string)($_GET['date'] ?? ''));
         $now = time();
         $to = $now;
-        $from = $to - $hours * 3600;
+        $from = $to - 168 * 3600;
+        if ($date !== '' && preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) {
+            try {
+                $dayStart = (new \DateTimeImmutable($date, new \DateTimeZone($timezone)))->setTime(0, 0, 0);
+                $dayEnd = $dayStart->modify('+1 day -1 second');
+                $from = $dayStart->getTimestamp();
+                $to = $dayEnd->getTimestamp();
+            } catch (\Throwable) {
+                $date = '';
+            }
+        }
 
         $events = [];
         $cameras = [];
         if (!$archiveHidden) {
-            $cameras = Repo::accessibleCameras($user, 'all', '');
+            $cameras = Repo::accessibleCameras($user, 'all', $searchQuery);
             foreach ($cameras as $camera) {
                 if ($cameraId > 0 && (int)$camera['id'] !== $cameraId) {
                     continue;
@@ -342,35 +354,27 @@ trait AppViewerTrait
             'pageSize' => $pageSize,
             'rows' => $rows,
             'cameraId' => $cameraId,
-            'hours' => $hours,
+            'date' => $date,
+            'q' => $searchQuery,
         ];
 
-        $timezone = (string)Config::get('timezone', 'UTC');
-
-        self::layout(self::t('events.title', 'События'), function () use ($cameras, $cameraId, $hours, $rows, $total, $pager, $timezone): void {
+        self::layout(self::t('events.title', 'События'), function () use ($cameras, $cameraId, $date, $searchQuery, $user, $rows, $total, $pager, $timezone): void {
             echo '<section class="panel events-panel"><form class="events-filter" method="get" action="/viewer/events">';
-            echo '<label>' . Util::h(self::t('events.camera', 'Камера')) . ' <select name="cameraId">';
+            echo '<label>' . Util::h(self::t('events.camera', 'Камера')) . ' <select name="cameraId" onchange="this.form.submit()">';
             echo '<option value="0"' . ($cameraId === 0 ? ' selected' : '') . '>' . Util::h(self::t('events.allCameras', 'Все камеры')) . '</option>';
             foreach ($cameras as $camera) {
                 $id = (int)$camera['id'];
                 echo '<option value="' . $id . '"' . ($cameraId === $id ? ' selected' : '') . '>' . Util::h($camera['name']) . '</option>';
             }
             echo '</select></label>';
-            echo '<label>' . Util::h(self::t('events.period', 'Период')) . ' <select name="hours">';
-            $periodOptions = [
-                24 => self::t('events.hours24', '24 часа'),
-                72 => self::t('events.days3', '3 дня'),
-                168 => self::t('events.days7', '7 дней'),
-            ];
-            foreach ($periodOptions as $value => $label) {
-                echo '<option value="' . (int)$value . '"' . ($hours === $value ? ' selected' : '') . '>' . Util::h($label) . '</option>';
+            if (($user['role'] ?? '') === 'admin') {
+                echo '<label class="events-search">' . Util::h(self::t('events.search', 'Поиск камер')) . ' <input class="camera-search-input" name="q" value="' . Util::h($searchQuery) . '" placeholder="' . Util::h(self::t('filter.cameraSearchPlaceholder', 'Название, поток или IP')) . '" onchange="this.form.submit()"></label>';
             }
-            echo '</select></label>';
-            echo '<button class="primary">' . Util::h(self::t('action.apply', 'Применить')) . '</button>';
+            echo '<label>' . Util::h(self::t('events.date', 'Дата')) . ' <input type="date" name="date" value="' . Util::h($date) . '" onchange="this.form.submit()"></label>';
             echo '</form></section>';
 
             if ($total === 0) {
-                echo '<p class="empty">' . Util::h(self::t('events.empty', 'Нет событий движения за выбранный период')) . '</p>';
+                echo '<p class="empty">' . Util::h(self::t('events.dateEmpty', 'Нет событий движения за выбранную дату')) . '</p>';
                 return;
             }
 
@@ -381,7 +385,8 @@ trait AppViewerTrait
             echo '</section>';
             self::pager('/viewer/events', $pager, [
                 'cameraId' => $pager['cameraId'] === 0 ? '' : $pager['cameraId'],
-                'hours' => $pager['hours'],
+                'date' => $pager['date'],
+                'q' => $pager['q'],
             ]);
         });
     }
