@@ -9,6 +9,21 @@ COOKIE_JAR="$STATE_DIR/cookies.txt"
 SERVER_LOG="$STATE_DIR/server.log"
 DVR_SERVER_LOG="$STATE_DIR/dvr-server.log"
 
+rand_secret() {
+  head -c 32 /dev/urandom | base64 | tr -d '/+=' | head -c "$1"
+}
+ADMIN_PW="$(rand_secret 20)"
+PLAIN_PW="$(rand_secret 20)"
+NEW_PW="$(rand_secret 20)"
+PLAIN_TOKEN="$(rand_secret 24)"
+TEST_SECRET="$(rand_secret 20)"
+MGMT_LEGACY="$(rand_secret 20)"
+MGMT_IMPORT="$(rand_secret 20)"
+SMTP_PW="$(rand_secret 20)"
+API_PW="$(rand_secret 20)"
+ONVIF_PW="$(rand_secret 20)"
+export ADMIN_PW PLAIN_PW NEW_PW PLAIN_TOKEN TEST_SECRET MGMT_LEGACY MGMT_IMPORT SMTP_PW API_PW ONVIF_PW
+
 cleanup() {
   if [[ -n "${SERVER_PID:-}" ]]; then
     kill "$SERVER_PID" 2>/dev/null || true
@@ -23,10 +38,12 @@ cleanup() {
 trap cleanup EXIT
 
 export SESAME_PORTAL_STATE_DIR="$STATE_DIR"
-export SESAME_PORTAL_SECRET="test-secret"
+export SESAME_PORTAL_SECRET="$TEST_SECRET"
 export SESAME_PORTAL_UPDATE_AUTO_CHECK=0
 export ROOT
 export DVR_PORT
+export FAKE_DVR_STATE="$STATE_DIR/fake_dvr_state.json"
+: > "$FAKE_DVR_STATE"
 
 cat >"$STATE_DIR/config.php" <<'PHP'
 <?php
@@ -54,7 +71,7 @@ if [[ -z "${SESAME_PORTAL_DB_DSN:-}" ]]; then
   OLD_UNIQUE_STATE="$STATE_DIR/old-unique"
   mkdir -p "$OLD_UNIQUE_STATE"
   sqlite_duplicate_group_migration="$(
-    SESAME_PORTAL_STATE_DIR="$OLD_UNIQUE_STATE" SESAME_PORTAL_SECRET="test-secret" php <<'PHP'
+    SESAME_PORTAL_STATE_DIR="$OLD_UNIQUE_STATE" SESAME_PORTAL_SECRET="$TEST_SECRET" php <<'PHP'
 <?php
 require getenv('ROOT') . '/app/Portal.php';
 $pdo = \SesamePortal\DB::pdo();
@@ -81,7 +98,7 @@ PHP
 fi
 
 php "$ROOT/bin/portal" migrate >/dev/null
-php "$ROOT/bin/portal" create-admin admin admin123 >/dev/null
+php "$ROOT/bin/portal" create-admin admin "$ADMIN_PW" >/dev/null
 
 php <<'PHP'
 <?php
@@ -128,7 +145,7 @@ $now = \SesamePortal\Util::now();
 $key = hash('sha256', (string)\SesamePortal\Config::get('app_secret'), true);
 $iv = random_bytes(12);
 $tag = '';
-$cipher = openssl_encrypt('legacy-management-secret', 'aes-256-gcm', $key, OPENSSL_RAW_DATA, $iv, $tag);
+$cipher = openssl_encrypt(getenv('MGMT_LEGACY'), 'aes-256-gcm', $key, OPENSSL_RAW_DATA, $iv, $tag);
 $legacy = base64_encode($iv . $tag . $cipher);
 $metrics = json_encode([
     'version' => ['version' => ['appVersion' => '0.1.0', 'buildId' => 'smoke-build']],
@@ -145,7 +162,7 @@ $pdo->prepare('INSERT INTO dvr_servers(name, base_url, management_token_enc, las
 $pdo->prepare('INSERT INTO dvr_servers(name, base_url, management_token_enc, last_check_result, created_at) VALUES(?, ?, ?, ?, ?)')
     ->execute(['No Token DVR', 'https://no-token.example.invalid', null, '', $now]);
 $pdo->prepare('INSERT INTO dvr_servers(name, base_url, management_token_enc, last_check_result, created_at) VALUES(?, ?, ?, ?, ?)')
-    ->execute(['Import DVR', 'http://127.0.0.1:' . getenv('DVR_PORT'), \SesamePortal\Crypto::encrypt('import-management-secret'), '', $now]);
+    ->execute(['Import DVR', 'http://127.0.0.1:' . getenv('DVR_PORT'), \SesamePortal\Crypto::encrypt(getenv('MGMT_IMPORT')), '', $now]);
 $pdo->prepare('INSERT INTO cameras(name, source_url, server_id, server_selection, retention_days, dvr_stream_name, latitude, longitude, direction_deg, created_at, updated_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
     ->execute(['Smoke Cam', 'rtsp://192.0.2.77/smoke', 1, 'manual', '1d', 'smoke-cam', 25.2048, 55.2708, 90, $now, $now]);
 $pdo->exec('UPDATE cameras SET watermark_enabled = 1 WHERE id = 1');
@@ -181,11 +198,13 @@ $pdo->prepare('INSERT INTO camera_folders(camera_id, folder_id) VALUES(?, ?)')
 $pdo->prepare('INSERT INTO camera_folders(camera_id, folder_id) VALUES(?, ?)')
     ->execute([$unicodeCameraId, $smokeFolder1]);
 $pdo->prepare('INSERT INTO users(login, password_hash, role, blocked, static_token_hash, created_at) VALUES(?, ?, ?, ?, ?, ?)')
-    ->execute(['plain-user', password_hash('user123', PASSWORD_DEFAULT), 'user', 0, password_hash('sp_smoke_user_token', PASSWORD_DEFAULT), $now]);
+    ->execute(['plain-user', password_hash(getenv('PLAIN_PW'), PASSWORD_DEFAULT), 'user', 0, password_hash(getenv('PLAIN_TOKEN'), PASSWORD_DEFAULT), $now]);
 $plainUserId = \SesamePortal\DB::lastInsertId('users');
 $pdo->prepare('UPDATE users SET hide_archive = 1 WHERE id = ?')
     ->execute([$plainUserId]);
 $pdo->prepare('UPDATE users SET mosaic_enabled = 1 WHERE id = ?')
+    ->execute([$plainUserId]);
+$pdo->prepare('UPDATE users SET can_rename_cameras = 1 WHERE id = ?')
     ->execute([$plainUserId]);
 $pdo->prepare('INSERT INTO user_folders(user_id, folder_id) VALUES(?, ?)')
     ->execute([$plainUserId, $smokeFolder1]);
@@ -207,7 +226,7 @@ require getenv('ROOT') . '/app/Portal.php';
 $stmt = \SesamePortal\DB::pdo()->query('SELECT management_token_enc FROM dvr_servers WHERE id = 1');
 $encoded = (string)$stmt->fetchColumn();
 echo str_starts_with($encoded, 'v2:')
-    && \SesamePortal\Crypto::decrypt($encoded) === 'legacy-management-secret'
+    && \SesamePortal\Crypto::decrypt($encoded) === getenv('MGMT_LEGACY')
     && !\SesamePortal\Crypto::needsRotation($encoded)
     ? 'crypto ok'
     : 'crypto failed';
@@ -234,7 +253,7 @@ curl -fsS "http://127.0.0.1:$PORT/assets/brand-mark.svg" | grep -q "SesameDVR ma
 
 status="$(
   curl -sS -o /dev/null -w '%{http_code}' -b "$COOKIE_JAR" -c "$COOKIE_JAR" \
-    -d "login=admin" -d "password=admin123" \
+    -d "login=admin" -d "password=$ADMIN_PW" \
     "http://127.0.0.1:$PORT/login"
 )"
 test "$status" = "303"
@@ -242,7 +261,7 @@ test "$status" = "303"
 # Remember-me: login with remember_me=1, verify cookie is set
 REMEMBER_JAR="$STATE_DIR/remember-cookies.txt"
 remember_headers="$(curl -sS -D - -o /dev/null -c "$REMEMBER_JAR" \
-  -d "login=admin&password=admin123&remember_me=1" \
+  -d "login=admin&password=$ADMIN_PW&remember_me=1" \
   "http://127.0.0.1:$PORT/login")"
 printf "%s" "$remember_headers" | grep -i "Set-Cookie.*sesame_remember"
 # Access admin page with only remember-me cookie (no session)
@@ -342,7 +361,7 @@ smtp_save_response="$(
   curl -sS -b "$COOKIE_JAR" -c "$COOKIE_JAR" \
     -d "csrf=$settings_csrf" -d "action=save_smtp" \
     -d "smtp_host=smtp.example.com" -d "smtp_port=465" \
-    -d "smtp_user=test@example.com" -d "smtp_password=secret123" \
+    -d "smtp_user=test@example.com" -d "smtp_password=$SMTP_PW" \
     -d "smtp_security=ssl" -d "smtp_from_email=test@example.com" \
     -d "smtp_from_name=SesamePortal" \
     "http://127.0.0.1:$PORT/admin/settings"
@@ -424,7 +443,7 @@ api_me_no_admin_comment="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/ap
 ! printf "%s" "$api_me_no_admin_comment" | grep -q '"adminComment"'
 api_duplicate_user_status="$(
   curl -sS -o "$STATE_DIR/api_duplicate_user_login.json" -w '%{http_code}' -b "$COOKIE_JAR" -H 'Content-Type: application/json' \
-    -d '{"login":"admin","password":"secret123","role":"admin"}' \
+    -d '{"login":"admin","password":"'"$API_PW"'","role":"admin"}' \
     "http://127.0.0.1:$PORT/api/portal/v1/users"
 )"
 test "$api_duplicate_user_status" = "409"
@@ -469,6 +488,10 @@ printf "%s" "$admin_cameras_form" | grep -q "Показывать водяной
 printf "%s" "$admin_cameras_form" | grep -q "Интенсивность водяного знака"
 printf "%s" "$admin_cameras_form" | grep -F -q 'name="watermark_enabled" data-watermark-toggle checked'
 printf "%s" "$admin_cameras_form" | grep -F -q 'data-watermark-dependent'
+printf "%s" "$admin_cameras_form" | grep -F -q 'name="audio_codec"'
+printf "%s" "$admin_cameras_form" | grep -q "Транскодировать AAC"
+printf "%s" "$admin_cameras_form" | grep -F -q '<option value="disabled"'
+printf "%s" "$admin_cameras_form" | grep -F -q '<option value="passthrough"'
 printf "%s" "$admin_cameras_form" | grep -q "Расположение камеры"
 printf "%s" "$admin_cameras_form" | grep -F -q 'data-camera-location-options'
 printf "%s" "$admin_cameras_form" | grep -q "Пишет архив"
@@ -557,6 +580,53 @@ readonly_camera_save="$(
 )"
 printf "%s" "$readonly_camera_save" | grep -F -q '<div class="alert">Камера сохранена</div>'
 ! printf "%s" "$readonly_camera_save" | grep -F -q '<div class="alert">Read-only mode'
+events_page="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/viewer/events")"
+printf "%s" "$events_page" | grep -q "event-grid"
+printf "%s" "$events_page" | grep -F -q 'class="events-filter"'
+printf "%s" "$events_page" | grep -F -q 'name="cameraId"'
+printf "%s" "$events_page" | grep -F -q 'name="cameraId" onchange="this.form.submit()"'
+printf "%s" "$events_page" | grep -F -q 'name="date"'
+printf "%s" "$events_page" | grep -F -q 'type="date" name="date"'
+printf "%s" "$events_page" | grep -F -q 'onchange="this.form.submit()"'
+! printf "%s" "$events_page" | grep -F -q 'name="hours"'
+! printf "%s" "$events_page" | grep -F -q 'action.apply'
+printf "%s" "$events_page" | grep -F -q 'name="q"'
+printf "%s" "$events_page" | grep -F -q 'events-search'
+printf "%s" "$events_page" | grep -F -q 'onchange="this.form.submit()"'
+events_search_page="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/viewer/events?q=Smoke")"
+printf "%s" "$events_search_page" | grep -F -q 'name="q" value="Smoke"'
+printf "%s" "$events_page" | grep -q "event-card"
+printf "%s" "$events_page" | grep -q "Движение"
+printf "%s" "$events_page" | grep -F -q 'href="/viewer/player?id='
+printf "%s" "$events_page" | grep -F -q 'src="/viewer/preview?id='
+printf "%s" "$events_page" | grep -F -q '&amp;ts='
+events_frame_headers="$(curl -sS -D - -o /dev/null -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/viewer/preview?id=3&ts=$(date +%s)")"
+printf "%s" "$events_frame_headers" | grep -q "^HTTP/[0-9.]* 200"
+printf "%s" "$events_frame_headers" | grep -i "Content-Type: image/jpeg"
+# Camera delete via API must remove the DVR stream AND the ONVIF device.
+# Use server 3 (fake Import DVR) before it gets blocked below.
+onvif_delete_cam="$(
+  curl -fsS -b "$COOKIE_JAR" -H 'Content-Type: application/json' \
+    -d '{"displayName":"ONVIF Delete Cam","sourceUrl":"rtsp://example.invalid/onvif-del","serverId":3,"dvrStreamName":"onvif-del-cam","onvifHost":"10.0.0.42","onvifPort":80,"onvifUsername":"admin","onvifPassword":"'"$ONVIF_PW"'"}' \
+    "http://127.0.0.1:$PORT/api/portal/v1/cameras"
+)"
+printf "%s" "$onvif_delete_cam" | grep -q '"dvrStreamName": "onvif-del-cam"'
+onvif_delete_id="$(printf "%s" "$onvif_delete_cam" | grep -o '"id": [0-9]*' | head -n1 | grep -o '[0-9]*')"
+test -n "$onvif_delete_id"
+# Verify the ONVIF device was created on the fake DVR.
+onvif_devices_list="$(curl -fsS -H "X-Management-Token: $MGMT_IMPORT" "http://127.0.0.1:$DVR_PORT/api/onvif/devices")"
+printf "%s" "$onvif_devices_list" | grep -q '"id":"onvif-del-cam"'
+printf "%s" "$onvif_devices_list" | grep -q '"sourceStreams":\["onvif-del-cam"\]'
+# Delete the camera with DVR purge; portal must DELETE both stream and ONVIF device.
+onvif_delete_status="$(
+  curl -sS -o /dev/null -w '%{http_code}' -b "$COOKIE_JAR" \
+    -X DELETE "http://127.0.0.1:$PORT/api/portal/v1/cameras/$onvif_delete_id?purge=true"
+)"
+test "$onvif_delete_status" = "200"
+onvif_devices_after="$(curl -fsS -H "X-Management-Token: $MGMT_IMPORT" "http://127.0.0.1:$DVR_PORT/api/onvif/devices")"
+! printf "%s" "$onvif_devices_after" | grep -q '"id":"onvif-del-cam"'
+fake_dvr_log="$(cat "$FAKE_DVR_STATE")"
+printf "%s" "$fake_dvr_log" | grep -q 'DELETE onvif onvif-del-cam'
 # Block the fake Import DVR server so auto server selection deterministically
 # picks an unreachable example.invalid server (sync must fail).
 php -r 'require getenv("ROOT")."/app/Portal.php"; \SesamePortal\DB::pdo()->exec("UPDATE dvr_servers SET blocked = 1 WHERE id = 3");'
@@ -665,19 +735,6 @@ printf "%s" "$preview_headers" | grep -E -q '^HTTP/[0-9.]+ 302'
 printf "%s" "$preview_headers" | grep -F -q "Location: https://dvr.example.invalid/smoke-cam/preview.jpg?token="
 printf "%s" "$preview_headers" | grep -F -q "_=smoke"
 printf "%s" "$preview_headers" | grep -F -q "Cache-Control: no-store"
-events_page="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/viewer/events?hours=24")"
-printf "%s" "$events_page" | grep -q "event-grid"
-printf "%s" "$events_page" | grep -F -q 'class="events-filter"'
-printf "%s" "$events_page" | grep -F -q 'name="cameraId"'
-printf "%s" "$events_page" | grep -F -q 'name="hours"'
-printf "%s" "$events_page" | grep -q "event-card"
-printf "%s" "$events_page" | grep -q "Движение"
-printf "%s" "$events_page" | grep -F -q 'href="/viewer/player?id='
-printf "%s" "$events_page" | grep -F -q 'src="/viewer/preview?id='
-printf "%s" "$events_page" | grep -F -q '&ts='
-events_frame_headers="$(curl -sS -D - -o /dev/null -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/viewer/preview?id=3&ts=$(date +%s)")"
-printf "%s" "$events_frame_headers" | grep -q "^HTTP/[0-9.]* 200"
-printf "%s" "$events_frame_headers" | grep -i "Content-Type: image/jpeg"
 printf "%s" "$mosaic_page" | grep -q "group-filter"
 ! printf "%s" "$mosaic_page" | grep -q "group-tree-picker"
 ! printf "%s" "$mosaic_page" | grep -q "Smoke Group"
@@ -794,7 +851,7 @@ PLAIN_COOKIE_JAR="$STATE_DIR/plain-cookies.txt"
 curl -fsS -c "$PLAIN_COOKIE_JAR" "http://127.0.0.1:$PORT/login" >/dev/null
 plain_login_status="$(
   curl -sS -o /dev/null -w '%{http_code}' -b "$PLAIN_COOKIE_JAR" -c "$PLAIN_COOKIE_JAR" \
-    -d "login=plain-user" -d "password=user123" \
+    -d "login=plain-user" -d "password=$PLAIN_PW" \
     "http://127.0.0.1:$PORT/login"
 )"
 test "$plain_login_status" = "303"
@@ -805,6 +862,11 @@ grep -F -q 'class="active" href="/?cols=3"' <<<"$plain_mosaic_page"
 plain_player_page="$(curl -fsS -b "$PLAIN_COOKIE_JAR" "http://127.0.0.1:$PORT/viewer/player?id=1")"
 ! printf "%s" "$plain_player_page" | grep -q "settings_url="
 ! printf "%s" "$plain_player_page" | grep -q "admin%2Fcameras"
+
+# Events: quick camera search is admin-only
+plain_events_page="$(curl -fsS -b "$PLAIN_COOKIE_JAR" "http://127.0.0.1:$PORT/viewer/events")"
+! printf "%s" "$plain_events_page" | grep -F -q 'name="q"'
+! printf "%s" "$plain_events_page" | grep -F -q 'events-search'
 
 # Plain user can open the rename form for an accessible camera
 plain_rename_page="$(curl -fsS -b "$PLAIN_COOKIE_JAR" "http://127.0.0.1:$PORT/camera/rename?id=1")"
@@ -1206,14 +1268,14 @@ curl -fsS -H "X-Portal-Token: $STATIC_TOKEN" "http://127.0.0.1:$PORT/api/portal/
 curl -fsS -b "$COOKIE_JAR" -X PUT "http://127.0.0.1:$PORT/api/portal/v1/favorites/1" | grep -q '"favorite": true'
 curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/api/portal/v1/favorites" | grep -q '"cameraIds"'
 curl -fsS -b "$COOKIE_JAR" -X DELETE "http://127.0.0.1:$PORT/api/portal/v1/favorites/1" | grep -q '"favorite": false'
-curl -fsS -H "Authorization: Bearer sp_smoke_user_token" -X PUT "http://127.0.0.1:$PORT/api/portal/v1/favorites/1" | grep -q '"favorite": true'
+curl -fsS -H "Authorization: Bearer $PLAIN_TOKEN" -X PUT "http://127.0.0.1:$PORT/api/portal/v1/favorites/1" | grep -q '"favorite": true'
 plain_user_favorites="$(
-  curl -fsS -H "Authorization: Bearer sp_smoke_user_token" \
+  curl -fsS -H "Authorization: Bearer $PLAIN_TOKEN" \
     "http://127.0.0.1:$PORT/api/portal/v1/favorites"
 )"
 plain_user_favorite_ids="$(printf "%s" "$plain_user_favorites" | php -r '$d=json_decode(stream_get_contents(STDIN), true); echo implode(",", $d["cameraIds"] ?? []);')"
 test "$plain_user_favorite_ids" = "1"
-curl -fsS -H "Authorization: Bearer sp_smoke_user_token" -X DELETE "http://127.0.0.1:$PORT/api/portal/v1/favorites/1" | grep -q '"favorite": false'
+curl -fsS -H "Authorization: Bearer $PLAIN_TOKEN" -X DELETE "http://127.0.0.1:$PORT/api/portal/v1/favorites/1" | grep -q '"favorite": false'
 curl -fsS -b "$COOKIE_JAR" -X DELETE "http://127.0.0.1:$PORT/api/portal/v1/users/1/static-token" | grep -q '"ok": true'
 revoked_static_denied="$(
   curl -sS -o /dev/null -w '%{http_code}' \
@@ -1253,16 +1315,16 @@ printf "%s" "$admin_users_edit_panel" | grep -q 'data-static-token-reveal'
 printf "%s" "$admin_users_edit_panel" | grep -q 'value="*******"'
 plain_static_reveal="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/api/portal/v1/users/$plain_user_id/static-token")"
 printf "%s" "$plain_static_reveal" | grep -q '"token": null'
-plain_me="$(curl -fsS -H "Authorization: Bearer sp_smoke_user_token" "http://127.0.0.1:$PORT/api/portal/v1/me")"
+plain_me="$(curl -fsS -H "Authorization: Bearer $PLAIN_TOKEN" "http://127.0.0.1:$PORT/api/portal/v1/me")"
 printf "%s" "$plain_me" | grep -q '"login": "plain-user"'
 printf "%s" "$plain_me" | grep -q '"role": "user"'
 plain_admin_denied="$(
   curl -sS -o /dev/null -w '%{http_code}' \
-    -H "Authorization: Bearer sp_smoke_user_token" \
+    -H "Authorization: Bearer $PLAIN_TOKEN" \
     "http://127.0.0.1:$PORT/api/portal/v1/users"
 )"
 test "$plain_admin_denied" = "403"
-plain_cameras="$(curl -fsS -H "Authorization: Bearer sp_smoke_user_token" "http://127.0.0.1:$PORT/api/portal/v1/cameras?scope=accessible&pageSize=50")"
+plain_cameras="$(curl -fsS -H "Authorization: Bearer $PLAIN_TOKEN" "http://127.0.0.1:$PORT/api/portal/v1/cameras?scope=accessible&pageSize=50")"
 plain_camera_names="$(printf "%s" "$plain_cameras" | php -r '$d=json_decode(stream_get_contents(STDIN), true); foreach (($d["cameras"] ?? []) as $c) { echo $c["name"] ?? "", "\n"; }')"
 grep -q "Smoke Cam" <<<"$plain_camera_names"
 grep -q "Двор Камера" <<<"$plain_camera_names"
@@ -1276,7 +1338,7 @@ denied="$(
 test "$denied" = "403"
 unknown_plain="$(
   curl -sS -o /dev/null -w '%{http_code}' \
-    "http://127.0.0.1:$PORT/api/sesamedvr/auth?token=sp_smoke_user_token&name=rbt-only-stream"
+    "http://127.0.0.1:$PORT/api/sesamedvr/auth?token=$PLAIN_TOKEN&name=rbt-only-stream"
 )"
 test "$unknown_plain" = "403"
 daily_token_qs="$(TOKEN="$TOKEN" php -r 'echo rawurlencode(getenv("TOKEN"));')"
@@ -1303,7 +1365,7 @@ allowed="$(
     "http://127.0.0.1:$PORT/api/sesamedvr/auth?token=NonAvailable&qs=$qs&name=smoke-cam"
 )"
 test "$allowed" = "200"
-plain_qs="$(php -r 'echo rawurlencode("token=sp_smoke_user_token");')"
+plain_qs="$(php -r 'echo rawurlencode("token=" . getenv("PLAIN_TOKEN"));')"
 hidden_live="$(
   curl -sS -o /dev/null -w '%{http_code}' \
     "http://127.0.0.1:$PORT/api/sesamedvr/auth?token=NonAvailable&qs=$plain_qs&name=smoke-cam&proto=hls&dvr=false"
@@ -1333,7 +1395,7 @@ archive_allowed="$(
     "http://127.0.0.1:$PORT/api/sesamedvr/auth?uri=$archive_uri"
 )"
 test "$archive_allowed" = "200"
-hidden_archive_uri="$(php -r 'echo rawurlencode("/smoke-cam/archive-1700000000-60.mp4?token=sp_smoke_user_token");')"
+hidden_archive_uri="$(php -r 'echo rawurlencode("/smoke-cam/archive-1700000000-60.mp4?token=" . getenv("PLAIN_TOKEN"));')"
 hidden_archive_allowed="$(
   curl -sS -o /dev/null -w '%{http_code}' \
     "http://127.0.0.1:$PORT/api/sesamedvr/auth?uri=$hidden_archive_uri"
@@ -1584,5 +1646,43 @@ callback_unknown_status="$(
     "http://127.0.0.1:$PORT/api/portal/v1/auth/callback/start"
 )"
 test "$callback_unknown_status" = "401"
+
+# Profile page: user icon menu exists, /profile renders read-only login + editable fields
+plain_profile_page="$(curl -fsS -b "$PLAIN_COOKIE_JAR" "http://127.0.0.1:$PORT/profile?lang=ru")"
+grep -q 'name="name"' <<<"$plain_profile_page"
+grep -q 'name="email"' <<<"$plain_profile_page"
+grep -q 'name="phone"' <<<"$plain_profile_page"
+grep -q 'name="new_password"' <<<"$plain_profile_page"
+grep -q 'name="confirm_password"' <<<"$plain_profile_page"
+grep -q 'name="login" value="plain-user" readonly' <<<"$plain_profile_page"
+grep -q 'class="user-dropdown"' <<<"$plain_profile_page"
+
+# Profile save: name/email/phone + password change + remember_me cleared
+PROFILE_CSRF="$(curl -fsS -b "$PLAIN_COOKIE_JAR" "http://127.0.0.1:$PORT/profile?lang=ru" | grep -oP 'SESAME_CSRF = "\K[^"]+' | head -1)"
+profile_save_html="$(curl -fsS -b "$PLAIN_COOKIE_JAR" -c "$PLAIN_COOKIE_JAR" \
+  -d "name=Plain User" -d "email=plain@example.com" -d "phone=+7 900 000-00-00" \
+  -d "new_password=$NEW_PW" -d "confirm_password=$NEW_PW" -d "csrf=$PROFILE_CSRF" \
+  "http://127.0.0.1:$PORT/profile?lang=ru")"
+grep -q "Профиль сохранён" <<<"$profile_save_html"
+PROFILE_UID="$(
+  php <<'PHP'
+<?php
+require getenv('ROOT') . '/app/Portal.php';
+echo (string)\SesamePortal\DB::pdo()->query("SELECT id FROM users WHERE login='plain-user'")->fetch(PDO::FETCH_COLUMN);
+PHP
+)"
+probe_name="$(OB_UID="$PROFILE_UID" php -r 'require getenv("ROOT") . "/app/Portal.php"; $id=(int)getenv("OB_UID"); echo (string)\SesamePortal\DB::pdo()->query("SELECT name FROM users WHERE id=$id")->fetch(PDO::FETCH_COLUMN);')"
+probe_phone="$(OB_UID="$PROFILE_UID" php -r 'require getenv("ROOT") . "/app/Portal.php"; $id=(int)getenv("OB_UID"); echo (string)\SesamePortal\DB::pdo()->query("SELECT phone FROM users WHERE id=$id")->fetch(PDO::FETCH_COLUMN);')"
+probe_rm="$(OB_UID="$PROFILE_UID" php -r 'require getenv("ROOT") . "/app/Portal.php"; $id=(int)getenv("OB_UID"); $v=\SesamePortal\DB::pdo()->query("SELECT remember_me_token_hash FROM users WHERE id=$id")->fetch(PDO::FETCH_COLUMN); echo ($v === null || $v === false) ? "null" : (string)$v;')"
+probe_pw="$(OB_UID="$PROFILE_UID" php -r 'require getenv("ROOT") . "/app/Portal.php"; $id=(int)getenv("OB_UID"); echo (string)\SesamePortal\DB::pdo()->query("SELECT password_hash FROM users WHERE id=$id")->fetch(PDO::FETCH_COLUMN);')"
+test "$probe_name" = "Plain User"
+test "$probe_phone" = "79000000000"
+test "$probe_rm" = "null"
+php -r 'require getenv("ROOT") . "/app/Portal.php"; exit(password_verify(getenv("NEW_PW"), $argv[1]) ? 0 : 1);' "$probe_pw"
+# Re-login with new password works
+plain_relogin="$(curl -sS -o /dev/null -w '%{http_code}' -b /dev/null -c "$STATE_DIR/plain-cookies2.txt" \
+  -d "login=plain-user" -d "password=$NEW_PW" \
+  "http://127.0.0.1:$PORT/login")"
+test "$plain_relogin" = "303"
 
 echo "http smoke ok"

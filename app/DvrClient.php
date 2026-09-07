@@ -162,7 +162,13 @@ final class DvrClient
 
     private static function audioCodec(mixed $value): string
     {
-        return strtolower(trim((string)$value)) === 'aac' ? 'aac' : 'copy';
+        $codec = strtolower(trim((string)$value));
+        return match ($codec) {
+            'disabled', 'none', 'off' => 'disabled',
+            'aac' => 'aac',
+            'passthrough', 'source' => 'passthrough',
+            default => 'copy',
+        };
     }
 
     public static function deleteCameraStream(int $cameraId, bool $purgeArchive): array
@@ -204,17 +210,22 @@ final class DvrClient
         $result = self::request('DELETE', $endpoint, $token, null, $purgeArchive ? 300 : 12);
         $message = self::responseSummary($result, $endpoint);
 
-        if ((int)$result['status'] >= 200 && (int)$result['status'] < 300) {
-            self::deleteOnvifDevice((int)$camera['server_id'], $name);
+        $onvifResult = null;
+        $status = (int)$result['status'];
+        if (($status >= 200 && $status < 300) || $status === 404) {
+            $onvifResult = self::deleteOnvifDevice((int)$camera['server_id'], $name);
+            $onvifMsg = self::responseSummary(['status' => $onvifResult['status'] ?? 0, 'body' => json_encode($onvifResult['data'] ?? null)], '/api/onvif/devices/' . rawurlencode($name));
+            $message .= ' | ONVIF: ' . $onvifMsg;
         }
 
-        if ((int)$result['status'] === 404) {
-            return ['ok' => true, 'message' => $message . ' stream already absent'];
+        if ($status === 404) {
+            return ['ok' => true, 'message' => $message . ' stream already absent', 'onvif' => $onvifResult];
         }
 
         return [
-            'ok' => $result['status'] >= 200 && $result['status'] < 300,
+            'ok' => $status >= 200 && $status < 300,
             'message' => $message,
+            'onvif' => $onvifResult,
         ];
     }
 
@@ -444,27 +455,43 @@ final class DvrClient
         if ($streamName === '') {
             return null;
         }
-        $result = self::listOnvifDevices($serverId);
-        if (!$result['ok'] || !is_array($result['data'])) {
-            return null;
-        }
-        $devices = $result['data']['devices'] ?? null;
-        if (!is_array($devices)) {
-            return null;
-        }
-        foreach ($devices as $device) {
-            if (!is_array($device)) {
-                continue;
+
+        $page = 1;
+        $pageSize = 1000;
+        $byId = null;
+        while (true) {
+            $result = self::apiRequest($serverId, 'GET', '/api/onvif/devices?page=' . $page . '&pageSize=' . $pageSize);
+            if (!$result['ok'] || !is_array($result['data'])) {
+                break;
             }
-            $streams = $device['sourceStreams'] ?? $device['source_streams'] ?? [];
-            if (is_array($streams) && in_array($streamName, $streams, true)) {
+            $devices = $result['data']['devices'] ?? $result['data'] ?? null;
+            if (!is_array($devices)) {
+                break;
+            }
+            foreach ($devices as $device) {
+                if (!is_array($device)) {
+                    continue;
+                }
                 $id = trim((string)($device['id'] ?? ''));
-                if ($id !== '') {
-                    return $id;
+                if ($id === $streamName && $byId === null) {
+                    $byId = $id;
+                }
+                $streams = $device['sourceStreams'] ?? $device['source_streams'] ?? $device['streams'] ?? [];
+                if (is_array($streams) && in_array($streamName, $streams, true)) {
+                    if ($id !== '') {
+                        return $id;
+                    }
                 }
             }
+            if (count($devices) < $pageSize) {
+                break;
+            }
+            $page++;
+            if ($page > 64) {
+                break;
+            }
         }
-        return null;
+        return $byId;
     }
 
     public static function upsertOnvifDevice(int $serverId, array $payload): array

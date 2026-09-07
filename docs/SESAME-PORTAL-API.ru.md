@@ -497,7 +497,7 @@ SesameDVR при `sync=true`:
 | `timelapseRetentionDays` | `timelapse_retention_days` | Срок хранения timelapse, например `30d`; пусто - стандарт SesameDVR. |
 | `timelapsePlaybackFps` | `timelapse_playback_fps` | Положительный FPS воспроизведения timelapse, по умолчанию `25`. |
 | `directArchiveVideoTimelineRepairMode` | `direct_archive_video_timeline_repair_mode` | `auto`, `always`, `off` или `null` для стандартного поведения DVR. |
-| `audioCodec` | `audio_codec` | `copy` для копирования исходного audio или `aac` для транскодирования AAC. |
+| `audioCodec` | `audio_codec` | `disabled` — аудио отключено, `copy` — копирование исходного audio, `aac` — транскодирование AAC, `passthrough` — добавить AAC для HLS и сохранить PCM для WebRTC. |
 
 Для Edge Agent камеры:
 
@@ -515,7 +515,10 @@ SesameDVR при `sync=true`:
 
 `sync=false` или `skipSync=true` сохраняет камеру без немедленного DVR sync.
 `DELETE /cameras/{id-or-name}?purge=true` дополнительно вызывает SesameDVR
-`DELETE /api/streams/<name>?purge=true`.
+`DELETE /api/streams/<name>?purge=true`, а также ищет и удаляет связанное
+ONVIF-устройство через `DELETE /api/onvif/devices/<id>` (по совпадению имени
+потока в `sourceStreams` или по `id` устройства). Результат удаления ONVIF
+возвращается в поле `dvr.onvif`.
 
 ### /api/portal/v1/favorites
 
@@ -738,6 +741,11 @@ SesameDVR, которое Portal вызывает на настроенных DV
 - `POST /api/streams`;
 - `PUT /api/streams/<name>`;
 - `DELETE /api/streams/<name>?purge=true`;
+- `GET /api/onvif/devices`;
+- `POST /api/onvif/devices`;
+- `PUT /api/onvif/devices/<id>`;
+- `DELETE /api/onvif/devices/<id>`;
+- `POST /api/onvif/devices/<id>/events/subscribe`;
 - `GET /api/agents`;
 - `POST /api/agents`;
 - `PATCH /api/agents/<id>`;

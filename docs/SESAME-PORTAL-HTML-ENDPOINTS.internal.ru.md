@@ -446,7 +446,7 @@ Query parameters:
 | `timelapse_retention_days` | Хранение timelapse, например `30d`. |
 | `timelapse_playback_fps` | FPS воспроизведения timelapse, по умолчанию `25`. |
 | `direct_archive_video_timeline_repair_mode` | `auto`, `always`, `off` или пусто для стандартного поведения DVR. |
-| `audio_codec` | `copy` или `aac`. |
+| `audio_codec` | `disabled`, `copy`, `aac` или `passthrough`. |
 | `mode` / `dvr_control_mode` | `managed`, `edge_agent` или `read_only`. |
 | `agent_id` | Edge Agent ID. |
 | `agent_camera_id` | ID камеры внутри агента. |
@@ -526,7 +526,7 @@ Actions:
 | --- | --- | --- |
 | `save` | см. ниже | Создать или обновить камеру, заменить связи `camera_groups`, затем синхронизировать stream на DVR, если режим это требует. |
 | `sync` | `id` | Повторно синхронизировать камеру с DVR. |
-| `delete` | `id`, `confirm_delete`, `delete_dvr_stream` | Удалить камеру из Portal. Если `delete_dvr_stream` включён и это разрешено режимом/сервером, Portal также вызывает SesameDVR `DELETE /api/streams/<name>?purge=true`. |
+| `delete` | `id`, `confirm_delete`, `delete_dvr_stream` | Удалить камеру из Portal. Если `delete_dvr_stream` включён и это разрешено режимом/сервером, Portal также вызывает SesameDVR `DELETE /api/streams/<name>?purge=true` и удаляет связанное ONVIF-устройство (`DELETE /api/onvif/devices/<id>`). |
 
 Поля `save`:
 
@@ -560,7 +560,7 @@ Actions:
 | `timelapse_retention_days` | Хранение timelapse; пробрасывается как `timelapseRetentionDays`. |
 | `timelapse_playback_fps` | FPS воспроизведения timelapse; пробрасывается как `timelapsePlaybackFps`. |
 | `direct_archive_video_timeline_repair_mode` | Режим MP4 timeline repair: `auto`, `always`, `off` или пусто. |
-| `audio_codec` | Аудиокодек: `copy` или `aac`. |
+| `audio_codec` | Аудиокодек: `disabled`, `copy`, `aac` или `passthrough`. |
 | `blocked` | Checkbox блокировки камеры. |
 | `folder_ids[]` | Полный набор папок камеры. |
 
