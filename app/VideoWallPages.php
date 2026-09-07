@@ -197,11 +197,12 @@ trait VideoWallPages
     {
         $ids = VideoWalls::ids($wall);
         $cameras = VideoWalls::cameras($user, $ids);
-        self::layout($wall['name'], function () use ($wall, $ids, $cameras, $user): void {
+        $archiveAllowed = !self::userArchiveHidden($user);
+        self::layout($wall['name'], function () use ($wall, $ids, $cameras, $user, $archiveAllowed): void {
             if (isset($_GET['saved'])) {
                 self::notice(self::wt('saved'), 'success');
             }
-            echo '<section class="vw-screen" data-wall-view><div class="vw-toolbar"><a class="btn" href="/video-walls">' . self::t('action.back', 'Назад') . '</a><button type="button" data-wall-play data-start="' . Util::h(self::wt('start')) . '" data-stop="' . Util::h(self::wt('stop')) . '">' . Util::h(self::wt('stop')) . '</button>';
+            echo '<section class="vw-screen" data-wall-view data-wall-archive="' . ($archiveAllowed ? '1' : '0') . '"><div class="vw-toolbar"><a class="btn" href="/video-walls">' . self::t('action.back', 'Назад') . '</a><button type="button" class="icon-action" data-wall-play title="' . Util::h(self::wt('pause')) . '" aria-label="' . Util::h(self::wt('pause')) . '"><span data-wall-play-icon>' . self::icon('pause') . '</span><span data-wall-resume-icon hidden>' . self::icon('play') . '</span></button><button type="button" data-wall-live aria-pressed="true">LIVE</button><output data-wall-clock aria-live="off"></output>';
             self::iconActionLink('/video-walls/edit?id=' . (int)$wall['id'], self::wt('edit'), 'edit');
             echo '<button type="button" class="icon-action" data-wall-fullscreen title="' . Util::h(self::wt('fullscreen')) . '" aria-label="' . Util::h(self::wt('fullscreen')) . '">' . self::icon('scan') . '</button></div>';
             echo '<div class="vw-video-grid" style="--wall-cols:' . (int)$wall['grid_cols'] . ';--wall-rows:' . (int)$wall['grid_rows'] . '">';
@@ -213,7 +214,7 @@ trait VideoWallPages
                 echo '<article class="vw-video-tile"><div class="vw-video-stage">';
                 if ($camera) {
                     $src = '/video-walls/stream?' . http_build_query(['id' => (int)$wall['id'], 'camera_id' => $cameraId]);
-                    echo '<iframe data-wall-frame data-src="' . Util::h($src) . '" title="' . Util::h($name) . '" allow="autoplay" referrerpolicy="same-origin"></iframe>';
+                    echo '<iframe data-wall-frame data-wall-camera-id="' . $cameraId . '" data-wall-origin="' . Util::h(self::videoWallOrigin((string)$camera['server_url'])) . '" data-src="' . Util::h($src) . '" title="' . Util::h($name) . '" allow="autoplay" referrerpolicy="same-origin"></iframe><span class="vw-playback-state" data-wall-state role="status" hidden></span>';
                     if ((int)($camera['watermark_enabled'] ?? 0) === 1) {
                         echo '<div class="vw-watermark" aria-hidden="true" style="--watermark-alpha:' . number_format(self::watermarkIntensity($camera['watermark_intensity'] ?? 16) / 100, 2, '.', '') . '">';
                         for ($i = 0; $i < 6; $i++) {
@@ -230,7 +231,23 @@ trait VideoWallPages
                 }
                 echo '</div></article>';
             }
-            echo '</div></section>';
+            echo '</div>';
+            if ($archiveAllowed) {
+                echo '<section class="vw-archive" data-wall-archive-controls aria-label="' . Util::h(self::wt('timeline')) . '"><form class="vw-archive-toolbar" data-wall-jump><label>' . Util::h(self::wt('dateTime')) . '<input type="datetime-local" step="1" data-wall-date required></label><button type="submit" class="icon-action" title="' . Util::h(self::wt('seek')) . '" aria-label="' . Util::h(self::wt('seek')) . '"><span aria-hidden="true">↦</span></button><label>' . Util::h(self::wt('speed')) . '<select data-wall-speed>';
+                foreach ([0.5, 1, 2, 4, 8] as $rate) {
+                    echo '<option value="' . $rate . '"' . ($rate === 1 ? ' selected' : '') . '>' . $rate . '×</option>';
+                }
+                echo '</select></label><div class="vw-actions">';
+                foreach (['previousWindow' => '←', 'zoomIn' => '+', 'zoomOut' => '−', 'nextWindow' => '→'] as $action => $icon) {
+                    echo '<button type="button" class="icon-action" data-wall-timeline-action="' . $action . '" title="' . Util::h(self::wt($action)) . '" aria-label="' . Util::h(self::wt($action)) . '"><span aria-hidden="true">' . $icon . '</span></button>';
+                }
+                echo '</div><output data-wall-window></output></form><p class="vw-archive-status" data-wall-archive-status role="status"></p><div class="vw-timeline-scroll"><canvas data-wall-timeline role="img" aria-label="' . Util::h(self::wt('timeline')) . '"></canvas></div><input type="range" data-wall-seek step="1" aria-label="' . Util::h(self::wt('seek')) . '"></section>';
+            }
+            $labels = [];
+            foreach (['pause', 'play', 'timeline', 'noRecording', 'buffering', 'updateDvr', 'archiveDenied', 'rangesError', 'connecting', 'syncing', 'paused'] as $key) {
+                $labels[$key] = self::wt($key);
+            }
+            echo '<script type="application/json" data-wall-playback-labels>' . json_encode($labels, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_UNESCAPED_UNICODE) . '</script></section>';
         });
     }
 
@@ -244,8 +261,28 @@ trait VideoWallPages
             echo Util::h(self::wt('unavailable'));
             return;
         }
+        $extra = ['hidecontrols' => 'true', 'screenshot' => 'false', 'preview' => 'false'];
+        if (isset($_GET['controller_id'])) {
+            $channel = $_GET['controller_id'];
+            if (!is_string($channel) || !preg_match('/^[a-f0-9]{32}$/D', $channel)) {
+                http_response_code(400);
+                return;
+            }
+            $extra += ['controller_id' => $channel, 'controller_origin' => self::videoWallOrigin(self::absolutePortalUrl('/')), 'controller_version' => '1'];
+        }
         header('Referrer-Policy: no-referrer');
-        header('Location: ' . self::embedUrl($camera, (string)$user['daily_token'], '', '', '', '', false, ['hidecontrols' => 'true', 'screenshot' => 'false']), true, 302);
+        header('Location: ' . self::embedUrl($camera, (string)$user['daily_token'], '', '', '', '', !self::userArchiveHidden($user), $extra), true, 302);
+    }
+
+    private static function videoWallOrigin(string $url): string
+    {
+        $parts = parse_url($url);
+        if (!$parts || !in_array($parts['scheme'] ?? '', ['http', 'https'], true) || empty($parts['host'])) {
+            return '';
+        }
+        $port = $parts['port'] ?? null;
+        $defaultPort = $parts['scheme'] === 'https' ? 443 : 80;
+        return $parts['scheme'] . '://' . strtolower($parts['host']) . ($port && $port !== $defaultPort ? ':' . $port : '');
     }
 
     private static function apiVideoWalls(array $parts): void

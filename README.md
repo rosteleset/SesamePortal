@@ -72,10 +72,15 @@ direction/FOV markers, and exposes the same favorite toggle as the list.
 **Video walls** (`/video-walls`) are named, personal camera layouts. Administrators
 can manage all walls; other users can only manage their own. The editor provides
 a group tree, search, drag-and-drop/button ordering and a 1×1 to 6×6 grid.
-Selected cameras must fit the grid. Each cell uses a separate live DVR embed
-player; Portal does not transcode video. Walls support start/stop and full screen,
+Selected cameras must fit the grid. Each cell uses a separate DVR embed
+player; Portal does not transcode video. Walls support shared archive seeking,
+play/pause, 0.5x-8x speed, LIVE and full screen. One timeline shows recording
+ranges for each camera; gaps and buffering do not move the other cameras.
+Shared playback requires an updated DVR with wall-control protocol v1.
+Users with hidden archive have live controls only. Walls
 preserve camera watermarks, and suspend offscreen players and hidden tabs.
-Resuming a player rechecks access and obtains the current user token.
+Remounting a player rechecks access, obtains the current user token and applies
+the shared playback position. See [video wall playback](docs/VIDEO-WALL-PLAYBACK.md).
 Group inheritance and the administrative **Cameras** page remain unchanged.
 
 All UI timestamps are rendered in the browser timezone. The server stores and

@@ -46,6 +46,35 @@
 .vw-video-tile { min-width: 0; background: #171a1c; color: #f0f2f2; border-radius: 6px; overflow: hidden; }
 .vw-video-stage { position: relative; aspect-ratio: 16 / 9; background: #090b0c; overflow: hidden; }
 .vw-video-stage iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
+.vw-screen [hidden] { display: none !important; }
+.vw-playback-state { position: absolute; inset: auto 0 0; padding: 8px; background: #101719d9; color: #e4e9eb; font-size: 12px; text-align: center; pointer-events: none; overflow-wrap: anywhere; }
+.vw-playback-state.vw-state-blocking { inset: 0; display: grid; place-items: center; background: #101719; }
+.vw-screen .icon-action { width: 38px; height: 38px; flex: 0 0 38px; padding: 8px; border-radius: 6px; }
+.vw-screen .icon-action span { display: flex; align-items: center; justify-content: center; }
+.vw-screen .icon-action svg { width: 20px; height: 20px; }
+.vw-screen > .vw-toolbar .icon-action { width: 42px; height: 42px; min-height: 42px; flex: 0 0 42px; }
+.vw-screen > .vw-toolbar .icon-action svg { flex: 0 0 20px; }
+[data-wall-clock] { font-size: 14px; font-variant-numeric: tabular-nums; min-width: 44px; flex: 1; }
+[data-wall-live][aria-pressed="true"] { color: #067950; border-color: #159e70; }
+.vw-archive { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--line); min-width: 0; flex: 0 0 auto; }
+.vw-archive-toolbar { display: flex; align-items: flex-end; flex-wrap: wrap; gap: 8px; margin: 0; }
+.vw-archive-toolbar label { font-size: 12px; margin: 0; display: grid; gap: 4px; min-width: 0; }
+.vw-archive-toolbar input, .vw-archive-toolbar select { height: 38px; min-width: 0; padding: 6px 8px; font-size: 13px; border-radius: 6px; }
+.vw-archive-toolbar [data-wall-date] { width: 226px; max-width: 100%; }
+.vw-archive-toolbar .vw-actions { flex-wrap: nowrap; gap: 4px; }
+[data-wall-window] { font-size: 12px; padding-block: 10px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.vw-archive-status { font-size: 12px; min-height: 16px; margin: 6px 0; color: var(--muted); }
+.vw-timeline-scroll { max-height: 154px; overflow-y: auto; background: #171c1f; border-radius: 4px; }
+[data-wall-timeline] { display: block; width: 100%; cursor: crosshair; touch-action: pan-y; }
+.vw-screen [data-wall-seek] { width: 100%; height: 24px; padding: 0; margin: 0; accent-color: #159e70; }
+.vw-screen:fullscreen .vw-archive, .vw-screen:-webkit-full-screen .vw-archive { color: #e0e7e9; --muted: #b6c0c4; --line: #414b51; }
+.vw-screen:fullscreen [data-wall-clock], .vw-screen:-webkit-full-screen [data-wall-clock] { color: #e0e7e9; }
+.vw-screen:fullscreen .vw-archive label, .vw-screen:-webkit-full-screen .vw-archive label { color: #c5cdd1; }
+.vw-screen:fullscreen .vw-archive .icon-action, .vw-screen:-webkit-full-screen .vw-archive .icon-action { color: #171c1f; }
+@media (max-height: 650px) {
+  .vw-screen:fullscreen .vw-timeline-scroll { max-height: 78px; }
+  .vw-screen:fullscreen [data-wall-window], .vw-screen:fullscreen .vw-archive-status { display: none; }
+}
 .vw-slot-state { position: absolute; inset: 0; display: grid; place-items: center; text-align: center; padding: 12px; color: #a9b0b4; font-size: 13px; }
 .vw-tile-caption { min-height: 38px; display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 4px 8px; }
 .vw-tile-caption > span { min-width: 0; font-size: 12px; overflow-wrap: anywhere; }

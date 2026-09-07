@@ -8550,6 +8550,7 @@ final class App
         echo '<script>window.SESAME_I18N = ' . json_encode(I18n::js(), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . '; window.SESAME_CSRF = ' . json_encode(Csrf::token(), JSON_UNESCAPED_SLASHES) . ';</script>';
         echo '<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script><script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script><script src="' . Util::h(self::assetUrl('/assets/app.js')) . '"></script>';
         if (str_starts_with(Util::path(), '/video-walls')) {
+            echo '<script src="' . Util::h(self::assetUrl('/assets/video-wall-playback.js')) . '"></script>';
             echo '<script src="' . Util::h(self::assetUrl('/assets/video-walls.js')) . '"></script>';
         }
         echo '</body></html>';
@@ -8576,6 +8577,8 @@ final class App
     private static function icon(string $name): string
     {
         $paths = [
+            'pause' => '<path fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" d="M6 4h4v16H6zM14 4h4v16h-4z"/>',
+            'play' => '<path fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" d="m6 3 14 9-14 9V3z"/>',
             'grid' => '<path d="M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z"/>',
             'map' => '<path d="m3 6 6-2 6 2 6-2v14l-6 2-6-2-6 2V6z"/><path d="M9 4v14M15 6v14"/>',
             'star' => '<path d="m12 3 2.7 5.5 6.1.9-4.4 4.3 1 6.1-5.4-2.9-5.4 2.9 1-6.1-4.4-4.3 6.1-.9L12 3z"/>',

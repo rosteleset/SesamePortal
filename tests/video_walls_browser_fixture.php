@@ -18,7 +18,7 @@ $now = Util::now();
 $pdo->prepare('INSERT INTO users(login, password_hash, role, created_at) VALUES(?, ?, ?, ?)')
     ->execute(['wall-demo', password_hash('wall-demo123', PASSWORD_DEFAULT), 'admin', $now]);
 $pdo->prepare('INSERT INTO dvr_servers(name, base_url, created_at) VALUES(?, ?, ?)')
-    ->execute(['Local DVR fixture', $argv[1] . '/test-dvr', $now]);
+    ->execute(['Local DVR fixture', $argv[2] ?? ($argv[1] . '/test-dvr'), $now]);
 foreach ([['Entrance', null], ['Parking', 1], ['Courtyard', null]] as [$name, $parent]) {
     $pdo->prepare('INSERT INTO portal_groups(name, parent_group_id, created_at) VALUES(?, ?, ?)')->execute([$name, $parent, $now]);
 }

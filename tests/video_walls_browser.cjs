@@ -6,10 +6,22 @@ const { tmpdir } = require('node:os');
 const { join, resolve } = require('node:path');
 const { createServer } = require('node:net');
 
+async function assertToolbarSizes(page) {
+  const dimensions = await page.locator('.vw-screen > .vw-toolbar .icon-action').evaluateAll(elements => elements.map(element => {
+    const box = element.getBoundingClientRect();
+    const icon = [...element.querySelectorAll('svg')].find(svg => svg.getBoundingClientRect().width > 0).getBoundingClientRect();
+    return {width: box.width, height: box.height, iconWidth: icon.width, iconHeight: icon.height};
+  }));
+  assert.equal(dimensions.length, 3);
+  for (const size of dimensions) assert.deepEqual(size, {width: 42, height: 42, iconWidth: 20, iconHeight: 20});
+  const back = await page.locator('.vw-screen > .vw-toolbar > .btn').boundingBox();
+  assert.equal(back.height, 42);
+}
+
 (async () => {
   const root = resolve(__dirname, '..');
   const state = mkdtempSync(join(tmpdir(), 'portal-wall-browser-'));
-  let browser, server;
+  let browser, server, dvr, page;
   try {
     const socket = createServer();
     await new Promise((resolve) => socket.listen(0, '127.0.0.1', resolve));
@@ -17,7 +29,10 @@ const { createServer } = require('node:net');
     await new Promise((resolve) => socket.close(resolve));
     const base = `http://127.0.0.1:${port}`;
     const env = {...process.env, SESAME_PORTAL_STATE_DIR: state, SESAME_PORTAL_DB_DSN: `sqlite:${state}/portal.sqlite`, SESAME_PORTAL_SECRET: 'local-wall-test', SESAME_PORTAL_UPDATE_AUTO_CHECK: '0'};
-    execFileSync('php', ['tests/video_walls_browser_fixture.php', base], {cwd: root, env});
+    const playerDir = process.env.SESAME_DVR_PLAYER_DIR;
+    if (!playerDir) throw new Error('Set SESAME_DVR_PLAYER_DIR to the updated DVR priv/player directory');
+    dvr = await require('./video_walls_dvr_fixture.cjs')(state, playerDir);
+    execFileSync('php', ['tests/video_walls_browser_fixture.php', base, dvr.base], {cwd: root, env});
     execFileSync('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-f', 'lavfi', '-i', 'testsrc2=size=640x360:rate=15', '-t', '4', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-movflags', '+faststart', join(state, 'sample.mp4')]);
     server = spawn('php', ['-S', `127.0.0.1:${port}`, '-t', 'public', 'tests/video_walls_router.php'], {cwd: root, env, stdio: 'ignore'});
     for (let attempt = 0; ; attempt++) {
@@ -27,8 +42,9 @@ const { createServer } = require('node:net');
     }
     browser = await chromium.launch({headless: true, channel: 'chromium'});
     const context = await browser.newContext({ viewport: {width: 1600, height: 1000} });
+    await context.route(dvr.hlsUrl, route => route.fulfill({body: dvr.hls, contentType: 'text/javascript'}));
     await context.route('https://unpkg.com/**', (route) => route.fulfill({body: '', contentType: route.request().url().includes('.css') ? 'text/css' : 'application/javascript'}));
-    const page = await context.newPage();
+    page = await context.newPage();
     const errors = [];
     page.on('pageerror', (error) => errors.push(error.message));
     await page.goto(base + '/login?lang=ru');
@@ -56,6 +72,8 @@ const { createServer } = require('node:net');
     await page.waitForURL(/\/video-walls\/view\?id=/);
     assert.equal(await page.locator('.alert.success').count(), 1);
     const wallUrl = page.url();
+    await assertToolbarSizes(page);
+    await page.locator('.vw-screen > .vw-toolbar').screenshot({path: '/tmp/portal-wall-toolbar-desktop.png'});
     await page.waitForFunction(() => document.querySelectorAll('[data-wall-frame][src]').length === 4);
     const frame = await page.locator('[data-wall-frame]').first().contentFrame();
     await frame.locator('video').waitFor();
@@ -79,19 +97,67 @@ const { createServer } = require('node:net');
     await page.screenshot({path: '/tmp/portal-wall-view-desktop.png', fullPage: true});
     await page.locator('[data-wall-fullscreen]').click();
     await page.waitForFunction(() => document.fullscreenElement !== null);
+    await assertToolbarSizes(page);
     assert(await page.locator('[data-wall-view]').evaluate((screen) => screen.scrollHeight <= screen.clientHeight + 1));
     await page.screenshot({path: '/tmp/portal-wall-view-fullscreen.png'});
     await page.evaluate(() => document.exitFullscreen());
+    await page.waitForFunction(() => document.querySelector('[data-wall-archive-status]').textContent.includes('4 / 4'));
     await page.locator('[data-wall-play]').click();
-    assert.equal(await page.locator('[data-wall-frame][src]').count(), 0);
+    await frame.locator('video').evaluate(video => new Promise(resolve => { const check = () => video.paused ? resolve() : setTimeout(check, 50); check(); }));
+    assert.equal(await page.locator('[data-wall-frame][src]').count(), 4);
+    // Seek paused, then resume all cameras. The video is decoded by the actual DVR app.
+    const seek = async unix => {
+      const value = await page.evaluate(unix => { const date = new Date(unix * 1000); return new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 19); }, unix);
+      await page.locator('[data-wall-date]').fill(value);
+      await page.locator('[data-wall-jump] button[type="submit"]').click();
+    };
+    await seek(dvr.epoch + 10);
+    await page.waitForFunction(() => [...document.querySelectorAll('[data-wall-state]')].every(node => node.hidden));
+    assert.equal(await frame.locator('video').evaluate(video => video.paused), true);
+    const pausedTime = await frame.locator('video').evaluate(video => video.currentTime);
+    await page.waitForTimeout(800);
+    assert(Math.abs(await frame.locator('video').evaluate(video => video.currentTime) - pausedTime) < 0.1);
     await page.locator('[data-wall-play]').click();
+    await page.locator('[data-wall-speed]').selectOption('2');
+    await frame.locator('video').evaluate(video => new Promise(resolve => { const check = () => !video.paused && video.playbackRate === 2 ? resolve() : setTimeout(check, 50); check(); }));
+    await seek(dvr.epoch + 130);
+    await page.waitForFunction(() => document.querySelectorAll('[data-wall-state]')[2].textContent.includes('Нет записи'));
+    await page.waitForFunction(() => document.querySelector('[data-wall-state]').hidden);
+    assert(await frame.locator('video').evaluate(video => !video.paused && video.readyState >= 2));
+    await page.screenshot({path: '/tmp/portal-wall-archive-desktop.png', fullPage: true});
+    await page.locator('[data-wall-live]').click();
+    await page.waitForFunction(() => document.querySelector('[data-wall-live]').getAttribute('aria-pressed') === 'true');
     await page.waitForFunction(() => document.querySelectorAll('[data-wall-frame][src]').length === 4);
     const other = await context.newPage(); await other.goto('about:blank'); await other.bringToFront();
     // Headless visibility varies by platform; explicit stop/start is asserted above.
     await other.close(); await page.bringToFront();
+    // Auth metadata denial and a legacy player must never display live video as archive.
+    dvr.deny(true);
+    await page.goto(wallUrl);
+    await page.waitForFunction(() => document.querySelector('[data-wall-archive-status]').textContent.includes('0 / 4'));
+    await seek(dvr.epoch + 10);
+    await page.waitForFunction(() => document.querySelector('[data-wall-state]').textContent.includes('Архив недоступен'));
+    assert.equal(await page.locator('.vw-state-blocking').count(), 4);
+    dvr.deny(false); dvr.legacy(true);
+    await page.goto(wallUrl);
+    await seek(dvr.epoch + 10);
+    await page.waitForFunction(() => document.querySelector('[data-wall-state]').textContent.includes('Обновите DVR'));
+    assert.equal(await page.locator('.vw-state-blocking').count(), 4);
+    dvr.legacy(false);
+    // The Portal restriction itself removes all archive UI and range requests.
+    execFileSync('php', ['-r', 'require "app/Portal.php"; SesamePortal\\DB::pdo()->exec("UPDATE users SET hide_archive=1 WHERE login=\'wall-demo\'");'], {cwd: root, env});
+    const since = dvr.requests.length;
+    await page.goto(wallUrl);
+    await page.waitForFunction(() => document.querySelectorAll('[data-wall-frame][src]').length === 4);
+    await page.waitForTimeout(1200);
+    assert.equal(await page.locator('[data-wall-archive-controls]').count(), 0);
+    assert.equal(dvr.requests.slice(since).filter(url => url.pathname.endsWith('/timeline_ranges.json')).length, 0);
+    execFileSync('php', ['-r', 'require "app/Portal.php"; SesamePortal\\DB::pdo()->exec("UPDATE users SET hide_archive=0 WHERE login=\'wall-demo\'");'], {cwd: root, env});
     await page.setViewportSize({width:390, height:844});
     await page.goto(wallUrl);
+    await assertToolbarSizes(page);
     assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
+    await page.locator('[data-wall-frame]').first().contentFrame().locator('video').evaluate(video => new Promise(resolve => { const check = () => video.readyState >= 2 && video.currentTime > 0.2 ? resolve() : setTimeout(check, 50); check(); }));
     await page.screenshot({path:'/tmp/portal-wall-view-mobile.png',fullPage:true});
     await page.setViewportSize({width:390, height:600});
     await page.locator('[data-wall-frame]').last().scrollIntoViewIfNeeded();
@@ -108,6 +174,11 @@ const { createServer } = require('node:net');
       }; check();
     }));
     await page.setViewportSize({width:390, height:844});
+    await seek(dvr.epoch + 20);
+    await page.locator('[data-wall-frame]').first().scrollIntoViewIfNeeded();
+    await page.waitForFunction(() => document.querySelector('[data-wall-state]').hidden);
+    const reloaded = await page.locator('[data-wall-frame]').first().contentFrame();
+    assert.equal(await reloaded.locator('#status-pill').innerText(), 'Archive');
     await page.locator('.vw-toolbar a[href*="/edit"]').click();
     assert.equal(await page.locator('[data-wall-ids]').inputValue(), '[1,2,4,3]');
     await page.locator('[data-camera-id="1"] [data-wall-action="down"]').click();
@@ -119,9 +190,24 @@ const { createServer } = require('node:net');
     assert.equal(await page.locator('.vw-library-row').count(), 1);
     await page.screenshot({path:'/tmp/portal-wall-library.png',fullPage:true});
     assert.deepEqual(errors, []);
-    console.log('Video wall browser checks passed: editor, search, capacity, order, persistence, live frames/pixels, watermark, stop/start, fullscreen, desktop/mobile, scroll lifecycle.');
+    console.log('Video wall browser checks passed: editor, search, capacity, order, persistence, real DVR cross-origin HLS frames/pixels, shared seek, pause/resume, rate, gaps, LIVE, watermark, fullscreen, desktop/mobile, scroll lifecycle.');
+    if (process.argv.includes('--demo')) {
+      await browser.close(); browser = null; page = null;
+      console.log(JSON.stringify({url: wallUrl, login: 'wall-demo', password: 'wall-demo123', archiveTime: new Date((dvr.epoch + 130) * 1000).toISOString()}));
+      await new Promise(resolve => { process.once('SIGTERM', resolve); process.once('SIGINT', resolve); });
+    }
+  } catch (error) {
+    if (page) {
+      console.error(await page.locator('[data-wall-state]').allTextContents());
+      await page.screenshot({path: '/tmp/portal-wall-failure.png', fullPage: true});
+      for (const frame of page.frames().filter(frame => frame.url().includes('/embed.html'))) {
+        console.error(await frame.evaluate(() => ({url: location.pathname, status: document.querySelector('#status-pill')?.textContent, currentTime: document.querySelector('video')?.currentTime, paused: document.querySelector('video')?.paused, ready: document.querySelector('video')?.readyState})));
+      }
+    }
+    throw error;
   } finally {
     if (browser) await browser.close();
+    if (dvr) await dvr.close();
     if (server && server.exitCode === null) {
       const exited = new Promise((resolve) => server.once('exit', resolve));
       server.kill();

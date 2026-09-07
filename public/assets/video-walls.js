@@ -2,7 +2,7 @@
   const editor = document.querySelector('[data-wall-editor]');
   if (editor) initEditor(editor);
   const screen = document.querySelector('[data-wall-view]');
-  if (screen) initScreen(screen);
+  if (screen) window.SesameVideoWallPlayback.init(screen);
 
   function initEditor(form) {
     const catalog = JSON.parse(form.querySelector('[data-wall-catalog]').textContent);
@@ -125,53 +125,4 @@
     render();
   }
 
-  function initScreen(screen) {
-    const frames = [...screen.querySelectorAll('[data-wall-frame]')];
-    const play = screen.querySelector('[data-wall-play]');
-    const full = screen.querySelector('[data-wall-fullscreen]');
-    let running = true;
-    const visible = new Set();
-    const timers = new Map();
-    const update = () => {
-      frames.forEach((frame, index) => {
-        const active = running && !document.hidden && visible.has(frame);
-        if (!active) {
-          clearTimeout(timers.get(frame));
-          timers.delete(frame);
-          frame.removeAttribute('src');
-        } else if (!frame.hasAttribute('src') && !timers.has(frame)) {
-          timers.set(frame, setTimeout(() => {
-            timers.delete(frame);
-            frame.src = frame.dataset.src;
-          }, index * 100));
-        }
-      });
-      play.textContent = running ? play.dataset.stop : play.dataset.start;
-      play.setAttribute('aria-pressed', String(running));
-    };
-    if ('IntersectionObserver' in window) {
-      const observer = new IntersectionObserver((entries) => {
-        entries.forEach(({ target, isIntersecting }) => isIntersecting ? visible.add(target) : visible.delete(target));
-        update();
-      }, { rootMargin: '100px' });
-      frames.forEach((frame) => observer.observe(frame));
-    } else frames.forEach((frame) => visible.add(frame));
-    play.addEventListener('click', () => { running = !running; update(); });
-    document.addEventListener('visibilitychange', update);
-    window.addEventListener('pagehide', () => {
-      timers.forEach(clearTimeout);
-      timers.clear();
-      frames.forEach((frame) => frame.removeAttribute('src'));
-    });
-    window.addEventListener('pageshow', update);
-    const fullscreen = screen.requestFullscreen || screen.webkitRequestFullscreen;
-    full.hidden = !fullscreen;
-    full.addEventListener('click', async () => {
-      try {
-        if (document.fullscreenElement || document.webkitFullscreenElement) await (document.exitFullscreen || document.webkitExitFullscreen).call(document);
-        else await fullscreen.call(screen);
-      } catch (_) { full.blur(); }
-    });
-    update();
-  }
 })();
