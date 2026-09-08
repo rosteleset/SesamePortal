@@ -157,7 +157,7 @@ trait AppRenderTrait
         $viewParams = static function (array $params = []) use ($mode, $cols, $previewRefresh): array {
             if ($mode !== 'map') {
                 $params['cols'] = $cols;
-                if ($previewRefresh !== '30') {
+                if ($previewRefresh !== '60') {
                     $params['refresh'] = $previewRefresh;
                 }
             }
@@ -565,7 +565,7 @@ trait AppRenderTrait
         echo '<span>' . Util::h(self::t('viewer.columnsPerRow', 'Камер в ряду')) . '</span>';
         for ($candidate = 2; $candidate <= 6; $candidate++) {
             $params = ['cols' => $candidate];
-            if ($previewRefresh !== '30') {
+            if ($previewRefresh !== '60') {
                 $params['refresh'] = $previewRefresh;
             }
             if ($filter !== 'all') {

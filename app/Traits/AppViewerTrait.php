@@ -84,8 +84,8 @@ trait AppViewerTrait
 
     private static function viewerPreviewRefresh(): string
     {
-        $refresh = (string)($_GET['refresh'] ?? '30');
-        return in_array($refresh, ['off', '10', '30', '60', '300'], true) ? $refresh : '30';
+        $refresh = (string)($_GET['refresh'] ?? '60');
+        return in_array($refresh, ['off', '10', '30', '60', '300'], true) ? $refresh : '60';
     }
 
     private static function mosaic(array $cameras, array $favorites, array $pager, int $cols, string $previewRefresh, bool $isAdmin, bool $canRename = false): void
@@ -129,7 +129,7 @@ trait AppViewerTrait
         self::pager('/', $pager, [
             'filter' => ($pager['filter'] ?? 'all') === 'all' ? '' : ($pager['filter'] ?? ''),
             'cols' => $cols,
-            'refresh' => $previewRefresh === '30' ? '' : $previewRefresh,
+            'refresh' => $previewRefresh === '60' ? '' : $previewRefresh,
         ]);
     }
 

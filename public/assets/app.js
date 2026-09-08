@@ -660,7 +660,10 @@
       image.addEventListener("load", () => markPreviewReady(image));
       image.addEventListener("error", () => markPreviewMissing(image));
       if (!image.getAttribute("src")) {
-        loadPreviewImage(image, image.dataset.previewSrc, { markMissingOnError: true });
+        const startDelay = Math.min(index * 500, 4000);
+        window.setTimeout(() => {
+          loadPreviewImage(image, image.dataset.previewSrc, { markMissingOnError: true });
+        }, startDelay);
       } else if (image.complete) {
         if (image.naturalWidth > 0) {
           markPreviewReady(image);
@@ -1168,6 +1171,8 @@
     }
   }
 
+  const PREVIEW_ERROR_RETRY_MS = 8000;
+
   function refreshPreview(image) {
     const source = image.dataset.previewSrc;
     if (!source) return;
@@ -1204,12 +1209,24 @@
         return;
       }
       image.src = nextSrc;
+      delete image.dataset.previewRetried;
       markPreviewReady(image);
       finish();
     };
     preloader.onerror = () => {
       if (options.markMissingOnError && image.isConnected) {
         markPreviewMissing(image);
+      }
+      if (image.dataset.previewRetried !== "1" && image.isConnected) {
+        image.dataset.previewRetried = "1";
+        window.setTimeout(() => {
+          if (!image.isConnected) return;
+          if (image.getAttribute("src") || image.naturalWidth > 0) return;
+          const source = image.dataset.previewSrc;
+          if (!source) return;
+          const separator = source.includes("?") ? "&" : "?";
+          loadPreviewImage(image, `${source}${separator}_=${Date.now()}-retry`, { markMissingOnError: true });
+        }, PREVIEW_ERROR_RETRY_MS);
       }
       finish();
     };
