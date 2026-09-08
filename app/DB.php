@@ -73,6 +73,8 @@ final class DB
             $pdo->exec($statement);
         }
 
+        VideoWalls::migrate();
+
         self::ensureColumn('users', 'admin_comment', 'TEXT');
         self::ensureColumn('users', 'static_token_enc', 'TEXT');
         self::ensureColumn('users', 'hide_archive', 'INTEGER NOT NULL DEFAULT 0');
@@ -98,6 +100,8 @@ final class DB
         self::ensureIndex('portal_groups', 'idx_portal_groups_parent', 'parent_group_id');
         self::ensureIndex('favorites', 'idx_favorites_user', 'user_id');
         self::ensureIndex('cameras_mosaic', 'idx_cameras_mosaic_user', 'user_id');
+        self::ensureIndex('video_walls', 'idx_video_walls_user', 'user_id');
+        self::syncIdentity('video_walls');
         self::migrateCamerasMosaicColumns();
         self::ensureColumn('dvr_servers', 'last_metrics_at', 'TEXT');
         self::ensureColumn('dvr_servers', 'last_metrics_json', 'TEXT');

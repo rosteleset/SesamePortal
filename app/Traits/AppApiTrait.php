@@ -37,6 +37,7 @@ trait AppApiTrait
                 'servers' => self::apiServers($parts),
                 'cameras' => self::apiCameras($parts),
                 'favorites' => self::apiFavorites($parts),
+                'video-walls' => self::apiVideoWalls($parts),
                 'agents' => self::apiAgents($parts),
                 'audit' => self::apiAudit($parts),
                 'auth' => self::apiAuthCallback($parts),

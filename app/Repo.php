@@ -175,6 +175,24 @@ final class Repo
         ];
     }
 
+    public static function accessibleCamerasByIds(array $user, array $ids): array
+    {
+        $ids = array_values(array_unique(array_filter(array_map('intval', $ids), static fn(int $id): bool => $id > 0)));
+        if (!$ids) {
+            return [];
+        }
+
+        [$join, $where, $params] = self::accessibleCameraScope($user, 'all', '');
+        $where[] = 'c.id IN (' . self::placeholders($ids) . ')';
+
+        $sql = 'SELECT DISTINCT c.*, s.name AS server_name, s.base_url AS server_url
+                FROM cameras c ' . $join . '
+                WHERE ' . implode(' AND ', $where);
+        $stmt = DB::pdo()->prepare($sql);
+        $stmt->execute([...$params, ...$ids]);
+        return $stmt->fetchAll();
+    }
+
     private static function accessibleCameraScope(array $user, string $filter, string $query = ''): array
     {
         $joinParams = [];

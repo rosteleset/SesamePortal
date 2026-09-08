@@ -1476,6 +1476,158 @@ admin_view_plain="$(
 )"
 test "$admin_view_plain" = "200"
 
+# --- Video walls (Видеостена) ---
+printf "%s" "$mosaic_list_after" | grep -F -q 'href="/video-walls"'
+printf "%s" "$plain_mosaic_list" | grep -F -q 'href="/video-walls"'
+wall_list="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/video-walls")"
+printf "%s" "$wall_list" | grep -q "Новая видеостена"
+printf "%s" "$wall_list" | grep -q "Видеостен пока нет"
+printf "%s" "$wall_list" | grep -F -q 'href="/video-walls/edit"'
+printf "%s" "$wall_list" | grep -F -q "/assets/video-walls.css"
+printf "%s" "$wall_list" | grep -F -q "/assets/video-walls.js"
+printf "%s" "$wall_list" | grep -F -q "/assets/video-wall-playback.js"
+wall_editor="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/video-walls/edit")"
+printf "%s" "$wall_editor" | grep -F -q 'data-wall-editor'
+printf "%s" "$wall_editor" | grep -F -q 'name="rows"'
+printf "%s" "$wall_editor" | grep -F -q 'name="columns"'
+printf "%s" "$wall_editor" | grep -F -q 'name="cameraIds[]"'
+printf "%s" "$wall_editor" | grep -F -q 'data-wall-catalog'
+printf "%s" "$wall_editor" | grep -F -q 'name="camera_ids"'
+wall_csrf="$(printf "%s" "$wall_editor" | sed -n 's/.*name="csrf" value="\([^"]*\)".*/\1/p' | head -n 1)"
+test -n "$wall_csrf"
+# Save without name -> 422
+wall_no_name_status="$(
+  curl -sS -o /dev/null -w '%{http_code}' -b "$COOKIE_JAR" \
+    -d "csrf=$wall_csrf" -d "name=" -d "rows=2" -d "columns=2" -d "cameraIds[]=1" \
+    "http://127.0.0.1:$PORT/video-walls"
+)"
+test "$wall_no_name_status" = "422"
+# Create wall
+wall_save_headers="$(
+  curl -sS -D - -o /dev/null -b "$COOKIE_JAR" \
+    -d "csrf=$wall_csrf" -d "name=Admin Wall" -d "rows=2" -d "columns=2" -d "cameraIds[]=1" -d "cameraIds[]=2" \
+    "http://127.0.0.1:$PORT/video-walls"
+)"
+printf "%s" "$wall_save_headers" | grep -qi "^HTTP/.* 303"
+wall_id="$(printf "%s" "$wall_save_headers" | sed -n 's/^Location: .*[?&]id=\([0-9]*\).*/\1/p' | tr -d '\r' | head -n 1)"
+test -n "$wall_id"
+wall_list_after="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/video-walls")"
+printf "%s" "$wall_list_after" | grep -q "Admin Wall"
+printf "%s" "$wall_list_after" | grep -q "Владелец"
+printf "%s" "$wall_list_after" | grep -q "admin"
+wall_view="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/video-walls/view?id=$wall_id")"
+printf "%s" "$wall_view" | grep -q "Admin Wall"
+printf "%s" "$wall_view" | grep -F -q 'data-wall-frame'
+printf "%s" "$wall_view" | grep -F -q 'data-wall-origin'
+printf "%s" "$wall_view" | grep -F -q 'data-wall-camera-id="1"'
+printf "%s" "$wall_view" | grep -F -q 'data-wall-archive="1"'
+printf "%s" "$wall_view" | grep -F -q "vw-watermark"
+printf "%s" "$wall_view" | grep -F -q "/video-walls/stream?id=$wall_id&amp;camera_id="
+# Stream redirect to DVR embed
+wall_stream_headers="$(
+  curl -sS -D - -o /dev/null -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/video-walls/stream?id=$wall_id&camera_id=1"
+)"
+printf "%s" "$wall_stream_headers" | grep -qi "^HTTP/.* 302"
+printf "%s" "$wall_stream_headers" | grep -i "^Location:" | grep -F -q "embed.html"
+printf "%s" "$wall_stream_headers" | grep -i "^Location:" | grep -F -q "hidecontrols=true"
+printf "%s" "$wall_stream_headers" | grep -i "^Location:" | grep -F -q "screenshot=false"
+printf "%s" "$wall_stream_headers" | grep -i "^Location:" | grep -F -q "token="
+# Controller protocol v1 params are passed through
+wall_stream_ctrl="$(
+  curl -sS -D - -o /dev/null -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/video-walls/stream?id=$wall_id&camera_id=1&economy=idr&controller_id=0123456789abcdef0123456789abcdef"
+)"
+printf "%s" "$wall_stream_ctrl" | grep -i "^Location:" | grep -F -q "economy=idr"
+printf "%s" "$wall_stream_ctrl" | grep -i "^Location:" | grep -F -q "controller_id=0123456789abcdef0123456789abcdef"
+printf "%s" "$wall_stream_ctrl" | grep -i "^Location:" | grep -F -q "controller_version=1"
+# Invalid controller id -> 400
+wall_stream_bad_status="$(
+  curl -sS -o /dev/null -w '%{http_code}' -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/video-walls/stream?id=$wall_id&camera_id=1&controller_id=INVALID"
+)"
+test "$wall_stream_bad_status" = "400"
+# Bad economy value -> 400
+wall_stream_bad_eco="$(
+  curl -sS -o /dev/null -w '%{http_code}' -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/video-walls/stream?id=$wall_id&camera_id=1&economy=slow"
+)"
+test "$wall_stream_bad_eco" = "400"
+# Camera not in wall -> 403
+wall_stream_missing="$(
+  curl -sS -o /dev/null -w '%{http_code}' -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/video-walls/stream?id=$wall_id&camera_id=3"
+)"
+test "$wall_stream_missing" = "403"
+# Video wall API
+wall_api_unauth="$(curl -sS -o /dev/null -w '%{http_code}' "http://127.0.0.1:$PORT/api/portal/v1/video-walls")"
+test "$wall_api_unauth" = "401"
+wall_api_no_csrf="$(curl -sS -o /dev/null -w '%{http_code}' -b "$COOKIE_JAR" -H 'Content-Type: application/json' -d '{"name":"Api Wall","rows":1,"columns":1,"cameraIds":[1]}' "http://127.0.0.1:$PORT/api/portal/v1/video-walls")"
+test "$wall_api_no_csrf" = "419"
+wall_api_create="$(curl -fsS -b "$COOKIE_JAR" -H "X-CSRF-TOKEN: $wall_csrf" -H 'Content-Type: application/json' -d '{"name":"Api Wall","rows":1,"columns":1,"cameraIds":[1]}' "http://127.0.0.1:$PORT/api/portal/v1/video-walls")"
+api_wall_id="$(printf "%s" "$wall_api_create" | php -r '$d=json_decode(stream_get_contents(STDIN), true); echo $d["data"]["id"] ?? "";')"
+test -n "$api_wall_id"
+printf "%s" "$wall_api_create" | grep -q '"name": "Api Wall"'
+printf "%s" "$wall_api_create" | grep -q '"rows": 1'
+wall_api_list="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/api/portal/v1/video-walls")"
+printf "%s" "$wall_api_list" | grep -q '"Api Wall"'
+wall_api_get="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/api/portal/v1/video-walls/$api_wall_id")"
+printf "%s" "$wall_api_get" | grep -A2 '"cameraIds"' | grep -q '1'
+wall_api_patch="$(curl -sS -o /dev/null -w '%{http_code}' -b "$COOKIE_JAR" -H "X-CSRF-TOKEN: $wall_csrf" -X PATCH -H 'Content-Type: application/json' -d '{"name":"Api Wall Renamed"}' "http://127.0.0.1:$PORT/api/portal/v1/video-walls/$api_wall_id")"
+test "$wall_api_patch" = "200"
+wall_api_delete="$(curl -sS -o /dev/null -w '%{http_code}' -b "$COOKIE_JAR" -H "X-CSRF-TOKEN: $wall_csrf" -X DELETE "http://127.0.0.1:$PORT/api/portal/v1/video-walls/$api_wall_id")"
+test "$wall_api_delete" = "204"
+wall_api_gone="$(curl -sS -o /dev/null -w '%{http_code}' -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/api/portal/v1/video-walls/$api_wall_id")"
+test "$wall_api_gone" = "404"
+# Plain user video walls
+plain_wall_list="$(curl -fsS -b "$PLAIN_COOKIE_JAR" "http://127.0.0.1:$PORT/video-walls")"
+! printf "%s" "$plain_wall_list" | grep -q "Admin Wall"
+plain_wall_editor="$(curl -fsS -b "$PLAIN_COOKIE_JAR" "http://127.0.0.1:$PORT/video-walls/edit")"
+plain_wall_csrf="$(printf "%s" "$plain_wall_editor" | sed -n 's/.*name="csrf" value="\([^"]*\)".*/\1/p' | head -n 1)"
+test -n "$plain_wall_csrf"
+plain_wall_save="$(
+  curl -sS -o /dev/null -w '%{redirect_url}' -b "$PLAIN_COOKIE_JAR" \
+    -d "csrf=$plain_wall_csrf" -d "name=Plain Wall" -d "rows=1" -d "columns=1" -d "cameraIds[]=1" \
+    "http://127.0.0.1:$PORT/video-walls"
+)"
+printf "%s" "$plain_wall_save" | grep -q "id="
+plain_wall_id="$(printf "%s" "$plain_wall_save" | sed -n 's/.*[?&]id=\([0-9]*\).*/\1/p' | head -n 1)"
+test -n "$plain_wall_id"
+plain_wall_view="$(curl -fsS -b "$PLAIN_COOKIE_JAR" "http://127.0.0.1:$PORT/video-walls/view?id=$plain_wall_id")"
+printf "%s" "$plain_wall_view" | grep -F -q 'data-wall-archive="0"'
+printf "%s" "$plain_wall_view" | grep -F -q 'data-wall-camera-id="1"'
+printf "%s" "$plain_wall_view" | grep -F -q "vw-watermark"
+plain_stream_headers="$(curl -sS -D - -o /dev/null -b "$PLAIN_COOKIE_JAR" "http://127.0.0.1:$PORT/video-walls/stream?id=$plain_wall_id&camera_id=1")"
+printf "%s" "$plain_stream_headers" | grep -qi "^HTTP/.* 302"
+printf "%s" "$plain_stream_headers" | grep -i "^Location:" | grep -F -q "dvr=false"
+# Plain user cannot access admin wall (404)
+plain_admin_wall_status="$(
+  curl -sS -o /dev/null -w '%{http_code}' -b "$PLAIN_COOKIE_JAR" "http://127.0.0.1:$PORT/video-walls/view?id=$wall_id"
+)"
+test "$plain_admin_wall_status" = "404"
+# Admin sees plain user's wall + owner
+admin_list_plain="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/video-walls")"
+printf "%s" "$admin_list_plain" | grep -q "Plain Wall"
+printf "%s" "$admin_list_plain" | grep -q "plain-user"
+# Delete wall without confirm -> 422
+plain_wall_no_confirm="$(
+  curl -sS -o /dev/null -w '%{http_code}' -b "$PLAIN_COOKIE_JAR" \
+    -d "csrf=$plain_wall_csrf" -d "id=$plain_wall_id" -d "action=delete" \
+    "http://127.0.0.1:$PORT/video-walls"
+)"
+test "$plain_wall_no_confirm" = "422"
+# Admin deletes own wall
+admin_delete_wall="$(
+  curl -sS -o /dev/null -w '%{http_code}' -b "$COOKIE_JAR" \
+    -d "csrf=$wall_csrf" -d "id=$wall_id" -d "action=delete" -d "confirm_delete=1" \
+    "http://127.0.0.1:$PORT/video-walls"
+)"
+test "$admin_delete_wall" = "303"
+wall_list_final="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/video-walls")"
+! printf "%s" "$wall_list_final" | grep -q "Admin Wall"
+# Plain user deletes own wall
+plain_delete_wall="$(
+  curl -sS -o /dev/null -w '%{http_code}' -b "$PLAIN_COOKIE_JAR" \
+    -d "csrf=$plain_wall_csrf" -d "id=$plain_wall_id" -d "action=delete" -d "confirm_delete=1" \
+    "http://127.0.0.1:$PORT/video-walls"
+)"
+test "$plain_delete_wall" = "303"
+
 # Onboarding: admin creates user without password -> default password, must_change_password=1
 onboarding_csrf="$(printf "%s" "$admin_users_page" | sed -n 's/.*name="csrf" value="\([^"]*\)".*/\1/p' | head -n 1)"
 # Create a new user via admin form with empty password (role=user)

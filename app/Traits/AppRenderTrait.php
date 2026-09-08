@@ -32,6 +32,9 @@ trait AppRenderTrait
         echo '<link rel="stylesheet" href="' . Util::h(self::assetUrl('/assets/styles.css')) . '">';
         echo '<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">';
         echo '<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css">';
+        if (str_starts_with(Util::path(), '/video-walls')) {
+            echo '<link rel="stylesheet" href="' . Util::h(self::assetUrl('/assets/video-walls.css')) . '">';
+        }
         echo '</head><body' . ($bodyClass !== '' ? ' class="' . Util::h($bodyClass) . '"' : '') . '>';
         if ($user && $showChrome) {
             echo '<div class="shell"><aside class="sidebar">';
@@ -41,6 +44,7 @@ trait AppRenderTrait
             self::navLink('/', self::t('nav.cameras', 'Камеры'), 'grid', Util::path() === '/' && $viewerFilter !== 'favorites');
             if (($user['role'] ?? '') === 'admin' || (int)($user['mosaic_enabled'] ?? 0) === 1) {
                 self::navLink('/mosaic', self::t('nav.mosaic', 'Мозаика'), 'grid', Util::path() === '/mosaic');
+                self::navLink('/video-walls', self::t('wall.title', 'Видеостена'), 'dashboard', str_starts_with(Util::path(), '/video-walls'));
             }
             self::navLink('/viewer/map', self::t('nav.map', 'Карта'), 'map');
             self::navLink('/viewer/events', self::t('nav.events', 'События'), 'events');
@@ -78,7 +82,11 @@ trait AppRenderTrait
             echo '</main>';
         }
         echo '<script>window.SESAME_I18N = ' . json_encode(I18n::js(), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . '; window.SESAME_CSRF = ' . json_encode(Csrf::token(), JSON_UNESCAPED_SLASHES) . '; window.SESAME_MAP_PROVIDER = ' . json_encode(Util::mapProvider(), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . '; window.SESAME_MAP_VIEW = ' . json_encode(Util::mapDefaultView(), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . ';</script>';
-        echo '<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script><script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script><script src="' . Util::h(self::assetUrl('/assets/app.js')) . '"></script>';
+        echo '<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script><script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>';
+        if (str_starts_with(Util::path(), '/video-walls')) {
+            echo '<script src="' . Util::h(self::assetUrl('/assets/video-wall-playback.js')) . '"></script><script src="' . Util::h(self::assetUrl('/assets/video-walls.js')) . '"></script>';
+        }
+        echo '<script src="' . Util::h(self::assetUrl('/assets/app.js')) . '"></script>';
         echo '<script>if("serviceWorker" in navigator){window.addEventListener("load",function(){navigator.serviceWorker.register("/sw.js")["catch"](function(){})})}</script>';
         echo '</body></html>';
     }
@@ -132,6 +140,9 @@ trait AppRenderTrait
             'sun' => '<circle cx="12" cy="12" r="4" fill="none" stroke="currentColor" stroke-width="2"/><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
             'moon' => '<path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M20.5 14.5A8.5 8.5 0 0 1 9.5 3.5a8.5 8.5 0 1 0 11 11z"/>',
             'menu' => '<path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M4 7h16M4 12h16M4 17h16"/>',
+            'play' => '<path d="M8 5v14l11-7z"/>',
+            'pause' => '<path d="M6 5h4v14H6zM14 5h4v14h-4z"/>',
+            'search' => '<circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="2"/><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="m20 20-3.5-3.5"/>',
         ];
         return '<svg viewBox="0 0 24 24" aria-hidden="true">' . ($paths[$name] ?? $paths['grid']) . '</svg>';
     }

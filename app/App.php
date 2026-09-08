@@ -12,6 +12,7 @@ final class App
     use AppAuthBackendTrait;
     use AppRenderTrait;
     use AppDataTrait;
+    use VideoWallPages;
 
     private static function t(string $key, string $fallback): string
     {
@@ -61,6 +62,10 @@ final class App
             '/mosaic/save' => self::mosaicSave(),
             '/mosaic/view' => self::mosaicView(),
             '/mosaic/delete' => self::mosaicDelete(),
+            '/video-walls' => self::videoWallsPage(),
+            '/video-walls/edit' => self::videoWallsPage(),
+            '/video-walls/view' => self::videoWallsPage(),
+            '/video-walls/stream' => self::videoWallsPage(),
             '/api/sesamedvr/auth' => self::authBackend(),
             default => self::viewer('mosaic'),
         };

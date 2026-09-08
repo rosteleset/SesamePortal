@@ -2320,6 +2320,11 @@ final class I18n
 
         $messages = I18nCatalog::complete($messages);
 
+        foreach (VideoWallTranslations::messages() as $locale => $items) {
+            $messages[$locale] ??= [];
+            $messages[$locale] += $items;
+        }
+
         if (!$includeFallback) {
             return $messages;
         }
