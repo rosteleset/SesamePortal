@@ -210,10 +210,19 @@ php bin/portal restore /path/to/backup.json
 configured `crypto_primary_key` while preserving access to older key ids for
 rotation windows.
 
+## Code Structure
+
+`app/Portal.php` remains the shared bootstrap for the web application, CLI and
+tests. Runtime classes live in individual files; `App` composes resource API,
+page, Auth Backend, UI and support modules. See [PHP module architecture](docs/ARCHITECTURE.md)
+for ownership boundaries and release requirements.
+
 ## Checks
 
 ```bash
-php -l app/Portal.php
+find app -name '*.php' -exec php -l {} \;
+php tests/module_bootstrap.php
 bash -n scripts/install.sh
 tests/http_smoke.sh
+bash tests/release_smoke.sh
 ```

@@ -220,10 +220,19 @@ php bin/portal restore /path/to/backup.json
 использованием текущего `crypto_primary_key`, сохраняя доступ к старым key id
 на период ротации.
 
+## Структура кода
+
+`app/Portal.php` остаётся общей точкой подключения для веб-приложения, CLI и
+тестов. Классы вынесены в отдельные файлы; `App` объединяет модули API, страниц,
+Auth Backend, UI и общих вспомогательных методов. Границы модулей и требования
+к обновлению описаны в [архитектуре PHP-модулей](docs/ARCHITECTURE.md).
+
 ## Проверки
 
 ```bash
-php -l app/Portal.php
+find app -name '*.php' -exec php -l {} \;
+php tests/module_bootstrap.php
 bash -n scripts/install.sh
 tests/http_smoke.sh
+bash tests/release_smoke.sh
 ```
