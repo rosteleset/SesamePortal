@@ -150,6 +150,14 @@ final class I18n
                 'settings.callbackSaved' => 'Вход по звонку сохранён',
                 'settings.callbackInvalidPhone' => 'Некорректный номер телефона',
                 'settings.callbackInvalidToken' => 'Токен webhook должен быть не короче 8 символов (буквы, цифры, - и _)',
+                'settings.externalIntegration' => 'Интеграция стороннего приложения',
+                'settings.externalIntegrationDesc' => 'Стороннее приложение отправляет номер телефона и получает постоянный токен пользователя (static token) для вызова JSON API.',
+                'settings.externalAppKey' => 'Ключ интеграции',
+                'settings.externalAppKeyHint' => 'Секретная строка, которую стороннее приложение передаёт в заголовке X-App-Key.',
+                'settings.externalAppUrl' => 'Эндпоинт для получения токена',
+                'settings.externalAppGenerate' => 'Сгенерировать новый ключ',
+                'settings.externalAppSaved' => 'Настройки интеграции сохранены',
+                'settings.externalAppInvalid' => 'Ключ интеграции должен быть от 16 до 64 символов (буквы, цифры, - и _)',
                 'groups.users' => 'Пользователи',
                 'groups.cameras' => 'Камеры',
                 'groups.parent' => 'Родительская группа',
@@ -422,6 +430,14 @@ final class I18n
                 'settings.callbackSaved' => 'Sign-in by phone call saved',
                 'settings.callbackInvalidPhone' => 'Invalid phone number',
                 'settings.callbackInvalidToken' => 'Webhook token must be at least 8 chars (letters, digits, - and _)',
+                'settings.externalIntegration' => 'External app integration',
+                'settings.externalIntegrationDesc' => 'A third-party app sends a user phone number and receives that user\'s permanent static token for JSON API calls.',
+                'settings.externalAppKey' => 'Integration key',
+                'settings.externalAppKeyHint' => 'Secret string the third-party app passes in the X-App-Key header.',
+                'settings.externalAppUrl' => 'Token endpoint',
+                'settings.externalAppGenerate' => 'Generate new key',
+                'settings.externalAppSaved' => 'Integration settings saved',
+                'settings.externalAppInvalid' => 'Integration key must be 16 to 64 chars (letters, digits, - and _)',
                 'field.login' => 'Login',
                 'field.password' => 'Password',
                 'action.login' => 'Sign in',
@@ -2323,6 +2339,17 @@ final class I18n
         foreach (VideoWallTranslations::messages() as $locale => $items) {
             $messages[$locale] ??= [];
             $messages[$locale] += $items;
+        }
+
+        foreach (['de', 'fr', 'es', 'it', 'pt', 'bg', 'pl', 'zh', 'ja', 'ko', 'ar', 'hy'] as $locale) {
+            $messages[$locale]['settings.externalIntegration'] = 'External app integration';
+            $messages[$locale]['settings.externalIntegrationDesc'] = 'A third-party app sends a user phone number and receives that user\'s permanent static token for JSON API calls.';
+            $messages[$locale]['settings.externalAppKey'] = 'Integration key';
+            $messages[$locale]['settings.externalAppKeyHint'] = 'Secret string the third-party app passes in the X-App-Key header.';
+            $messages[$locale]['settings.externalAppUrl'] = 'Token endpoint';
+            $messages[$locale]['settings.externalAppGenerate'] = 'Generate new key';
+            $messages[$locale]['settings.externalAppSaved'] = 'Integration settings saved';
+            $messages[$locale]['settings.externalAppInvalid'] = 'Integration key must be 16 to 64 chars (letters, digits, - and _)';
         }
 
         if (!$includeFallback) {

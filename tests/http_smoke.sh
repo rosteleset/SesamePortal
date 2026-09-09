@@ -1799,6 +1799,86 @@ callback_unknown_status="$(
 )"
 test "$callback_unknown_status" = "401"
 
+# External integration: phone -> static token (token-by-phone)
+# Endpoint is disabled until an integration key is set
+ext_disabled_status="$(
+  curl -sS -o "$STATE_DIR/ext_disabled.json" -w '%{http_code}' -X POST -H 'Content-Type: application/json' \
+    -d "{\"phone\":\"$callback_phone\"}" \
+    "http://127.0.0.1:$PORT/api/portal/v1/auth/token-by-phone"
+)"
+test "$ext_disabled_status" = "503"
+grep -q '"code": "integration_disabled"' "$STATE_DIR/ext_disabled.json"
+# Wrong method is rejected with 405 even before the key check
+ext_wrong_method="$(curl -sS -o /dev/null -w '%{http_code}' "http://127.0.0.1:$PORT/api/portal/v1/auth/token-by-phone")"
+test "$ext_wrong_method" = "405"
+
+# Configure integration key
+ext_setup_output="$(
+  php <<'PHP'
+<?php
+require getenv('ROOT') . '/app/Portal.php';
+\SesamePortal\DB::setSetting('external_app_key', 'smoke-external-app-key');
+echo 'setup ok';
+PHP
+)"
+test "$ext_setup_output" = "setup ok"
+
+# Settings page shows the integration panel
+ext_settings_page="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/admin/settings?lang=ru")"
+printf "%s" "$ext_settings_page" | grep -q "Интеграция стороннего приложения"
+printf "%s" "$ext_settings_page" | grep -q 'name="external_app_key"'
+printf "%s" "$ext_settings_page" | grep -q 'data-external-generate'
+printf "%s" "$ext_settings_page" | grep -q "/api/portal/v1/auth/token-by-phone"
+
+# Missing key -> 401
+ext_missing_key="$(curl -sS -o /dev/null -w '%{http_code}' -X POST -H 'Content-Type: application/json' \
+  -d "{\"phone\":\"$callback_phone\"}" \
+  "http://127.0.0.1:$PORT/api/portal/v1/auth/token-by-phone")"
+test "$ext_missing_key" = "401"
+# Wrong key -> 401
+ext_wrong_key="$(curl -sS -o /dev/null -w '%{http_code}' -X POST -H 'Content-Type: application/json' -H 'X-App-Key: wrong-key' \
+  -d "{\"phone\":\"$callback_phone\"}" \
+  "http://127.0.0.1:$PORT/api/portal/v1/auth/token-by-phone")"
+test "$ext_wrong_key" = "401"
+# Invalid phone is rejected with 422
+ext_bad_phone="$(curl -sS -o /dev/null -w '%{http_code}' -X POST -H 'Content-Type: application/json' -H 'X-App-Key: smoke-external-app-key' -d '{"phone":"abc"}' \
+  "http://127.0.0.1:$PORT/api/portal/v1/auth/token-by-phone")"
+test "$ext_bad_phone" = "422"
+# Unknown phone -> 404
+ext_unknown_phone="$(curl -sS -o /dev/null -w '%{http_code}' -X POST -H 'Content-Type: application/json' -H 'X-App-Key: smoke-external-app-key' \
+  -d '{"phone":"79999999999"}' \
+  "http://127.0.0.1:$PORT/api/portal/v1/auth/token-by-phone")"
+test "$ext_unknown_phone" = "404"
+# Valid key + valid phone -> 200 with a static token
+ext_token_json="$(curl -fsS -X POST -H 'Content-Type: application/json' -H 'X-App-Key: smoke-external-app-key' \
+  -d "{\"phone\":\"$callback_phone\"}" \
+  "http://127.0.0.1:$PORT/api/portal/v1/auth/token-by-phone")"
+ext_token="$(printf "%s" "$ext_token_json" | php -r '$d=json_decode(stream_get_contents(STDIN), true); echo (string)($d["token"] ?? "");')"
+test -n "$ext_token"
+case "$ext_token" in sp_*) ;; *) exit 1;; esac
+printf "%s" "$ext_token_json" | grep -q "\"login\": \"$callback_user_login\""
+# Repeated request returns the same token
+ext_token_json2="$(curl -fsS -X POST -H 'Content-Type: application/json' -H 'X-App-Key: smoke-external-app-key' \
+  -d "{\"phone\":\"$callback_phone\"}" \
+  "http://127.0.0.1:$PORT/api/portal/v1/auth/token-by-phone")"
+ext_token2="$(printf "%s" "$ext_token_json2" | php -r '$d=json_decode(stream_get_contents(STDIN), true); echo (string)($d["token"] ?? "");')"
+test "$ext_token" = "$ext_token2"
+# The returned token works against the JSON API
+ext_me="$(curl -fsS -H "Authorization: Bearer $ext_token" "http://127.0.0.1:$PORT/api/portal/v1/me")"
+printf "%s" "$ext_me" | grep -q "\"login\": \"$callback_user_login\""
+# Cleanup: revoke the issued static token and disable integration
+ext_cleanup_output="$(
+  L="$callback_user_login" php <<'PHP'
+<?php
+require getenv('ROOT') . '/app/Portal.php';
+\SesamePortal\DB::pdo()->prepare("UPDATE users SET static_token_hash = NULL, static_token_enc = NULL WHERE login = ?")
+    ->execute([getenv('L')]);
+\SesamePortal\DB::setSetting('external_app_key', '');
+echo 'cleanup ok';
+PHP
+)"
+test "$ext_cleanup_output" = "cleanup ok"
+
 # Profile page: user icon menu exists, /profile renders read-only login + editable fields
 plain_profile_page="$(curl -fsS -b "$PLAIN_COOKIE_JAR" "http://127.0.0.1:$PORT/profile?lang=ru")"
 grep -q 'name="name"' <<<"$plain_profile_page"

@@ -221,6 +221,10 @@ trait AppApiTrait
 
     private static function apiAuthCallback(array $parts): void
     {
+        if (($parts[1] ?? '') === 'token-by-phone') {
+            self::apiAuthTokenByPhone();
+            return;
+        }
         if (($parts[1] ?? '') !== 'callback') {
             self::apiError(404, 'not_found', 'Unknown auth endpoint');
             return;
@@ -232,6 +236,56 @@ trait AppApiTrait
             'complete' => self::callbackAuthComplete(),
             default => self::apiError(404, 'not_found', 'Unknown auth callback endpoint'),
         };
+    }
+
+    private static function apiAuthTokenByPhone(): void
+    {
+        if (self::apiMethod() !== 'POST') {
+            self::apiError(405, 'method_not_allowed', 'POST is required');
+            return;
+        }
+
+        $expectedKey = trim((string)DB::setting('external_app_key', ''));
+        if ($expectedKey === '') {
+            self::apiError(503, 'integration_disabled', 'External API integration is not configured');
+            return;
+        }
+
+        $input = self::apiInput();
+        $providedKey = trim((string)($input['app_key'] ?? ''));
+        $headerKey = trim((string)($_SERVER['HTTP_X_APP_KEY'] ?? ''));
+        if ($providedKey === '') {
+            $providedKey = $headerKey;
+        }
+        if (!hash_equals($expectedKey, $providedKey)) {
+            self::apiError(401, 'unauthorized', 'Invalid external app key');
+            return;
+        }
+
+        $phone = self::normalizePhone($input['phone'] ?? '');
+        if ($phone === '') {
+            self::apiError(422, 'validation_failed', 'phone is required and must be a valid russian number');
+            return;
+        }
+
+        $stmt = DB::pdo()->prepare('SELECT * FROM users WHERE blocked = 0 AND phone = ?');
+        $stmt->execute([$phone]);
+        $matches = $stmt->fetchAll();
+        if (count($matches) !== 1) {
+            self::apiError(404, 'not_found', 'User not found');
+            return;
+        }
+
+        $user = $matches[0];
+        $userId = (int)$user['id'];
+        $token = TokenService::ensureStaticToken($userId);
+
+        self::apiJson([
+            'token' => $token,
+            'user_id' => $userId,
+            'login' => (string)($user['login'] ?? ''),
+            'role' => (string)($user['role'] ?? 'user'),
+        ]);
     }
 
     private static function callbackEnabled(): bool

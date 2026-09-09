@@ -178,6 +178,16 @@ trait AppPagesTrait
                     $message = self::t('settings.callbackSaved', 'Вход по звонку сохранён');
                     $messageClass = 'success';
                 }
+            } elseif ($action === 'save_external_app') {
+                $token = trim((string)Util::post('external_app_key'));
+                if (!preg_match('/^[A-Za-z0-9_-]{16,64}$/', $token)) {
+                    $message = self::t('settings.externalAppInvalid', 'Ключ интеграции должен быть от 16 до 64 символов (буквы, цифры, - и _)');
+                    $messageClass = 'danger';
+                } else {
+                    DB::setSetting('external_app_key', $token);
+                    $message = self::t('settings.externalAppSaved', 'Настройки интеграции сохранены');
+                    $messageClass = 'success';
+                }
             }
         }
 
@@ -198,6 +208,7 @@ trait AppPagesTrait
             echo '</div>';
             self::smtpSettingsPanel();
             self::callbackSettingsPanel();
+            self::externalIntegrationPanel();
         });
     }
 
@@ -320,6 +331,30 @@ trait AppPagesTrait
         echo '<div class="form-row">';
         echo '<label>' . Util::h(self::t('settings.callbackWebhookUrl', 'Webhook URL для Asterisk')) . '<input type="text" readonly value="' . Util::h($webhookUrl) . '"></label>';
         echo '<label>&nbsp;<button type="button" data-callback-generate class="btn">' . Util::h(self::t('settings.callbackGenerate', 'Сгенерировать новый секрет')) . '</button></label>';
+        echo '</div>';
+        echo '<div class="form-actions">';
+        echo '<button type="submit" class="primary">' . Util::h(self::t('action.save', 'Сохранить')) . '</button>';
+        echo '</div>';
+        echo '</form>';
+        echo '</section>';
+    }
+
+    private static function externalIntegrationPanel(): void
+    {
+        $token = (string)DB::setting('external_app_key', '');
+        $endpointUrl = self::absolutePortalUrl('/api/portal/v1/auth/token-by-phone');
+
+        echo '<section class="panel"><div class="section-head"><h2>' . Util::h(self::t('settings.externalIntegration', 'Интеграция стороннего приложения')) . '</h2><p class="muted">' . Util::h(self::t('settings.externalIntegrationDesc', 'Стороннее приложение отправляет номер телефона и получает постоянный токен пользователя (static token) для вызова JSON API.')) . '</p></div>';
+        echo '<form method="post" action="/admin/settings">';
+        echo '<input type="hidden" name="action" value="save_external_app">';
+        echo '<input type="hidden" name="csrf" value="' . Util::h(Csrf::token()) . '">';
+        echo '<div class="form-row">';
+        echo '<label>' . Util::h(self::t('settings.externalAppKey', 'Ключ интеграции')) . '<input type="text" name="external_app_key" value="' . Util::h($token) . '" data-external-token autocomplete="off">';
+        echo '<p class="field-hint">' . Util::h(self::t('settings.externalAppKeyHint', 'Секретная строка, которую стороннее приложение передаёт в заголовке X-App-Key.')) . '</p></label>';
+        echo '</div>';
+        echo '<div class="form-row">';
+        echo '<label>' . Util::h(self::t('settings.externalAppUrl', 'Эндпоинт для получения токена')) . '<input type="text" readonly value="' . Util::h($endpointUrl) . '"></label>';
+        echo '<label>&nbsp;<button type="button" data-external-generate class="btn">' . Util::h(self::t('settings.externalAppGenerate', 'Сгенерировать новый ключ')) . '</button></label>';
         echo '</div>';
         echo '<div class="form-actions">';
         echo '<button type="submit" class="primary">' . Util::h(self::t('action.save', 'Сохранить')) . '</button>';

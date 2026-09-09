@@ -65,6 +65,20 @@ final class TokenService
         return $token;
     }
 
+    public static function ensureStaticToken(int $userId, ?array $actor = null): string
+    {
+        $user = self::staticTokenUser($userId);
+        $encoded = trim((string)($user['static_token_enc'] ?? ''));
+        if ($encoded !== '') {
+            Audit::log(
+                'user.static_token.request',
+                'user_id=' . $userId . ' login=' . Audit::cleanValue((string)($user['login'] ?? '')) . ' ip=' . Audit::clientIp()
+            );
+            return Crypto::decrypt($encoded);
+        }
+        return self::issueStaticToken($userId, $actor);
+    }
+
     public static function revokeStaticToken(int $userId, ?array $actor = null): void
     {
         $user = self::staticTokenUser($userId);

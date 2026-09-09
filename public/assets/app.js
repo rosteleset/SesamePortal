@@ -1494,6 +1494,15 @@ function initCallbackLogin() {
     });
   }
 
+  var externalGenerate = document.querySelector('[data-external-generate]');
+  if (externalGenerate) {
+    externalGenerate.addEventListener('click', function () {
+      var input = document.querySelector('[data-external-token]');
+      if (!input) return;
+      input.value = callbackRandomToken();
+    });
+  }
+
   var form = document.querySelector('[data-callback-form]');
   if (!form) return;
   var pane = form.closest('[data-login-pane]');
