@@ -3,6 +3,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 php "$ROOT/tests/module_bootstrap.php"
+php "$ROOT/tests/auth_backend.php"
 STATE_DIR="$(mktemp -d)"
 PORT="${SESAME_PORTAL_TEST_PORT:-18089}"
 DVR_PORT="${SESAME_PORTAL_TEST_DVR_PORT:-$((PORT + 1))}"
@@ -1370,7 +1371,27 @@ allowed="$(
     "http://127.0.0.1:$PORT/api/sesamedvr/auth?token=NonAvailable&qs=$qs&name=smoke-cam"
 )"
 test "$allowed" = "200"
+ptz_daily="$(
+  curl -fsS \
+    "http://127.0.0.1:$PORT/api/sesamedvr/auth?token=NonAvailable&qs=$qs&name=smoke-cam&proto=ptz&user_id=forged"
+)"
+printf "%s" "$ptz_daily" | php -r '$d=json_decode(stream_get_contents(STDIN), true); exit(($d["ptz_allowed"] ?? null) === true && ($d["user_id"] ?? null) === "1" ? 0 : 1);'
+ptz_static="$(
+  curl -fsS \
+    "http://127.0.0.1:$PORT/api/sesamedvr/auth?token=$admin_authbackend_token_qs&name=smoke-cam&proto=ptz"
+)"
+test "$ptz_static" = "$ptz_daily"
+ptz_denied="$(
+  curl -sS -o /dev/null -w '%{http_code}' \
+    "http://127.0.0.1:$PORT/api/sesamedvr/auth?token=bad&name=smoke-cam&proto=ptz&ptz_allowed=true&user_id=1"
+)"
+test "$ptz_denied" = "403"
 plain_qs="$(php -r 'echo rawurlencode("token=sp_smoke_user_token");')"
+hidden_ptz="$(
+  curl -fsS \
+    "http://127.0.0.1:$PORT/api/sesamedvr/auth?token=NonAvailable&qs=$plain_qs&name=smoke-cam&proto=ptz&dvr=false"
+)"
+printf "%s" "$hidden_ptz" | php -r '$d=json_decode(stream_get_contents(STDIN), true); exit(($d["ptz_allowed"] ?? null) === true && ($d["user_id"] ?? null) === "2" && ($d["allowed_dvr_ranges"] ?? null) === [] ? 0 : 1);'
 hidden_live="$(
   curl -sS -o /dev/null -w '%{http_code}' \
     "http://127.0.0.1:$PORT/api/sesamedvr/auth?token=NonAvailable&qs=$plain_qs&name=smoke-cam&proto=hls&dvr=false"

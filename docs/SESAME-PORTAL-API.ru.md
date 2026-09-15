@@ -646,7 +646,7 @@ curl -H "Authorization: Bearer $TOKEN" \
 ### GET /api/sesamedvr/auth
 
 Machine-facing endpoint для SesameDVR auth backend. DVR вызывает его перед
-выдачей playback/live/archive/preview доступа, чтобы Portal проверил token
+выдачей playback/live/archive/preview/PTZ доступа, чтобы Portal проверил token
 пользователя и права на конкретный stream.
 
 Аутентификация здесь не через session cookie, а через playback token в query.
@@ -692,10 +692,29 @@ Stream/camera можно передать одним из способов:
 
 | Условие | HTTP | Body |
 | --- | --- | --- |
-| Доступ разрешён | `200` | `ok\n` |
+| Доступ разрешён, обычный playback-запрос | `200` | `ok\n` |
+| Доступ разрешён, `proto=ptz` | `200` | JSON с `ptz_allowed: true` и строковым `user_id` |
 | Доступ разрешён, но пользователю скрыт архив | `200` | JSON capability Flussonic с `allowed_dvr_ranges: []` |
 | Пользователю скрыт архив и запрошен прямой archive HLS/MP4 media/export | `403` | `archive_denied\n` |
 | Token пустой/неверный, stream пустой, камера недоступна | `403` | `denied\n` |
+
+Для `proto=ptz` всем пользователям, прошедшим проверку токена и доступа к stream,
+разрешено управление PTZ:
+
+```json
+{
+  "ptz_allowed": true,
+  "user_id": "42"
+}
+```
+
+`user_id` берётся из записи пользователя в Portal, а не из query-параметров.
+Он одинаков для daily/static token одного пользователя и не меняется при
+ротации токена, поэтому DVR сохраняет общую идентичность пользователя в очереди.
+При `hideArchive=true` в PTZ-ответ также добавляется `allowed_dvr_ranges: []`;
+запрет прямого доступа к архиву сохраняется. Ответы на обычные playback-запросы
+не меняются. Наличие PTZ у камеры, включение PTZ на потоке, лицензию и очередь
+проверяет сам DVR: разрешение Portal не включает PTZ на неподдерживаемой камере.
 
 Capability body для пользователя с `hideArchive=true`:
 

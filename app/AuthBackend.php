@@ -18,7 +18,8 @@ trait AuthBackend
             return;
         }
 
-        $stmt = DB::pdo()->prepare('SELECT id, name, dvr_stream_name FROM cameras WHERE (dvr_stream_name = ? OR name = ?) AND blocked = 0 LIMIT 1');
+        // Blocked cameras must reach the ACL check, not the unknown-stream admin exception.
+        $stmt = DB::pdo()->prepare('SELECT id, name, dvr_stream_name FROM cameras WHERE (dvr_stream_name = ? OR name = ?) LIMIT 1');
         $stmt->execute([$cameraName, $cameraName]);
         $camera = $stmt->fetch();
         if (!$camera && !self::authBackendAllowsUnknownCamera($staticUser)) {
@@ -41,7 +42,7 @@ trait AuthBackend
                 return;
             }
             if ($restriction === 'capability') {
-                self::authBackendCapabilityResponse(false);
+                self::authBackendCapabilityResponse(false, $user);
                 return;
             }
         }
@@ -51,7 +52,11 @@ trait AuthBackend
             Audit::logForUser((int)$user['id'], $audit['action'], $audit['details']);
         }
 
-        echo "ok\n";
+        if (self::authBackendPtzRequest()) {
+            self::authBackendCapabilityResponse(!self::userArchiveHidden($user), $user);
+        } else {
+            echo "ok\n";
+        }
     }
 
     private static function authBackendAllowsUnknownCamera(?array $staticUser): bool
@@ -120,9 +125,14 @@ trait AuthBackend
         return false;
     }
 
-    private static function authBackendCapabilityResponse(bool $allowArchive): void
+    private static function authBackendCapabilityResponse(bool $allowArchive, array $user): void
     {
         $payload = $allowArchive ? [] : ['allowed_dvr_ranges' => []];
+
+        if (self::authBackendPtzRequest()) {
+            $payload['ptz_allowed'] = true;
+            $payload['user_id'] = (string)$user['id'];
+        }
 
         if (!$allowArchive && self::authBackendPlayerRequest()) {
             $overlays = self::hiddenArchivePlayerOverlays();
@@ -141,6 +151,11 @@ trait AuthBackend
     private static function authBackendPlayerRequest(): bool
     {
         return strtolower(self::usableAuthValue($_GET['proto'] ?? '')) === 'player';
+    }
+
+    private static function authBackendPtzRequest(): bool
+    {
+        return strtolower(self::usableAuthValue($_GET['proto'] ?? '')) === 'ptz';
     }
 
     private static function hiddenArchivePlayerOverlays(): array
