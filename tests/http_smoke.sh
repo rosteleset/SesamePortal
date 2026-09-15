@@ -473,7 +473,7 @@ printf "%s" "$admin_users_page" | grep -F -q 'data-submit-status'
 printf "%s" "$admin_users_page" | grep -F -q 'name="admin_comment"'
 printf "%s" "$admin_users_page" | grep -F -q 'name="hide_archive"'
 printf "%s" "$admin_users_page" | grep -F -q 'name="ptz_allowed"'
-printf "%s" "$admin_users_page" | grep -F -q '<th>PTZ</th>'
+! printf "%s" "$admin_users_page" | grep -F -q '<th>PTZ</th>'
 printf "%s" "$admin_users_page" | grep -F -q 'name="group_id"'
 printf "%s" "$admin_users_page" | grep -q "Все группы"
 printf "%s" "$admin_users_page" | grep -F -q '<th>Комментарий администратора</th>'

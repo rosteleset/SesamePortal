@@ -38,8 +38,7 @@ trait TablesUi
         foreach ($rows as $row) {
             echo '<tr>';
             foreach ($columns as $column) {
-                $value = $column === 'ptz_allowed' ? (int)self::userPtzAllowed($row) : ($row[$column] ?? '');
-                self::tableCell($column, $value);
+                self::tableCell($column, $row[$column] ?? '');
             }
             echo '<td><div class="row-actions row-actions-icons">';
             self::iconActionLink(self::tableActionUrl($base, ['edit' => (int)$row['id']], $pager), self::t('action.edit', 'Изменить'), 'edit');
@@ -84,7 +83,7 @@ trait TablesUi
 
     private static function tableCell(string $column, mixed $value): void
     {
-        if (in_array($column, ['archive_enabled', 'ptz_allowed'], true)) {
+        if ($column === 'archive_enabled') {
             $enabled = (int)$value === 1;
             $label = $enabled ? self::t('agents.yes', 'да') : self::t('agents.no', 'нет');
             echo '<td><span class="pill ' . ($enabled ? 'success' : 'danger') . '">' . Util::h($label) . '</span></td>';

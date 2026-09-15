@@ -99,7 +99,7 @@ trait UsersPages
             echo '<label class="check"><input type="checkbox" name="ptz_allowed" ' . (!empty($edit['ptz_allowed']) ? 'checked' : '') . '> ' . self::t('users.ptzAllowed', 'Разрешить PTZ') . '</label>';
             self::groupCheckboxTree(self::t('groups.title', 'Группы'), 'group_ids[]', $groups, $linkedGroups, 'group_ids_json');
             echo '<div class="form-submit-row"><button type="submit" class="primary" data-submit-button>' . self::t('action.save', 'Сохранить') . '</button><div class="submit-progress" data-submit-status hidden role="status" aria-live="polite">' . Util::h($savingLabel) . '</div></div></form></section>';
-            self::table(self::t('users.title', 'Пользователи'), ['login', 'role', 'admin_comment', 'blocked', 'hide_archive', 'ptz_allowed', 'static_token_hash', 'last_login_at'], $users, '/admin/users', false, $list);
+            self::table(self::t('users.title', 'Пользователи'), ['login', 'role', 'admin_comment', 'blocked', 'hide_archive', 'static_token_hash', 'last_login_at'], $users, '/admin/users', false, $list);
             echo '</div>';
         });
     }
