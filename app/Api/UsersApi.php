@@ -86,6 +86,10 @@ trait UsersApi
                 ? (self::apiBool($input['hideArchive'] ?? $input['hide_archive']) ? 1 : 0)
                 : (int)($current['hide_archive'] ?? 0);
         $adminComment = trim((string)($input['adminComment'] ?? $input['admin_comment'] ?? ($current['admin_comment'] ?? '')));
+        $ptzAllowed =
+            array_key_exists('ptzAllowed', $input) || array_key_exists('ptz_allowed', $input)
+                ? (self::apiBool($input['ptzAllowed'] ?? $input['ptz_allowed'] ?? false) ? 1 : 0)
+                : (int)($current['ptz_allowed'] ?? 0);
         if ($login === '') {
             self::apiError(422, 'validation_failed', 'login is required');
             return;
@@ -119,15 +123,15 @@ trait UsersApi
                         self::apiError(422, 'validation_failed', 'password must be at least 6 characters');
                         return;
                     }
-                    $pdo->prepare('UPDATE users SET login=?, password_hash=?, role=?, blocked=?, hide_archive=?, admin_comment=? WHERE id=?')
-                        ->execute([$login, password_hash($password, PASSWORD_DEFAULT), $role, $blocked, $hideArchive, $adminComment, $id]);
+                    $pdo->prepare('UPDATE users SET login=?, password_hash=?, role=?, blocked=?, hide_archive=?, ptz_allowed=?, admin_comment=? WHERE id=?')
+                        ->execute([$login, password_hash($password, PASSWORD_DEFAULT), $role, $blocked, $hideArchive, $ptzAllowed, $adminComment, $id]);
                 } else {
-                    $pdo->prepare('UPDATE users SET login=?, role=?, blocked=?, hide_archive=?, admin_comment=? WHERE id=?')
-                        ->execute([$login, $role, $blocked, $hideArchive, $adminComment, $id]);
+                    $pdo->prepare('UPDATE users SET login=?, role=?, blocked=?, hide_archive=?, ptz_allowed=?, admin_comment=? WHERE id=?')
+                        ->execute([$login, $role, $blocked, $hideArchive, $ptzAllowed, $adminComment, $id]);
                 }
             } else {
-                $pdo->prepare('INSERT INTO users(login, password_hash, role, blocked, hide_archive, admin_comment, daily_token, daily_token_date, created_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)')
-                    ->execute([$login, password_hash($password, PASSWORD_DEFAULT), $role, $blocked, $hideArchive, $adminComment, Util::randomToken(), TokenService::today(), Util::now()]);
+                $pdo->prepare('INSERT INTO users(login, password_hash, role, blocked, hide_archive, ptz_allowed, admin_comment, daily_token, daily_token_date, created_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+                    ->execute([$login, password_hash($password, PASSWORD_DEFAULT), $role, $blocked, $hideArchive, $ptzAllowed, $adminComment, Util::randomToken(), TokenService::today(), Util::now()]);
                 $id = DB::lastInsertId('users');
             }
             if ($groupIds !== null) {
@@ -144,7 +148,7 @@ trait UsersApi
             }
             throw $error;
         }
-        $after = self::rowById('users', $id) ?: ['login' => $login, 'role' => $role, 'blocked' => $blocked, 'hide_archive' => $hideArchive];
+        $after = self::rowById('users', $id) ?: ['login' => $login, 'role' => $role, 'blocked' => $blocked, 'hide_archive' => $hideArchive, 'ptz_allowed' => $ptzAllowed];
         $afterGroupIds = self::linkedIds('user_groups', 'user_id', $id, 'group_id');
         self::logUserSaveAudit($actor, $id, $current, $after, $beforeGroupIds, $afterGroupIds);
         self::apiJson(['user' => self::apiUserRow($after, true, true)], $current ? 200 : 201);
@@ -187,6 +191,7 @@ trait UsersApi
             'role=' . self::auditFieldTransition($before, $after, 'role'),
             'blocked=' . self::auditFieldTransition($before, $after, 'blocked', true),
             'hide_archive=' . self::auditFieldTransition($before, $after, 'hide_archive', true),
+            'ptz_allowed=' . self::auditFieldTransition($before, $after, 'ptz_allowed', true),
             'groups=' . self::auditIdList($beforeGroupIds) . '->' . self::auditIdList($afterGroupIds),
             'ip=' . Audit::clientIp(),
         ]);
@@ -223,6 +228,7 @@ trait UsersApi
             'role' => (string)$user['role'],
             'blocked' => (int)($user['blocked'] ?? 0) === 1,
             'hideArchive' => (int)($user['hide_archive'] ?? 0) === 1,
+            'ptzAllowed' => (int)($user['ptz_allowed'] ?? 0) === 1,
             'hasStaticToken' => !empty($user['static_token_hash']),
             'createdAt' => $user['created_at'] ?? null,
             'lastLoginAt' => $user['last_login_at'] ?? null,

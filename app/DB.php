@@ -78,6 +78,7 @@ final class DB
 
         self::ensureColumn('users', 'admin_comment', 'TEXT');
         self::ensureColumn('users', 'hide_archive', 'INTEGER NOT NULL DEFAULT 0');
+        self::ensureColumn('users', 'ptz_allowed', 'INTEGER NOT NULL DEFAULT 0');
         self::ensureColumn('users', 'mosaic_columns', 'INTEGER NOT NULL DEFAULT 3');
         self::ensureColumn('users', 'mosaic_preview_refresh', 'VARCHAR(16)');
         self::ensureColumn('portal_groups', 'parent_group_id', self::driver() === 'mysql' ? 'BIGINT NULL' : 'INTEGER');
@@ -181,6 +182,7 @@ final class DB
                 static_token_hash TEXT,
                 admin_comment TEXT,
                 hide_archive INTEGER NOT NULL DEFAULT 0,
+                ptz_allowed INTEGER NOT NULL DEFAULT 0,
                 mosaic_columns INTEGER NOT NULL DEFAULT 3,
                 mosaic_preview_refresh VARCHAR(16),
                 created_at TEXT NOT NULL,
@@ -289,6 +291,7 @@ final class DB
                 static_token_hash TEXT,
                 admin_comment TEXT,
                 hide_archive INTEGER NOT NULL DEFAULT 0,
+                ptz_allowed INTEGER NOT NULL DEFAULT 0,
                 mosaic_columns INTEGER NOT NULL DEFAULT 3,
                 mosaic_preview_refresh VARCHAR(16),
                 created_at TEXT NOT NULL,
@@ -398,6 +401,7 @@ final class DB
                 static_token_hash VARCHAR(255),
                 admin_comment TEXT,
                 hide_archive INTEGER NOT NULL DEFAULT 0,
+                ptz_allowed INTEGER NOT NULL DEFAULT 0,
                 mosaic_columns INTEGER NOT NULL DEFAULT 3,
                 mosaic_preview_refresh VARCHAR(16),
                 created_at VARCHAR(64) NOT NULL,

@@ -729,6 +729,14 @@ table {
 .table-cameras {
   min-width: 820px;
 }
+.table-users th:nth-child(2),
+.table-users td:nth-child(2) {
+  min-width: 70px;
+  white-space: nowrap;
+}
+.table-users .pill {
+  white-space: nowrap;
+}
 .table-cameras th:nth-child(1),
 .table-cameras td:nth-child(1) {
   width: 110px;

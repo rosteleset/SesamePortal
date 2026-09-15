@@ -26,6 +26,7 @@ trait UsersPages
                 $role = Util::post('role') === 'admin' ? 'admin' : 'user';
                 $blocked = Util::checkbox('blocked');
                 $hideArchive = Util::checkbox('hide_archive');
+                $ptzAllowed = Util::checkbox('ptz_allowed');
                 $adminComment = trim((string)Util::post('admin_comment'));
                 $beforeUser = $id > 0 ? self::rowById('users', $id) : null;
                 $beforeGroupIds = $id > 0 ? self::linkedIds('user_groups', 'user_id', $id, 'group_id') : [];
@@ -43,21 +44,21 @@ trait UsersPages
                             if (strlen($password) < 6) {
                                 $message = self::t('users.passwordShort', 'Пароль должен быть не короче 6 символов');
                             } else {
-                                $pdo->prepare('UPDATE users SET login=?, password_hash=?, role=?, blocked=?, hide_archive=?, admin_comment=? WHERE id=?')
-                                    ->execute([$login, password_hash($password, PASSWORD_DEFAULT), $role, $blocked, $hideArchive, $adminComment, $id]);
+                                $pdo->prepare('UPDATE users SET login=?, password_hash=?, role=?, blocked=?, hide_archive=?, ptz_allowed=?, admin_comment=? WHERE id=?')
+                                    ->execute([$login, password_hash($password, PASSWORD_DEFAULT), $role, $blocked, $hideArchive, $ptzAllowed, $adminComment, $id]);
                             }
                         } else {
-                            $pdo->prepare('UPDATE users SET login=?, role=?, blocked=?, hide_archive=?, admin_comment=? WHERE id=?')
-                                ->execute([$login, $role, $blocked, $hideArchive, $adminComment, $id]);
+                            $pdo->prepare('UPDATE users SET login=?, role=?, blocked=?, hide_archive=?, ptz_allowed=?, admin_comment=? WHERE id=?')
+                                ->execute([$login, $role, $blocked, $hideArchive, $ptzAllowed, $adminComment, $id]);
                         }
                     } else {
-                        $pdo->prepare('INSERT INTO users(login, password_hash, role, blocked, hide_archive, admin_comment, daily_token, daily_token_date, created_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)')
-                            ->execute([$login, password_hash($password, PASSWORD_DEFAULT), $role, $blocked, $hideArchive, $adminComment, Util::randomToken(), TokenService::today(), Util::now()]);
+                        $pdo->prepare('INSERT INTO users(login, password_hash, role, blocked, hide_archive, ptz_allowed, admin_comment, daily_token, daily_token_date, created_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+                            ->execute([$login, password_hash($password, PASSWORD_DEFAULT), $role, $blocked, $hideArchive, $ptzAllowed, $adminComment, Util::randomToken(), TokenService::today(), Util::now()]);
                         $id = DB::lastInsertId('users');
                     }
                     if ($message === '') {
                         self::replaceLinks('user_groups', 'user_id', $id, 'group_id', $groupIds);
-                        $afterUser = self::rowById('users', $id) ?: ['login' => $login, 'role' => $role, 'blocked' => $blocked, 'hide_archive' => $hideArchive];
+                        $afterUser = self::rowById('users', $id) ?: ['login' => $login, 'role' => $role, 'blocked' => $blocked, 'hide_archive' => $hideArchive, 'ptz_allowed' => $ptzAllowed];
                         $afterGroupIds = self::linkedIds('user_groups', 'user_id', $id, 'group_id');
                         self::logUserSaveAudit(null, $id, $beforeUser, $afterUser, $beforeGroupIds, $afterGroupIds);
                         $message = self::t('users.saveDone', 'Пользователь сохранён');
@@ -95,9 +96,10 @@ trait UsersPages
             echo '<label>' . self::t('users.adminComment', 'Комментарий администратора') . '<textarea name="admin_comment" rows="3">' . Util::h($edit['admin_comment'] ?? '') . '</textarea></label>';
             echo '<label class="check"><input type="checkbox" name="blocked" ' . (!empty($edit['blocked']) ? 'checked' : '') . '> ' . self::t('users.blocked', 'Заблокирован') . '</label>';
             echo '<label class="check"><input type="checkbox" name="hide_archive" ' . (!empty($edit['hide_archive']) ? 'checked' : '') . '> ' . self::t('users.hideArchive', 'Скрывать архив') . '</label>';
+            echo '<label class="check"><input type="checkbox" name="ptz_allowed" ' . (!empty($edit['ptz_allowed']) ? 'checked' : '') . '> ' . self::t('users.ptzAllowed', 'Разрешить PTZ') . '</label>';
             self::groupCheckboxTree(self::t('groups.title', 'Группы'), 'group_ids[]', $groups, $linkedGroups, 'group_ids_json');
             echo '<div class="form-submit-row"><button type="submit" class="primary" data-submit-button>' . self::t('action.save', 'Сохранить') . '</button><div class="submit-progress" data-submit-status hidden role="status" aria-live="polite">' . Util::h($savingLabel) . '</div></div></form></section>';
-            self::table(self::t('users.title', 'Пользователи'), ['login', 'role', 'admin_comment', 'blocked', 'hide_archive', 'static_token_hash', 'last_login_at'], $users, '/admin/users', false, $list);
+            self::table(self::t('users.title', 'Пользователи'), ['login', 'role', 'admin_comment', 'blocked', 'hide_archive', 'ptz_allowed', 'static_token_hash', 'last_login_at'], $users, '/admin/users', false, $list);
             echo '</div>';
         });
     }

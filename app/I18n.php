@@ -1504,6 +1504,17 @@ final class I18n
         }
 
         foreach ([
+            'ru' => 'Разрешить PTZ', 'en' => 'Allow PTZ', 'de' => 'PTZ erlauben',
+            'fr' => 'Autoriser PTZ', 'es' => 'Permitir PTZ', 'it' => 'Consenti PTZ',
+            'pt' => 'Permitir PTZ', 'bg' => 'Разрешаване на PTZ', 'pl' => 'Zezwól na PTZ',
+            'zh' => '允许 PTZ', 'ja' => 'PTZ を許可', 'ko' => 'PTZ 허용',
+            'ar' => 'السماح بـ PTZ', 'hy' => 'Թույլատրել PTZ',
+        ] as $locale => $label) {
+            $messages[$locale]['users.ptzAllowed'] = $label;
+            $messages[$locale]['column.ptz_allowed'] = 'PTZ';
+        }
+
+        foreach ([
             'ru' => 'Скрывать архив',
             'en' => 'Hide archive',
             'de' => 'Archiv ausblenden',

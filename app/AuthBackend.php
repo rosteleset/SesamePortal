@@ -69,6 +69,11 @@ trait AuthBackend
         return (int)($user['hide_archive'] ?? 0) === 1;
     }
 
+    private static function userPtzAllowed(array $user): bool
+    {
+        return ($user['role'] ?? '') === 'admin' || (int)($user['ptz_allowed'] ?? 0) === 1;
+    }
+
     private static function authBackendArchiveRestriction(): string
     {
         $proto = strtolower(self::usableAuthValue($_GET['proto'] ?? ''));
@@ -130,7 +135,7 @@ trait AuthBackend
         $payload = $allowArchive ? [] : ['allowed_dvr_ranges' => []];
 
         if (self::authBackendPtzRequest()) {
-            $payload['ptz_allowed'] = true;
+            $payload['ptz_allowed'] = self::userPtzAllowed($user);
             $payload['user_id'] = (string)$user['id'];
         }
 

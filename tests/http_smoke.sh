@@ -472,6 +472,8 @@ printf "%s" "$admin_users_page" | grep -F -q 'data-submit-progress="Сохран
 printf "%s" "$admin_users_page" | grep -F -q 'data-submit-status'
 printf "%s" "$admin_users_page" | grep -F -q 'name="admin_comment"'
 printf "%s" "$admin_users_page" | grep -F -q 'name="hide_archive"'
+printf "%s" "$admin_users_page" | grep -F -q 'name="ptz_allowed"'
+printf "%s" "$admin_users_page" | grep -F -q '<th>PTZ</th>'
 printf "%s" "$admin_users_page" | grep -F -q 'name="group_id"'
 printf "%s" "$admin_users_page" | grep -q "Все группы"
 printf "%s" "$admin_users_page" | grep -F -q '<th>Комментарий администратора</th>'
@@ -506,6 +508,7 @@ api_admin_user="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/api/portal/
 printf "%s" "$api_admin_user" | php -r '$d=json_decode(stream_get_contents(STDIN), true); $ids=$d["user"]["groupIds"] ?? []; sort($ids); exit($ids === [1, 2] ? 0 : 1);'
 printf "%s" "$api_admin_user" | grep -q '"adminComment": "admin-only smoke note"'
 printf "%s" "$api_admin_user" | grep -q '"hideArchive": false'
+printf "%s" "$api_admin_user" | grep -q '"ptzAllowed": false'
 api_me_no_admin_comment="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/api/portal/v1/me")"
 ! printf "%s" "$api_me_no_admin_comment" | grep -q '"adminComment"'
 api_duplicate_user_status="$(
@@ -1391,7 +1394,19 @@ hidden_ptz="$(
   curl -fsS \
     "http://127.0.0.1:$PORT/api/sesamedvr/auth?token=NonAvailable&qs=$plain_qs&name=smoke-cam&proto=ptz&dvr=false"
 )"
-printf "%s" "$hidden_ptz" | php -r '$d=json_decode(stream_get_contents(STDIN), true); exit(($d["ptz_allowed"] ?? null) === true && ($d["user_id"] ?? null) === "2" && ($d["allowed_dvr_ranges"] ?? null) === [] ? 0 : 1);'
+printf "%s" "$hidden_ptz" | php -r '$d=json_decode(stream_get_contents(STDIN), true); exit(($d["ptz_allowed"] ?? null) === false && ($d["user_id"] ?? null) === "2" && ($d["allowed_dvr_ranges"] ?? null) === [] ? 0 : 1);'
+ptz_user="$(curl -fsS -b "$COOKIE_JAR" -X PATCH -H 'Content-Type: application/json' -d '{"ptzAllowed":true}' "http://127.0.0.1:$PORT/api/portal/v1/users/2")"
+printf "%s" "$ptz_user" | grep -q '"ptzAllowed": true'
+ptz_preserved="$(curl -fsS -b "$COOKIE_JAR" -X PATCH -H 'Content-Type: application/json' -d '{"adminComment":"ptz fixture"}' "http://127.0.0.1:$PORT/api/portal/v1/users/2")"
+printf "%s" "$ptz_preserved" | grep -q '"ptzAllowed": true'
+ptz_granted="$(curl -fsS "http://127.0.0.1:$PORT/api/sesamedvr/auth?token=sp_smoke_user_token&name=smoke-cam&proto=ptz")"
+printf "%s" "$ptz_granted" | php -r '$d=json_decode(stream_get_contents(STDIN), true); exit(($d["ptz_allowed"] ?? null) === true ? 0 : 1);'
+ptz_edit="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/admin/users?edit=2")"
+printf "%s" "$ptz_edit" | grep -F -q 'name="ptz_allowed" checked'
+ptz_revoked="$(curl -fsS -b "$COOKIE_JAR" -X PATCH -H 'Content-Type: application/json' -d '{"ptz_allowed":false}' "http://127.0.0.1:$PORT/api/portal/v1/users/2")"
+printf "%s" "$ptz_revoked" | grep -q '"ptzAllowed": false'
+ptz_denied_again="$(curl -fsS "http://127.0.0.1:$PORT/api/sesamedvr/auth?token=sp_smoke_user_token&name=smoke-cam&proto=ptz")"
+printf "%s" "$ptz_denied_again" | php -r '$d=json_decode(stream_get_contents(STDIN), true); exit(($d["ptz_allowed"] ?? null) === false ? 0 : 1);'
 hidden_live="$(
   curl -sS -o /dev/null -w '%{http_code}' \
     "http://127.0.0.1:$PORT/api/sesamedvr/auth?token=NonAvailable&qs=$plain_qs&name=smoke-cam&proto=hls&dvr=false"

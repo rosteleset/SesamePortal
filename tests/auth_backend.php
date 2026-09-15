@@ -49,12 +49,12 @@ function authRequest(array $params): array
     }
 }
 
-function allowedPtz(array $params, string $userId): array
+function allowedPtz(array $params, string $userId, bool $ptzAllowed = true): array
 {
     [$status, $body] = authRequest($params + ['proto' => 'ptz', 'name' => 'cam-1']);
     check($status === 200, 'Expected PTZ authorization');
     $payload = json_decode($body, true, 512, JSON_THROW_ON_ERROR);
-    check(($payload['ptz_allowed'] ?? null) === true, 'PTZ grant must be boolean true');
+    check(($payload['ptz_allowed'] ?? null) === $ptzAllowed, 'PTZ grant must match user permission');
     check(($payload['user_id'] ?? null) === $userId, 'Trusted stable string user ID');
     return $payload;
 }
@@ -82,9 +82,19 @@ for ($i = 1; $i <= 2; $i++) {
     $pdo->prepare('INSERT INTO camera_groups VALUES(?, ?)')->execute([$i, $i]);
 }
 
+// Simulate upgrading a database with existing users, then repeat the migration.
+$pdo->exec('ALTER TABLE users DROP COLUMN ptz_allowed');
+DB::migrate();
+check((int)$pdo->query('SELECT SUM(ptz_allowed) FROM users')->fetchColumn() === 0, 'Existing users default to PTZ off');
 foreach (['daily-admin', 'sp_admin'] as $token) {
     allowedPtz(['token' => $token], '1');
 }
+foreach (['daily-viewer', 'sp_viewer'] as $token) {
+    allowedPtz(['token' => $token, 'ptz_allowed' => 'true', 'role' => 'admin'], '2', false);
+}
+$pdo->exec('UPDATE users SET ptz_allowed = 1 WHERE id = 2');
+DB::migrate();
+check((int)$pdo->query('SELECT ptz_allowed FROM users WHERE id = 2')->fetchColumn() === 1, 'Repeated migration preserves explicit PTZ permission');
 foreach (['daily-viewer', 'sp_viewer'] as $token) {
     $payload = allowedPtz(['token' => $token, 'user_id' => 'forged-admin'], '2');
     check(array_keys($payload) === ['ptz_allowed', 'user_id'], 'No credentials in PTZ response');
@@ -105,6 +115,11 @@ foreach (['player', 'hls', 'webrtc', ''] as $proto) {
 }
 
 $pdo->exec('UPDATE users SET hide_archive = 1 WHERE id = 2');
+$pdo->exec('UPDATE users SET ptz_allowed = 0 WHERE id = 2');
+$payload = allowedPtz(['token' => 'daily-viewer'], '2', false);
+check(($payload['allowed_dvr_ranges'] ?? null) === [], 'PTZ denial preserves archive restriction');
+allowedPtz(['token' => 'sp_viewer', 'uri' => '/cam-1/timeline_ranges.json'], '2', false);
+$pdo->exec('UPDATE users SET ptz_allowed = 1 WHERE id = 2');
 $payload = allowedPtz(['token' => 'daily-viewer'], '2');
 check(($payload['allowed_dvr_ranges'] ?? null) === [], 'PTZ must preserve archive restriction');
 check(!isset($payload['playerOverlays']), 'Player overlays do not belong in PTZ replies');
