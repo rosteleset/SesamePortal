@@ -73,6 +73,16 @@ final class DB
         foreach (self::schemaStatements() as $statement) {
             $pdo->exec($statement);
         }
+        $pdo->exec('CREATE TABLE IF NOT EXISTS rbt_authbackend_secrets (
+            dvr_ref VARCHAR(259) NOT NULL,
+            secret_id BIGINT NOT NULL,
+            rbt_id VARCHAR(128) NOT NULL,
+            secret_enc TEXT NOT NULL,
+            valid_from BIGINT NOT NULL,
+            expires_at BIGINT NOT NULL,
+            PRIMARY KEY (dvr_ref, secret_id)
+        )');
+        self::ensureIndex('rbt_authbackend_secrets', 'idx_rbt_authbackend_expires', 'expires_at');
         VideoWalls::migrate();
         self::ensureIndex('video_walls', 'idx_video_walls_user', 'user_id');
 

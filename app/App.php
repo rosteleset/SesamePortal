@@ -46,6 +46,12 @@ final class App
     public static function run(): void
     {
         DB::migrate();
+        $path = Util::path();
+        // Machine API: authenticate its Bearer credential, without browser session/CSRF.
+        if ($path === RbtAuthBackend::REGISTRATION_PATH) {
+            self::registerRbtSecret();
+            return;
+        }
         Auth::start();
         Csrf::verify();
         I18n::bootstrap();

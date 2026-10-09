@@ -19,6 +19,7 @@ final class Cli
         'video_walls',
         'audit_logs',
         'portal_settings',
+        'rbt_authbackend_secrets',
     ];
 
     public static function run(array $argv): void
@@ -55,6 +56,15 @@ final class Cli
         if ($command === 'rotate-tokens') {
             $count = TokenService::rotateAll();
             echo "rotated {$count} users\n";
+            // The existing daily cron also cleans up expired RBT signing secrets.
+            $removed = RbtAuthBackend::cleanup();
+            echo "removed {$removed} expired RBT secrets\n";
+            return;
+        }
+
+        if ($command === 'cleanup-rbt-secrets') {
+            $count = RbtAuthBackend::cleanup();
+            echo "removed {$count} expired RBT secrets\n";
             return;
         }
 
@@ -86,7 +96,7 @@ final class Cli
             return;
         }
 
-        echo "commands: migrate, create-admin, rotate-tokens, rotate-secrets, backup, restore\n";
+        echo "commands: migrate, create-admin, rotate-tokens, rotate-secrets, cleanup-rbt-secrets, backup, restore\n";
     }
 
     private static function rotateSecrets(): int
@@ -110,7 +120,7 @@ final class Cli
             $count++;
         }
 
-        return $count;
+        return $count + RbtAuthBackend::rotateEncryption();
     }
 
     private static function backup(string $path): void

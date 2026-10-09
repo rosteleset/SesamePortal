@@ -1,0 +1,234 @@
+# Авторизация RBT-token через SesamePortal
+
+RBT локально вычисляет персональный токен для пары `{subscriberId, поток}`.
+Portal получает только секреты streamer при ротации. Обращений к Portal при
+формировании списка камер и таблицы пользовательских токенов нет.
+
+## Настройка RBT
+
+В `backends.dvr.servers[]` для streamer типа `sesame` или `flussonic`:
+
+```json
+{
+  "type": "sesame",
+  "url": "https://video.example.org:443",
+  "authbackend": {
+    "url": "https://portal.example.org/api/rbt/v1/secrets",
+    "management_token": "<индивидуальный management_token RBT>",
+    "rotation_interval": 43200,
+    "secret_ttl": 86400
+  }
+}
+```
+
+Непустой `authbackend.url` включает режим. Отдельный флаг не используется.
+Параметры `management_token` самого DVR и `authbackend.management_token`
+независимы. Интервал и TTL задаются в секундах; значения по умолчанию — 43200
+и 86400. Минимальный интервал — 120 секунд для ежеминутного cron, TTL строго
+больше интервала. Нужны 64-битный PHP, phpredis и cURL.
+
+`dvr_ref` вычисляется из `server.url`: hostname в нижнем регистре без конечной
+точки, явный порт (HTTP: 80, HTTPS: 443). IPv6 приводится к сжатой записи в
+квадратных скобках. Разные DNS-псевдонимы автоматически не объединяются.
+
+## Настройка Portal и DVR
+
+Добавьте в конфигурацию Portal:
+
+```php
+'rbt_authbackend' => [
+    'clients' => [
+        'rbt-main' => [
+            'management_token_hash' => '<sha256 management_token RBT>',
+            'disabled' => false,
+        ],
+    ],
+    'dvrs' => [
+        'video.example.org:443' => [
+            'token_hash' => '<sha256 индивидуального dvr_token>',
+            'disabled' => false,
+        ],
+    ],
+],
+```
+
+Используйте независимые случайные токены минимум из 32 случайных байт;
+в Portal сохраняются их SHA-256 в виде 64 строчных hex-символов. Один
+management_token идентифицирует один RBT; один dvr_token — один DVR.
+Например, локально на сервере можно создать токен и вычислить его хеш:
+
+```php
+$token = bin2hex(random_bytes(32));
+$hash = hash('sha256', $token);
+```
+
+У всех DVR общий callback `/api/sesamedvr/auth`. В настройке SesameDVR
+`authBackendUrl` укажите:
+
+```text
+https://portal.example.org/api/sesamedvr/auth?dvr_token=<индивидуальный токен DVR>
+```
+
+SesameDVR сохраняет исходный параметр и добавляет `name`, `token` и остальные
+параметры проверки. `dvr_token` не передаётся мобильному приложению. Portal
+определяет DVR по этому серверному токену; поле `host` запроса не используется
+для выбора секрета. Доработка SesameDVR для такого транспорта не требуется.
+
+RBT доверен как администратор: регистрация не проверяет существование камеры
+или абонента в Portal. Действующий токен разрешает live, архив и превью только
+указанного потока на указанном DVR. PTZ этим токеном не предоставляется.
+Обычные пользовательские токены Portal продолжают проверяться прежним способом.
+
+### IP whitelist в nginx
+
+Новый installer добавляет отдельный `location = /api/rbt/v1/secrets`, который
+передаёт запрос непосредственно в PHP-FPM, и файл
+`/etc/nginx/snippets/sesame-portal-rbt-allow.conf`. По умолчанию доступ закрыт.
+Добавьте исходящие IP/CIDR RBT перед `deny all`:
+
+```nginx
+allow 192.0.2.10;
+deny all;
+```
+
+Используйте HTTPS. При наличии доверенного reverse proxy настройте nginx
+real IP только для этого proxy. Portal не доверяет клиентским заголовкам для
+проверки whitelist и сам whitelist не реализует.
+
+Обновление только PHP-кода через updater не меняет существующий nginx site.
+Для такой установки добавьте в HTTPS server block (пути адаптируйте):
+
+```nginx
+location = /api/rbt/v1/secrets {
+    allow 192.0.2.10;
+    deny all;
+    client_max_body_size 4k;
+    include fastcgi_params;
+    fastcgi_param SCRIPT_FILENAME /opt/sesame-portal/current/public/index.php;
+    fastcgi_param HTTPS on;
+    fastcgi_param SESAME_PORTAL_STATE_DIR /var/lib/sesame-portal;
+    fastcgi_param SESAME_PORTAL_CONFIG /var/lib/sesame-portal/config.php;
+    fastcgi_pass unix:/run/php/php8.2-fpm.sock;
+}
+```
+
+Не используйте для этого location внутренний redirect через `try_files`:
+он может перевести обработку в другой location без IP-ограничений. Уберите
+query string из access log callback `/api/sesamedvr/auth` либо отключите его
+access log: URL содержит серверный и пользовательский токены.
+
+## Регистрация секрета
+
+`POST /api/rbt/v1/secrets`, `Authorization: Bearer <management_token>`,
+`Content-Type: application/json` (до 4096 байт):
+
+```json
+{
+  "dvr_ref": "video.example.org:443",
+  "secret_id": 12345678,
+  "secret": "<стандартный Base64 от 32 случайных байт>",
+  "valid_from": 1791583200,
+  "ttl": 86400
+}
+```
+
+Времена в примере иллюстративные. `valid_from` — Unix timestamp в секундах,
+может быть в будущем. `secret_id` — целое от 1 до 4294967295.
+`expires_at = valid_from + ttl`, время регистрации не влияет на этот срок.
+
+Ответ `200`:
+
+```json
+{
+  "registered": true,
+  "dvr_ref": "video.example.org:443",
+  "secret_id": 12345678,
+  "valid_from": 1791583200,
+  "expires_at": 1791669600
+}
+```
+
+Повтор с теми же параметрами и от того же RBT возвращает тот же результат.
+Другой секрет, владелец или сроки для занятого `(dvr_ref, secret_id)` дают
+`409`; RBT выберет другой ID на следующем cron. Остальные ответы: `401` —
+авторизация, `405` — метод, `413` — размер, `415` — формат, `400/422` —
+некорректные данные, `503` — временная ошибка хранения. Истёкшие секреты не
+регистрируются. Секрет и management_token не возвращаются и не логируются.
+
+## Redis и ротация
+
+Существующий `cli.php --cron=minutely` вызывает DVR backend. Он заранее
+регистрирует следующий секрет за `min(600, rotation_interval / 2)` секунд
+до переключения. Если зарегистрированного секрета ещё нет, создаёт его с
+`valid_from = now`. Секрет сохраняется до HTTP-запроса:
+
+```text
+rbt:dvr:<hostname:port>:authbackend:secret:<secret_id>
+    secret_id, secret (Base64), valid_from, issue_until, expires_at,
+    registered=false|true, context
+rbt:dvr:<hostname:port>:authbackend:current_secret_id
+rbt:dvr:<hostname:port>:authbackend:next_secret_id
+```
+
+`registered=false` соответствует pending. В `context` хранится хеш адреса
+Portal и management_token: изменение адреса или учётных данных требует новой
+регистрации. Сами учётные данные в эти Redis-записи не копируются.
+Redis должен быть общим для процессов одного RBT; отдельные установки RBT
+должны использовать отдельный Redis/DB для этого пространства ключей.
+
+Запись и её `EXPIREAT` устанавливаются атомарно. Срок не продлевается при
+чтении. `issue_until = valid_from + rotation_interval` и `expires_at`
+фиксируются при создании; изменение настроек применяется к новым секретам.
+Cron повторяет pending-регистрацию, затем помечает её подтверждённой и
+переключает указатель. При границе интервала getter может прочитать уже
+подтверждённый следующий секрет до очередного cron: сетевого вызова нет.
+Внутри одного запроса подтверждённый секрет кешируется на streamer до
+`issue_until`, поэтому список камер не вызывает Redis-запрос на каждую камеру.
+
+Избыточные секреты при параллельном cron допустимы; Portal хранит все
+неистёкшие. Если нет подтверждённого секрета в интервале выдачи, RBT возвращает
+ошибку `rbt_authbackend_secret_unavailable`; перехода на статический токен нет.
+Выданные ранее токены продолжают проверяться до `expires_at`.
+
+## Формат R1
+
+Токен — 41 ASCII-символ:
+
+```text
+R1. + Base64URL_without_padding(header || mac)
+header = uint32_be(secret_id) || uint64_be(subscriberId)     # 12 байт
+message = ASCII("R1.") || header || uint16_be(byte_length(name)) || UTF8(name)
+mac = first_16_bytes(HMAC-SHA256(secret, message))           # 16 байт
+```
+
+Для служебного `subscriberId=-1` UID равен `0xffffffffffffffff`.
+Положительные subscriberId берутся из существующей авторизации RBT.
+RBT использует первый компонент пути `dvrStream`, декодирует percent-encoding
+ровно один раз. Portal берёт уже декодированное PHP значение `name`, без
+повторного декодирования, basename, изменения регистра или удаления слешей.
+Имя: до 128 байт, первая буква/цифра, затем буквы/цифры/`.`/`_`/`-`;
+поддерживаются Unicode-буквы и цифры старых потоков. Host, порт, завершающий
+слеш, путь HLS/архива и query string в HMAC не входят. DVR ограничивается
+выбором секрета по аутентифицированному `dvr_ref`.
+
+Portal требует точный формат, канонический Base64URL, действующий секрет и
+сравнивает MAC через `hash_equals`. UID не является пользователем Portal.
+Это bearer-токен: передача действующего токена другому человеку всё ещё даёт
+доступ к этому потоку до истечения срока; HMAC ограничивает подделку и область
+доступа, но не запрещает копирование токена.
+
+## Хранение и включение
+
+Portal хранит секреты в `rbt_authbackend_secrets` (SQLite/PostgreSQL/MySQL),
+в зашифрованном виде через существующий `Crypto`. Проверка времени выполняется
+при каждом обращении к authbackend независимо от очистки. Кеш разрешений и
+уже открытые соединения самого DVR могут жить по его отдельным правилам.
+Существующий ежедневный `rotate-tokens` удаляет истёкшие строки. Для отдельного
+расписания есть `php bin/portal cleanup-rbt-secrets`. Таблица включена в
+backup/restore, а `rotate-secrets` также меняет ключ шифрования этих секретов.
+
+Порядок включения: настройте credentials Portal и nginx, затем конфигурацию
+RBT и запустите существующий minutely cron для первой регистрации. После
+этого включайте authBackend на DVR. Восстановление Redis потребует новой
+регистрации через cron. Удаление/отключение клиента RBT или DVR в конфигурации
+Portal прекращает новые успешные проверки его RBT-токенов.

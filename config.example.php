@@ -11,6 +11,16 @@ return [
     'locale' => 'ru',
     'base_url' => 'https://portal.example.com',
     'auth_backend_path' => '/api/sesamedvr/auth',
+    // RBT management credentials and DVR callback credentials are independent.
+    // Store lowercase SHA-256 hashes of high-entropy tokens here, not signing keys.
+    'rbt_authbackend' => [
+        'clients' => [
+            // 'rbt-main' => ['management_token_hash' => '<sha256>', 'disabled' => false],
+        ],
+        'dvrs' => [
+            // 'video.example.org:443' => ['token_hash' => '<sha256-of-dvr_token>', 'disabled' => false],
+        ],
+    ],
     'portal_update_enabled' => true,
     'portal_update_github_repo' => 'rosteleset/SesamePortal',
     'portal_update_github_ref' => 'main',

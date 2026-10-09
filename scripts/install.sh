@@ -16,6 +16,7 @@ INSTALL_COMPLETE=0
 STAGING_DIR=""
 NGINX_AVAILABLE="/etc/nginx/sites-available/sesame-portal.conf"
 NGINX_ENABLED="/etc/nginx/sites-enabled/sesame-portal.conf"
+RBT_ALLOW_FILE="/etc/nginx/snippets/sesame-portal-rbt-allow.conf"
 CRON_FILE="/etc/cron.d/sesame-portal"
 SUPPORT_TOOL="/usr/local/sbin/sesame-portal-update"
 SUDOERS_FILE="/etc/sudoers.d/sesame-portal-update"
@@ -215,6 +216,7 @@ return [
     'locale' => 'ru',
     'base_url' => '$scheme://$DOMAIN',
     'auth_backend_path' => '/api/sesamedvr/auth',
+    'rbt_authbackend' => ['clients' => [], 'dvrs' => []],
     'crypto_primary_key' => 'primary',
     'crypto_keys' => [
         'primary' => '$crypto_secret',
@@ -250,8 +252,21 @@ run_portal_cli() {
     php "$INSTALL_DIR/bin/portal" "$@"
 }
 
+ensure_rbt_allow_file() {
+  install -d -m 0755 "$(dirname "$RBT_ALLOW_FILE")"
+  if [[ ! -f "$RBT_ALLOW_FILE" ]]; then
+    cat > "$RBT_ALLOW_FILE" <<'ALLOW'
+# Add the source IP/CIDR of each RBT before the deny rule, then reload nginx.
+# allow 192.0.2.10;
+deny all;
+ALLOW
+    chmod 0644 "$RBT_ALLOW_FILE"
+  fi
+}
+
 write_nginx_http() {
   local fpm="$1"
+  ensure_rbt_allow_file
   cat > "$NGINX_AVAILABLE" <<NGINX
 server {
     listen 80;
@@ -260,6 +275,26 @@ server {
 
     root $INSTALL_DIR/public;
     index index.php;
+
+    location = /api/rbt/v1/secrets {
+        include $RBT_ALLOW_FILE;
+        client_max_body_size 4k;
+        include fastcgi_params;
+        fastcgi_param SCRIPT_FILENAME $INSTALL_DIR/public/index.php;
+        fastcgi_param SESAME_PORTAL_STATE_DIR "$STATE_DIR";
+        fastcgi_param SESAME_PORTAL_CONFIG "$STATE_DIR/config.php";
+        fastcgi_pass $fpm;
+    }
+
+    location = /api/sesamedvr/auth {
+        # Query parameters contain playback tokens and the DVR credential.
+        access_log off;
+        include fastcgi_params;
+        fastcgi_param SCRIPT_FILENAME $INSTALL_DIR/public/index.php;
+        fastcgi_param SESAME_PORTAL_STATE_DIR "$STATE_DIR";
+        fastcgi_param SESAME_PORTAL_CONFIG "$STATE_DIR/config.php";
+        fastcgi_pass $fpm;
+    }
 
     location / {
         try_files \$uri /index.php?\$query_string;
@@ -278,6 +313,7 @@ NGINX
 
 write_nginx_https() {
   local fpm="$1"
+  ensure_rbt_allow_file
   cat > "$NGINX_AVAILABLE" <<NGINX
 server {
     listen 80;
@@ -296,6 +332,28 @@ server {
 
     root $INSTALL_DIR/public;
     index index.php;
+
+    location = /api/rbt/v1/secrets {
+        include $RBT_ALLOW_FILE;
+        client_max_body_size 4k;
+        include fastcgi_params;
+        fastcgi_param SCRIPT_FILENAME $INSTALL_DIR/public/index.php;
+        fastcgi_param HTTPS on;
+        fastcgi_param SESAME_PORTAL_STATE_DIR "$STATE_DIR";
+        fastcgi_param SESAME_PORTAL_CONFIG "$STATE_DIR/config.php";
+        fastcgi_pass $fpm;
+    }
+
+    location = /api/sesamedvr/auth {
+        # Query parameters contain playback tokens and the DVR credential.
+        access_log off;
+        include fastcgi_params;
+        fastcgi_param SCRIPT_FILENAME $INSTALL_DIR/public/index.php;
+        fastcgi_param HTTPS on;
+        fastcgi_param SESAME_PORTAL_STATE_DIR "$STATE_DIR";
+        fastcgi_param SESAME_PORTAL_CONFIG "$STATE_DIR/config.php";
+        fastcgi_pass $fpm;
+    }
 
     location / {
         try_files \$uri /index.php?\$query_string;
