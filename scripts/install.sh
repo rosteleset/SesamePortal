@@ -216,7 +216,7 @@ return [
     'locale' => 'ru',
     'base_url' => '$scheme://$DOMAIN',
     'auth_backend_path' => '/api/sesamedvr/auth',
-    'rbt_authbackend' => ['clients' => [], 'dvrs' => []],
+    'rbt_authbackend' => ['clients' => []],
     'crypto_primary_key' => 'primary',
     'crypto_keys' => [
         'primary' => '$crypto_secret',
@@ -287,7 +287,7 @@ server {
     }
 
     location = /api/sesamedvr/auth {
-        # Query parameters contain playback tokens and the DVR credential.
+        # Query parameters contain playback tokens.
         access_log off;
         include fastcgi_params;
         fastcgi_param SCRIPT_FILENAME $INSTALL_DIR/public/index.php;
@@ -345,7 +345,7 @@ server {
     }
 
     location = /api/sesamedvr/auth {
-        # Query parameters contain playback tokens and the DVR credential.
+        # Query parameters contain playback tokens.
         access_log off;
         include fastcgi_params;
         fastcgi_param SCRIPT_FILENAME $INSTALL_DIR/public/index.php;

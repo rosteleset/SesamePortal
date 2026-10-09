@@ -7,25 +7,16 @@ final class RbtToken
 {
     const PREFIX = 'R1.';
 
-    public static function dvrRef($url)
+    public static function streamerKey($url)
     {
         $parts = is_string($url) ? parse_url($url) : false;
         $scheme = strtolower($parts['scheme'] ?? '');
         if (!$parts || !in_array($scheme, ['http', 'https'], true) || empty($parts['host'])) {
             throw new \InvalidArgumentException('invalid_dvr_url');
         }
-        $host = strtolower($parts['host']);
-        if (substr($host, 0, 1) === '[') {
-            $ip = substr($host, 1, -1);
-            if (!filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV6)) {
-                throw new \InvalidArgumentException('invalid_dvr_host');
-            }
-            $host = '[' . inet_ntop(inet_pton($ip)) . ']';
-        } else {
-            $host = rtrim($host, '.');
-            if (strlen($host) > 253 || !preg_match('/\A[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?\z/', $host)) {
-                throw new \InvalidArgumentException('invalid_dvr_host');
-            }
+        $host = self::hostnameFromUrl($url);
+        if (strpos($host, ':') !== false) {
+            $host = '[' . $host . ']';
         }
         $port = $parts['port'] ?? ($scheme === 'https' ? 443 : 80);
         if ($port < 1 || $port > 65535) {
@@ -34,12 +25,47 @@ final class RbtToken
         return $host . ':' . $port;
     }
 
-    public static function canonicalDvrRef($ref)
+    public static function hostnameFromUrl($url)
     {
-        if (!is_string($ref) || strlen($ref) > 259 || $ref !== self::dvrRef('http://' . $ref)) {
-            throw new \InvalidArgumentException('dvr_ref_must_be_canonical_hostname_port');
+        $parts = is_string($url) ? parse_url($url) : false;
+        if (!$parts || !in_array(strtolower($parts['scheme'] ?? ''), ['http', 'https'], true)) {
+            throw new \InvalidArgumentException('invalid_stream_url');
         }
-        return $ref;
+        return self::canonicalHostname($parts['host'] ?? '');
+    }
+
+    public static function hostnameFromRequest($host)
+    {
+        if (!is_string($host) || $host === '' || strlen($host) > 259) {
+            throw new \InvalidArgumentException('invalid_dvr_host');
+        }
+        if (filter_var($host, FILTER_VALIDATE_IP, FILTER_FLAG_IPV6)) {
+            return self::canonicalHostname($host);
+        }
+        $parts = parse_url('http://' . $host);
+        if (!$parts || isset($parts['user']) || isset($parts['pass'])
+            || isset($parts['path']) || isset($parts['query']) || isset($parts['fragment'])) {
+            throw new \InvalidArgumentException('invalid_dvr_host');
+        }
+        return self::canonicalHostname($parts['host'] ?? '');
+    }
+
+    private static function canonicalHostname($host)
+    {
+        if (!is_string($host)) {
+            throw new \InvalidArgumentException('invalid_dvr_host');
+        }
+        if (substr($host, 0, 1) === '[' && substr($host, -1) === ']') {
+            $host = substr($host, 1, -1);
+        }
+        if (filter_var($host, FILTER_VALIDATE_IP, FILTER_FLAG_IPV6)) {
+            return inet_ntop(inet_pton($host));
+        }
+        $host = strtolower(rtrim($host, '.'));
+        if (strlen($host) > 253 || !preg_match('/\A[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?\z/', $host)) {
+            throw new \InvalidArgumentException('invalid_dvr_host');
+        }
+        return $host;
     }
 
     public static function validStreamName($name)
@@ -61,7 +87,7 @@ final class RbtToken
         return $name;
     }
 
-    public static function create($secret, $secretId, $subscriberId, $streamName)
+    public static function create($secret, $secretId, $subscriberId, $hostname, $streamName)
     {
         if (PHP_INT_SIZE < 8 || !is_string($secret) || strlen($secret) !== 32
             || !is_int($secretId) || $secretId < 1 || $secretId > 4294967295
@@ -74,7 +100,7 @@ final class RbtToken
             throw new \InvalidArgumentException('invalid_subscriber_id');
         }
         $header = pack('N', $secretId) . pack('J', $uid);
-        $mac = self::mac($secret, $header, $streamName);
+        $mac = self::mac($secret, $header, self::canonicalHostname($hostname), $streamName);
         return self::PREFIX . self::base64Url($header . $mac);
     }
 
@@ -94,16 +120,19 @@ final class RbtToken
         return ['secret_id' => $id, 'header' => substr($raw, 0, 12), 'mac' => substr($raw, 12)];
     }
 
-    public static function verify($parsed, $secret, $streamName)
+    public static function verify($parsed, $secret, $hostname, $streamName)
     {
         return is_array($parsed) && is_string($secret) && strlen($secret) === 32
             && self::validStreamName($streamName)
-            && hash_equals(self::mac($secret, $parsed['header'], $streamName), $parsed['mac']);
+            && hash_equals(self::mac($secret, $parsed['header'], self::canonicalHostname($hostname), $streamName), $parsed['mac']);
     }
 
-    private static function mac($secret, $header, $streamName)
+    private static function mac($secret, $header, $hostname, $streamName)
     {
-        return substr(hash_hmac('sha256', self::PREFIX . $header . pack('n', strlen($streamName)) . $streamName, $secret, true), 0, 16);
+        $message = self::PREFIX . $header
+            . pack('n', strlen($hostname)) . $hostname
+            . pack('n', strlen($streamName)) . $streamName;
+        return substr(hash_hmac('sha256', $message, $secret, true), 0, 16);
     }
 
     private static function base64Url($raw)

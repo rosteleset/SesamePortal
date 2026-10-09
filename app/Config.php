@@ -39,7 +39,7 @@ final class Config
             'locale' => getenv('SESAME_PORTAL_LOCALE') ?: 'ru',
             'base_url' => getenv('SESAME_PORTAL_BASE_URL') ?: '',
             'auth_backend_path' => '/api/sesamedvr/auth',
-            'rbt_authbackend' => ['clients' => [], 'dvrs' => []],
+            'rbt_authbackend' => ['clients' => []],
             'portal_update_enabled' => getenv('SESAME_PORTAL_UPDATE_ENABLED') !== '0',
             'portal_update_github_repo' => getenv('SESAME_PORTAL_UPDATE_GITHUB_REPO') ?: 'rosteleset/SesamePortal',
             'portal_update_github_ref' => getenv('SESAME_PORTAL_UPDATE_GITHUB_REF') ?: 'main',

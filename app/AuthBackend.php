@@ -108,12 +108,11 @@ trait AuthBackend
     private static function authBackendRbtToken(string $token): void
     {
         header('Cache-Control: no-store');
-        // Only this top-level parameter is the configured DVR credential. Never
-        // extract it from qs/uri, which are supplied by the playback client.
-        $dvrToken = is_string($_GET['dvr_token'] ?? null) ? $_GET['dvr_token'] : '';
+        // Use callback metadata, never a URL/hostname nested in the client's qs.
+        $host = is_string($_GET['host'] ?? null) ? $_GET['host'] : '';
         $name = is_string($_GET['name'] ?? null) ? $_GET['name'] : '';
         try {
-            $allowed = RbtAuthBackend::authorize($token, $dvrToken, $name);
+            $allowed = RbtAuthBackend::authorize($token, $host, $name);
         } catch (\Throwable $error) {
             error_log('SesamePortal RBT playback authorization unavailable');
             $allowed = false;

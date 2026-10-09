@@ -74,13 +74,11 @@ final class DB
             $pdo->exec($statement);
         }
         $pdo->exec('CREATE TABLE IF NOT EXISTS rbt_authbackend_secrets (
-            dvr_ref VARCHAR(259) NOT NULL,
-            secret_id BIGINT NOT NULL,
+            secret_id BIGINT NOT NULL PRIMARY KEY,
             rbt_id VARCHAR(128) NOT NULL,
             secret_enc TEXT NOT NULL,
             valid_from BIGINT NOT NULL,
-            expires_at BIGINT NOT NULL,
-            PRIMARY KEY (dvr_ref, secret_id)
+            expires_at BIGINT NOT NULL
         )');
         self::ensureIndex('rbt_authbackend_secrets', 'idx_rbt_authbackend_expires', 'expires_at');
         VideoWalls::migrate();
