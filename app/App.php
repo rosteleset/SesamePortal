@@ -49,14 +49,13 @@ final class App
         $path = Util::path();
         // Machine API: authenticate its Bearer credential, without browser session/CSRF.
         if ($path === RbtAuthBackend::REGISTRATION_PATH) {
-            self::registerRbtSecret();
-            return;
+            [$status, $payload] = RbtAuthBackend::registerRequest();
+            self::apiJson($payload, $status);
         }
         Auth::start();
         Csrf::verify();
         I18n::bootstrap();
 
-        $path = Util::path();
         if ($path === '/api/portal/v1' || str_starts_with($path, '/api/portal/v1/')) {
             self::apiPortalV1();
             return;

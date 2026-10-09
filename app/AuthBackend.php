@@ -6,53 +6,14 @@ namespace SesamePortal;
 
 trait AuthBackend
 {
-    private static function registerRbtSecret(): void
-    {
-        if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST') {
-            header('Allow: POST');
-            self::apiError(405, 'method_not_allowed', 'Use POST');
-            return;
-        }
-        $authorization = (string)($_SERVER['HTTP_AUTHORIZATION'] ?? $_SERVER['REDIRECT_HTTP_AUTHORIZATION'] ?? '');
-        $token = preg_match('/\ABearer ([^\s]+)\z/i', $authorization, $matches) ? $matches[1] : '';
-        $client = RbtAuthBackend::managementClient($token);
-        if ($client === null) {
-            self::apiError(401, 'unauthorized', 'A valid RBT management token is required');
-            return;
-        }
-        if (strtolower(trim(explode(';', (string)($_SERVER['CONTENT_TYPE'] ?? ''))[0])) !== 'application/json') {
-            self::apiError(415, 'unsupported_media_type', 'Use application/json');
-            return;
-        }
-        $raw = file_get_contents('php://input', false, null, 0, 4097);
-        if ($raw === false || strlen($raw) > 4096) {
-            self::apiError(413, 'request_too_large', 'Maximum request size is 4096 bytes');
-            return;
-        }
-        $input = json_decode($raw, true);
-        if (!is_array($input) || array_is_list($input)) {
-            self::apiError(400, 'invalid_json', 'Expected a JSON object');
-            return;
-        }
-        try {
-            self::apiJson(RbtAuthBackend::register($client, $input));
-        } catch (\InvalidArgumentException $error) {
-            self::apiError(422, 'invalid_registration', $error->getMessage());
-        } catch (\Throwable $error) {
-            if ($error->getCode() === 409) {
-                self::apiError(409, 'secret_id_conflict', 'This secret_id is already registered with different parameters');
-            }
-            // Never expose SQL values, request bodies or credentials in errors.
-            error_log('SesamePortal RBT secret registration failed');
-            self::apiError(503, 'registration_unavailable', 'Secret registration is temporarily unavailable');
-        }
-    }
-
     private static function authBackend(): void
     {
         $token = self::playbackTokenFromAuthRequest();
-        if (str_starts_with($token, RbtToken::PREFIX)) {
-            self::authBackendRbtToken($token);
+        if (str_starts_with($token, RbtAuthBackend::PREFIX)) {
+            [$status, $body] = RbtAuthBackend::playbackResponse($token, self::authBackendPtzRequest());
+            header('Cache-Control: no-store');
+            http_response_code($status);
+            echo $body;
             return;
         }
         $cameraName = self::cameraNameFromAuthRequest();
@@ -103,32 +64,6 @@ trait AuthBackend
         } else {
             echo "ok\n";
         }
-    }
-
-    private static function authBackendRbtToken(string $token): void
-    {
-        header('Cache-Control: no-store');
-        // Use callback metadata, never a URL/hostname nested in the client's qs.
-        $host = is_string($_GET['host'] ?? null) ? $_GET['host'] : '';
-        $name = is_string($_GET['name'] ?? null) ? $_GET['name'] : '';
-        try {
-            $allowed = RbtAuthBackend::authorize($token, $host, $name);
-        } catch (\Throwable $error) {
-            error_log('SesamePortal RBT playback authorization unavailable');
-            $allowed = false;
-        }
-        if (!$allowed) {
-            http_response_code(403);
-            echo "denied\n";
-            return;
-        }
-        // A playback token does not grant PTZ capabilities.
-        if (self::authBackendPtzRequest()) {
-            http_response_code(403);
-            echo "ptz_denied\n";
-            return;
-        }
-        echo "ok\n";
     }
 
     private static function authBackendAllowsUnknownCamera(?array $staticUser): bool

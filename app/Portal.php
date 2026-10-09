@@ -16,7 +16,6 @@ require_once __DIR__ . '/I18n.php';
 require_once __DIR__ . '/Crypto.php';
 require_once __DIR__ . '/Audit.php';
 require_once __DIR__ . '/TokenService.php';
-require_once __DIR__ . '/RbtToken.php';
 require_once __DIR__ . '/RbtAuthBackend.php';
 require_once __DIR__ . '/Auth.php';
 require_once __DIR__ . '/Csrf.php';

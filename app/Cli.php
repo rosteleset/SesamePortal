@@ -62,12 +62,6 @@ final class Cli
             return;
         }
 
-        if ($command === 'cleanup-rbt-secrets') {
-            $count = RbtAuthBackend::cleanup();
-            echo "removed {$count} expired RBT secrets\n";
-            return;
-        }
-
         if ($command === 'rotate-secrets') {
             $count = self::rotateSecrets();
             echo "rotated {$count} encrypted secrets\n";
@@ -96,7 +90,7 @@ final class Cli
             return;
         }
 
-        echo "commands: migrate, create-admin, rotate-tokens, rotate-secrets, cleanup-rbt-secrets, backup, restore\n";
+        echo "commands: migrate, create-admin, rotate-tokens, rotate-secrets, backup, restore\n";
     }
 
     private static function rotateSecrets(): int
