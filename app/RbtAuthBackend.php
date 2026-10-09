@@ -56,13 +56,13 @@ final class RbtAuthBackend
         // INSERT-if-absent followed by comparison makes retries and concurrent
         // registration safe without renewing expiry or replacing another key.
         $stmt = DB::pdo()->prepare(DB::insertIgnoreSql(self::TABLE, [
-            'secret_id', 'rbt_id', 'secret_enc', 'valid_from', 'expires_at',
+            'secret_id', 'rbt_id', 'secret', 'valid_from', 'expires_at',
         ]));
-        $stmt->execute([$id, $clientId, Crypto::encrypt($secret), $from, $expires]);
+        $stmt->execute([$id, $clientId, $encoded, $from, $expires]);
         $stored = self::findSecret($id);
         if (!$stored || $stored['rbt_id'] !== $clientId
             || (int)$stored['valid_from'] !== $from || (int)$stored['expires_at'] !== $expires
-            || !hash_equals(Crypto::decrypt($stored['secret_enc']), $secret)) {
+            || !hash_equals($stored['secret'], $encoded)) {
             throw new RuntimeException('secret_id_conflict', 409);
         }
         return [
@@ -91,7 +91,7 @@ final class RbtAuthBackend
         }
         // Bind the MAC to the callback's hostname and stream name. Portal does
         // not maintain an inventory of RBT's DVRs, cameras or subscribers.
-        return RbtToken::verify($parsed, Crypto::decrypt($stored['secret_enc']), $hostname, $streamName);
+        return RbtToken::verify($parsed, base64_decode($stored['secret'], true), $hostname, $streamName);
     }
 
     public static function cleanup(): int
@@ -99,24 +99,6 @@ final class RbtAuthBackend
         $stmt = DB::pdo()->prepare('DELETE FROM ' . self::TABLE . ' WHERE expires_at <= ?');
         $stmt->execute([time()]);
         return $stmt->rowCount();
-    }
-
-    public static function rotateEncryption(): int
-    {
-        $rows = DB::pdo()->query('SELECT secret_id, secret_enc FROM ' . self::TABLE)->fetchAll();
-        $update = DB::pdo()->prepare('UPDATE ' . self::TABLE . ' SET secret_enc = ? WHERE secret_id = ?');
-        $count = 0;
-        foreach ($rows as $row) {
-            if (!Crypto::needsRotation($row['secret_enc'])) {
-                continue;
-            }
-            $plain = Crypto::decrypt($row['secret_enc']);
-            if (strlen($plain) === 32) {
-                $update->execute([Crypto::encrypt($plain), $row['secret_id']]);
-                $count++;
-            }
-        }
-        return $count;
     }
 
     private static function findSecret(int $id): ?array

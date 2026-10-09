@@ -207,7 +207,7 @@ php bin/portal backup /path/to/backup.json
 php bin/portal restore /path/to/backup.json
 ```
 
-`rotate-secrets` re-encrypts stored SesameDVR management tokens and RBT signing secrets with the
+`rotate-secrets` re-encrypts stored SesameDVR management tokens with the
 configured `crypto_primary_key` while preserving access to older key ids for
 rotation windows.
 

@@ -76,7 +76,7 @@ final class DB
         $pdo->exec('CREATE TABLE IF NOT EXISTS rbt_authbackend_secrets (
             secret_id BIGINT NOT NULL PRIMARY KEY,
             rbt_id VARCHAR(128) NOT NULL,
-            secret_enc TEXT NOT NULL,
+            secret TEXT NOT NULL,
             valid_from BIGINT NOT NULL,
             expires_at BIGINT NOT NULL
         )');

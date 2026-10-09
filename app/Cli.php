@@ -120,7 +120,7 @@ final class Cli
             $count++;
         }
 
-        return $count + RbtAuthBackend::rotateEncryption();
+        return $count;
     }
 
     private static function backup(string $path): void
