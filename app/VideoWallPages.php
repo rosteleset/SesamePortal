@@ -176,7 +176,13 @@ trait VideoWallPages
     {
         $ids = VideoWalls::ids($wall);
         $cameras = VideoWalls::cameras($user, $ids);
-        $archiveAllowed = !self::userArchiveHidden($user);
+        $archiveAllowed = false;
+        foreach ($ids as $wallCameraId) {
+            if ($wallCameraId > 0 && !Repo::cameraArchiveHiddenForUser($user, $wallCameraId)) {
+                $archiveAllowed = true;
+                break;
+            }
+        }
         self::layout($wall['name'], function () use ($wall, $ids, $cameras, $user, $archiveAllowed): void {
             if (isset($_GET['saved'])) {
                 self::notice(self::wt('saved'), 'success');
@@ -268,7 +274,7 @@ trait VideoWallPages
             $extra += ['controller_id' => $channel, 'controller_origin' => self::videoWallOrigin(self::absolutePortalUrl('/')), 'controller_version' => '1'];
         }
         header('Referrer-Policy: no-referrer');
-        header('Location: ' . self::embedUrl($camera, (string)$user['daily_token'], '', '', '', '', !self::userArchiveHidden($user), $extra), true, 302);
+        header('Location: ' . self::embedUrl($camera, (string)$user['daily_token'], '', '', '', '', !Repo::cameraArchiveHiddenForUser($user, $cameraId), $extra), true, 302);
     }
 
     private static function videoWallOrigin(string $url): string

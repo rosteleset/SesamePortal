@@ -12,7 +12,7 @@ final class DB
      * Bump this whenever a migration is added to runMigrations().
      * The web bootstrap skips migrations while the stored version matches.
      */
-    private const SCHEMA_VERSION = 1;
+    private const SCHEMA_VERSION = 2;
 
     private const MIGRATION_LOCK_ID = 8675309;
 
@@ -179,7 +179,6 @@ final class DB
 
         self::ensureColumn('users', 'admin_comment', 'TEXT');
         self::ensureColumn('users', 'static_token_enc', 'TEXT');
-        self::ensureColumn('users', 'hide_archive', 'INTEGER NOT NULL DEFAULT 0');
         self::ensureColumn('users', 'mosaic_columns', 'INTEGER NOT NULL DEFAULT 3');
         self::ensureColumn('users', 'read_only', 'INTEGER NOT NULL DEFAULT 0');
         self::migrateUsersReadOnly();
@@ -203,6 +202,8 @@ final class DB
         self::ensureIndex('group_folders', 'idx_group_folders_group', 'group_id');
         self::ensureIndex('camera_folders', 'idx_camera_folders_folder', 'folder_id');
         self::ensureIndex('user_folders', 'idx_user_folders_folder', 'folder_id');
+        self::ensureColumn('user_folders', 'hide_archive', 'INTEGER NOT NULL DEFAULT 0');
+        self::migrateUsersHideArchive();
         self::ensureIndex('portal_groups', 'idx_portal_groups_parent', 'parent_group_id');
         self::ensureIndex('favorites', 'idx_favorites_user', 'user_id');
         self::ensureIndex('cameras_mosaic', 'idx_cameras_mosaic_user', 'user_id');
@@ -394,7 +395,6 @@ final class DB
                 static_token_hash TEXT,
                 static_token_enc TEXT,
                 admin_comment TEXT,
-                hide_archive INTEGER NOT NULL DEFAULT 0,
                 mosaic_columns INTEGER NOT NULL DEFAULT 3,
                 read_only INTEGER NOT NULL DEFAULT 0,
                 email TEXT,
@@ -434,6 +434,7 @@ final class DB
             'CREATE TABLE IF NOT EXISTS user_folders (
                 user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
                 folder_id INTEGER NOT NULL REFERENCES group_folders(id) ON DELETE CASCADE,
+                hide_archive INTEGER NOT NULL DEFAULT 0,
                 PRIMARY KEY (user_id, folder_id)
             )',
             'CREATE TABLE IF NOT EXISTS dvr_servers (
@@ -558,7 +559,6 @@ final class DB
                 static_token_hash TEXT,
                 static_token_enc TEXT,
                 admin_comment TEXT,
-                hide_archive INTEGER NOT NULL DEFAULT 0,
                 mosaic_columns INTEGER NOT NULL DEFAULT 3,
                 read_only INTEGER NOT NULL DEFAULT 0,
                 email TEXT,
@@ -598,6 +598,7 @@ final class DB
             'CREATE TABLE IF NOT EXISTS user_folders (
                 user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
                 folder_id BIGINT NOT NULL REFERENCES group_folders(id) ON DELETE CASCADE,
+                hide_archive INTEGER NOT NULL DEFAULT 0,
                 PRIMARY KEY (user_id, folder_id)
             )',
             'CREATE TABLE IF NOT EXISTS dvr_servers (
@@ -723,7 +724,6 @@ final class DB
                 static_token_hash VARCHAR(255),
                 static_token_enc TEXT,
                 admin_comment TEXT,
-                hide_archive INTEGER NOT NULL DEFAULT 0,
                 mosaic_columns INTEGER NOT NULL DEFAULT 3,
                 read_only INTEGER NOT NULL DEFAULT 0,
                 email TEXT,
@@ -766,6 +766,7 @@ final class DB
             "CREATE TABLE IF NOT EXISTS user_folders (
                 user_id BIGINT NOT NULL,
                 folder_id BIGINT NOT NULL,
+                hide_archive INTEGER NOT NULL DEFAULT 0,
                 PRIMARY KEY (user_id, folder_id),
                 CONSTRAINT fk_user_folders_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
                 CONSTRAINT fk_user_folders_folder FOREIGN KEY (folder_id) REFERENCES group_folders(id) ON DELETE CASCADE
@@ -1205,6 +1206,20 @@ final class DB
      * включены ОБА старых флага; всем остальным выставляется read_only = 1.
      * Затем старые колонки удаляются. Для новой БД без старых колонок — no-op.
      */
+    /**
+     * Глобальный флаг users.hide_archive заменяется колонкой user_folders.hide_archive.
+     * У кого стоял глобальный флаг — проставляем ограничение на все его папки.
+     * Для новой БД без старой колонки — no-op.
+     */
+    private static function migrateUsersHideArchive(): void
+    {
+        $pdo = self::pdo();
+        if (self::columnExists('users', 'hide_archive')) {
+            $pdo->exec('UPDATE user_folders SET hide_archive = 1 WHERE user_id IN (SELECT id FROM users WHERE hide_archive = 1)');
+            $pdo->exec('ALTER TABLE users DROP COLUMN hide_archive');
+        }
+    }
+
     private static function migrateUsersReadOnly(): void
     {
         $pdo = self::pdo();

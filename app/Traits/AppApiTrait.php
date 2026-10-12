@@ -832,10 +832,6 @@ trait AppApiTrait
         $password = (string)($input['password'] ?? '');
         $role = ($input['role'] ?? ($current['role'] ?? 'user')) === 'admin' ? 'admin' : 'user';
         $blocked = self::apiBlockedValue($input, $current);
-        $hideArchive =
-            array_key_exists('hideArchive', $input) || array_key_exists('hide_archive', $input)
-                ? (self::apiBool($input['hideArchive'] ?? $input['hide_archive']) ? 1 : 0)
-                : (int)($current['hide_archive'] ?? 0);
         $readOnly =
             array_key_exists('readOnly', $input) || array_key_exists('read_only', $input)
                 ? (self::apiBool($input['readOnly'] ?? $input['read_only']) ? 1 : 0)
@@ -866,8 +862,17 @@ trait AppApiTrait
         } else {
             $folderIds = null;
         }
+        if (array_key_exists('archiveHiddenFolderIds', $input)) {
+            $archiveHiddenFolderIds = self::apiIntArray($input['archiveHiddenFolderIds'] ?? []);
+            self::apiValidateExistingIds('archiveHiddenFolderIds', 'group_folders', $archiveHiddenFolderIds);
+            $effectiveFolderIds = $folderIds ?? ($id > 0 ? self::linkedIds('user_folders', 'user_id', $id, 'folder_id') : []);
+            $archiveHiddenFolderIds = array_values(array_intersect($archiveHiddenFolderIds, $effectiveFolderIds));
+        } else {
+            $archiveHiddenFolderIds = null;
+        }
 
         $beforeFolderIds = $id > 0 ? self::linkedIds('user_folders', 'user_id', $id, 'folder_id') : [];
+        $beforeArchiveHiddenFolderIds = $id > 0 ? self::userArchiveHiddenFolderIds($id) : [];
         $pdo = DB::pdo();
         $pdo->beginTransaction();
         try {
@@ -880,19 +885,22 @@ trait AppApiTrait
                         self::apiError(422, 'validation_failed', 'password must be at least 6 characters');
                         return;
                     }
-                    $pdo->prepare('UPDATE users SET login=?, phone=?, password_hash=?, role=?, blocked=?, hide_archive=?, read_only=?, admin_comment=? WHERE id=?')
-                        ->execute([$login, $phone, password_hash($password, PASSWORD_DEFAULT), $role, $blocked, $hideArchive, $readOnly, $adminComment, $id]);
+                    $pdo->prepare('UPDATE users SET login=?, phone=?, password_hash=?, role=?, blocked=?, read_only=?, admin_comment=? WHERE id=?')
+                        ->execute([$login, $phone, password_hash($password, PASSWORD_DEFAULT), $role, $blocked, $readOnly, $adminComment, $id]);
                 } else {
-                    $pdo->prepare('UPDATE users SET login=?, phone=?, role=?, blocked=?, hide_archive=?, read_only=?, admin_comment=? WHERE id=?')
-                        ->execute([$login, $phone, $role, $blocked, $hideArchive, $readOnly, $adminComment, $id]);
+                    $pdo->prepare('UPDATE users SET login=?, phone=?, role=?, blocked=?, read_only=?, admin_comment=? WHERE id=?')
+                        ->execute([$login, $phone, $role, $blocked, $readOnly, $adminComment, $id]);
                 }
             } else {
-                $pdo->prepare('INSERT INTO users(login, phone, password_hash, role, blocked, hide_archive, read_only, admin_comment, daily_token, daily_token_date, created_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
-                    ->execute([$login, $phone, password_hash($password, PASSWORD_DEFAULT), $role, $blocked, $hideArchive, $readOnly, $adminComment, Util::randomToken(), TokenService::today(), Util::now()]);
+                $pdo->prepare('INSERT INTO users(login, phone, password_hash, role, blocked, read_only, admin_comment, daily_token, daily_token_date, created_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+                    ->execute([$login, $phone, password_hash($password, PASSWORD_DEFAULT), $role, $blocked, $readOnly, $adminComment, Util::randomToken(), TokenService::today(), Util::now()]);
                 $id = DB::lastInsertId('users');
             }
             if ($folderIds !== null) {
                 self::replaceLinks('user_folders', 'user_id', $id, 'folder_id', $folderIds);
+            }
+            if ($archiveHiddenFolderIds !== null) {
+                self::setUserFoldersArchiveHidden($id, $archiveHiddenFolderIds);
             }
             $pdo->commit();
         } catch (\Throwable $error) {
@@ -905,9 +913,10 @@ trait AppApiTrait
             }
             throw $error;
         }
-        $after = self::rowById('users', $id) ?: ['login' => $login, 'phone' => $phone, 'role' => $role, 'blocked' => $blocked, 'hide_archive' => $hideArchive];
+        $after = self::rowById('users', $id) ?: ['login' => $login, 'phone' => $phone, 'role' => $role, 'blocked' => $blocked];
         $afterFolderIds = self::linkedIds('user_folders', 'user_id', $id, 'folder_id');
-        self::logUserSaveAudit($actor, $id, $current, $after, $beforeFolderIds, $afterFolderIds);
+        $afterArchiveHiddenFolderIds = self::userArchiveHiddenFolderIds($id);
+        self::logUserSaveAudit($actor, $id, $current, $after, $beforeFolderIds, $afterFolderIds, $beforeArchiveHiddenFolderIds, $afterArchiveHiddenFolderIds);
         self::apiJson(['user' => self::apiUserRow($after, true, true)], $current ? 200 : 201);
     }
 
@@ -929,9 +938,9 @@ trait AppApiTrait
                 || str_contains($message, 'for key "login"'));
     }
 
-    private static function logUserSaveAudit(?array $actor, int $userId, ?array $before, array $after, array $beforeGroupIds, array $afterGroupIds): void
+    private static function logUserSaveAudit(?array $actor, int $userId, ?array $before, array $after, array $beforeGroupIds, array $afterGroupIds, array $beforeArchiveHidden = [], array $afterArchiveHidden = []): void
     {
-        $details = self::userSaveAuditDetails($userId, $before, $after, $beforeGroupIds, $afterGroupIds);
+        $details = self::userSaveAuditDetails($userId, $before, $after, $beforeGroupIds, $afterGroupIds, $beforeArchiveHidden, $afterArchiveHidden);
         $actorId = $actor['id'] ?? null;
         if ($actorId !== null) {
             Audit::logForUser($actorId, 'user.save', $details);
@@ -940,15 +949,15 @@ trait AppApiTrait
         Audit::log('user.save', $details);
     }
 
-    private static function userSaveAuditDetails(int $userId, ?array $before, array $after, array $beforeGroupIds, array $afterGroupIds): string
+    private static function userSaveAuditDetails(int $userId, ?array $before, array $after, array $beforeGroupIds, array $afterGroupIds, array $beforeArchiveHidden = [], array $afterArchiveHidden = []): string
     {
         return implode(' ', [
             'user_id=' . $userId,
             'login=' . self::auditFieldTransition($before, $after, 'login'),
             'role=' . self::auditFieldTransition($before, $after, 'role'),
             'blocked=' . self::auditFieldTransition($before, $after, 'blocked', true),
-            'hide_archive=' . self::auditFieldTransition($before, $after, 'hide_archive', true),
             'groups=' . self::auditIdList($beforeGroupIds) . '->' . self::auditIdList($afterGroupIds),
+            'archive_hidden_folders=' . self::auditIdList($beforeArchiveHidden) . '->' . self::auditIdList($afterArchiveHidden),
             'ip=' . Audit::clientIp(),
         ]);
     }
@@ -1902,7 +1911,6 @@ trait AppApiTrait
             'phone' => (string)($user['phone'] ?? ''),
             'role' => (string)$user['role'],
             'blocked' => (int)($user['blocked'] ?? 0) === 1,
-            'hideArchive' => (int)($user['hide_archive'] ?? 0) === 1,
             'readOnly' => (int)($user['read_only'] ?? 0) === 1,
             'hasStaticToken' => !empty($user['static_token_hash']),
             'createdAt' => $user['created_at'] ?? null,
@@ -1913,6 +1921,7 @@ trait AppApiTrait
         }
         if ($detailed) {
             $row['folderIds'] = self::linkedIds('user_folders', 'user_id', (int)$user['id'], 'folder_id');
+            $row['archiveHiddenFolderIds'] = self::userArchiveHiddenFolderIds((int)$user['id']);
         }
         return $row;
     }

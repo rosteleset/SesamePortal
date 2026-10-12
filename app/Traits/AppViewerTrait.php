@@ -202,8 +202,8 @@ trait AppViewerTrait
             self::t('action.back', 'Назад'),
             $settingsUrl,
             self::t('settings.title', 'Настройки'),
-            !self::userArchiveHidden($user),
-            self::playerArchiveTimeQuery($user, (string)($_GET['start'] ?? ''), (string)($_GET['end'] ?? ''))
+            !Repo::cameraArchiveHiddenForUser($user, $cameraId),
+            self::playerArchiveTimeQuery($user, $cameraId, (string)($_GET['start'] ?? ''), (string)($_GET['end'] ?? ''))
         );
         $watermarkLogin = (int)($camera['watermark_enabled'] ?? 0) === 1 ? (string)$user['login'] : '';
         $watermarkAlpha = number_format(self::watermarkIntensity($camera['watermark_intensity'] ?? 16) / 100, 2, '.', '');
@@ -248,7 +248,7 @@ trait AppViewerTrait
 
         $ts = (int)($_GET['ts'] ?? 0);
         if ($ts > 0) {
-            if (self::userArchiveHidden($user)) {
+            if (Repo::cameraArchiveHiddenForUser($user, $cameraId)) {
                 http_response_code(404);
                 echo 'Not found';
                 return;
@@ -283,7 +283,6 @@ trait AppViewerTrait
     private static function events(): void
     {
         $user = Auth::requireLogin();
-        $archiveHidden = self::userArchiveHidden($user);
 
         $cameraId = max(0, (int)($_GET['cameraId'] ?? 0));
         $page = max(1, (int)($_GET['page'] ?? 1));
@@ -307,42 +306,42 @@ trait AppViewerTrait
         }
 
         $events = [];
-        $cameras = [];
-        if (!$archiveHidden) {
-            $cameras = Repo::accessibleCameras($user, 'all', $searchQuery);
-            foreach ($cameras as $camera) {
-                if ($cameraId > 0 && (int)$camera['id'] !== $cameraId) {
-                    continue;
-                }
-                if (!Repo::cameraAllowedForUser($user, (int)$camera['id'])) {
-                    continue;
-                }
-                $serverId = (int)($camera['server_id'] ?? 0);
-                $stream = trim((string)($camera['dvr_stream_name'] ?? ''));
-                if ($serverId <= 0 || $stream === '') {
-                    continue;
-                }
-                $result = DvrClient::motionEvents($serverId, $stream, $from, $to);
-                if (empty($result['ok'])) {
-                    continue;
-                }
-                foreach ($result['intervals'] ?? [] as $interval) {
-                    if ((int)($interval['from'] ?? 0) <= 0) {
-                        continue;
-                    }
-                    $events[] = [
-                        'cameraId' => (int)$camera['id'],
-                        'cameraName' => (string)($camera['name'] ?? $stream),
-                        'stream' => $stream,
-                        'from' => (int)$interval['from'],
-                        'to' => (int)($interval['to'] ?? $interval['from']),
-                        'duration' => (int)($interval['duration'] ?? 0),
-                        'state' => (string)($interval['state'] ?? 'motion'),
-                    ];
-                }
+        $cameras = Repo::accessibleCameras($user, 'all', $searchQuery);
+        foreach ($cameras as $camera) {
+            if ($cameraId > 0 && (int)$camera['id'] !== $cameraId) {
+                continue;
             }
-            usort($events, static fn(array $a, array $b): int => $b['from'] <=> $a['from']);
+            if (!Repo::cameraAllowedForUser($user, (int)$camera['id'])) {
+                continue;
+            }
+            if (Repo::cameraArchiveHiddenForUser($user, (int)$camera['id'])) {
+                continue;
+            }
+            $serverId = (int)($camera['server_id'] ?? 0);
+            $stream = trim((string)($camera['dvr_stream_name'] ?? ''));
+            if ($serverId <= 0 || $stream === '') {
+                continue;
+            }
+            $result = DvrClient::motionEvents($serverId, $stream, $from, $to);
+            if (empty($result['ok'])) {
+                continue;
+            }
+            foreach ($result['intervals'] ?? [] as $interval) {
+                if ((int)($interval['from'] ?? 0) <= 0) {
+                    continue;
+                }
+                $events[] = [
+                    'cameraId' => (int)$camera['id'],
+                    'cameraName' => (string)($camera['name'] ?? $stream),
+                    'stream' => $stream,
+                    'from' => (int)$interval['from'],
+                    'to' => (int)($interval['to'] ?? $interval['from']),
+                    'duration' => (int)($interval['duration'] ?? 0),
+                    'state' => (string)($interval['state'] ?? 'motion'),
+                ];
+            }
         }
+        usort($events, static fn(array $a, array $b): int => $b['from'] <=> $a['from']);
 
         $total = count($events);
         $pages = max(1, (int)ceil($total / $pageSize));
@@ -430,9 +429,9 @@ trait AppViewerTrait
         return min(48, max(12, (int)($_GET['pageSize'] ?? 24)));
     }
 
-    private static function playerArchiveTimeQuery(array $user, string $start, string $end): array
+    private static function playerArchiveTimeQuery(array $user, int $cameraId, string $start, string $end): array
     {
-        if (self::userArchiveHidden($user)) {
+        if (Repo::cameraArchiveHiddenForUser($user, $cameraId)) {
             return [];
         }
 

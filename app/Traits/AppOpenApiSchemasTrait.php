@@ -487,7 +487,6 @@ trait AppOpenApiSchemasTrait
             'phone' => ['type' => 'string', 'description' => 'Normalised phone number, or an empty string when not set.'],
             'role' => ['type' => 'string', 'enum' => ['user', 'admin']],
             'blocked' => ['type' => 'boolean'],
-            'hideArchive' => ['type' => 'boolean', 'description' => 'When true the user does not see archive playback.'],
             'readOnly' => ['type' => 'boolean'],
             'hasStaticToken' => ['type' => 'boolean', 'description' => 'Whether a static token is issued. The token itself is only returned by the static-token endpoint.'],
             'createdAt' => ['type' => 'string', 'nullable' => true],
@@ -498,6 +497,7 @@ trait AppOpenApiSchemasTrait
         }
         if ($withFolders) {
             $properties['folderIds'] = ['type' => 'array', 'items' => ['type' => 'integer'], 'description' => 'Folders that define what this user can see.'];
+            $properties['archiveHiddenFolderIds'] = ['type' => 'array', 'items' => ['type' => 'integer'], 'description' => 'Subset of folderIds where archive playback is hidden (online-only cameras).'];
         }
         return [
             'type' => 'object',
@@ -521,13 +521,17 @@ trait AppOpenApiSchemasTrait
                 'role' => ['type' => 'string', 'enum' => ['user', 'admin'], 'default' => 'user'],
                 'phone' => ['type' => 'string', 'description' => 'Must normalise to a valid Russian number; an empty string clears it.'],
                 'blocked' => ['type' => 'boolean'],
-                'hideArchive' => ['type' => 'boolean'],
                 'readOnly' => ['type' => 'boolean'],
                 'adminComment' => ['type' => 'string'],
                 'folderIds' => [
                     'type' => 'array',
                     'items' => ['type' => 'integer', 'minimum' => 1],
                     'description' => 'Replaces the folder links of the user when present.',
+                ],
+                'archiveHiddenFolderIds' => [
+                    'type' => 'array',
+                    'items' => ['type' => 'integer', 'minimum' => 1],
+                    'description' => 'Subset of folderIds where archive playback is hidden. Omitted keeps the current flags.',
                 ],
             ],
         ];

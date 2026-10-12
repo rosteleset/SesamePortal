@@ -380,6 +380,26 @@ trait AppDataTrait
         return array_map('intval', array_column($stmt->fetchAll(), $targetKey));
     }
 
+    private static function userArchiveHiddenFolderIds(int $userId): array
+    {
+        $stmt = DB::pdo()->prepare('SELECT folder_id FROM user_folders WHERE user_id = ? AND hide_archive = 1');
+        $stmt->execute([$userId]);
+        return array_map('intval', array_column($stmt->fetchAll(), 'folder_id'));
+    }
+
+    private static function setUserFoldersArchiveHidden(int $userId, array $hiddenFolderIds): void
+    {
+        $pdo = DB::pdo();
+        $pdo->prepare('UPDATE user_folders SET hide_archive = 0 WHERE user_id = ?')->execute([$userId]);
+        $hiddenFolderIds = array_map('intval', $hiddenFolderIds);
+        if ($hiddenFolderIds === []) {
+            return;
+        }
+        $pdo->prepare(
+            'UPDATE user_folders SET hide_archive = 1 WHERE user_id = ? AND folder_id IN (' . implode(', ', array_fill(0, count($hiddenFolderIds), '?')) . ')'
+        )->execute([$userId, ...$hiddenFolderIds]);
+    }
+
     private static function randomActiveServerId(): ?int
     {
         $servers = DB::pdo()->query('SELECT id FROM dvr_servers WHERE blocked = 0 ORDER BY ' . DB::randomOrderSql() . ' LIMIT 1')->fetchAll();

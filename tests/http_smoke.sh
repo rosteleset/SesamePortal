@@ -16,13 +16,15 @@ ADMIN_PW="$(rand_secret 20)"
 PLAIN_PW="$(rand_secret 20)"
 NEW_PW="$(rand_secret 20)"
 PLAIN_TOKEN="$(rand_secret 24)"
+MIXED_TOKEN="$(rand_secret 24)"
+MIXED_PW="$(rand_secret 20)"
 TEST_SECRET="$(rand_secret 20)"
 MGMT_LEGACY="$(rand_secret 20)"
 MGMT_IMPORT="$(rand_secret 20)"
 SMTP_PW="$(rand_secret 20)"
 API_PW="$(rand_secret 20)"
 ONVIF_PW="$(rand_secret 20)"
-export ADMIN_PW PLAIN_PW NEW_PW PLAIN_TOKEN TEST_SECRET MGMT_LEGACY MGMT_IMPORT SMTP_PW API_PW ONVIF_PW
+export ADMIN_PW PLAIN_PW NEW_PW PLAIN_TOKEN MIXED_TOKEN MIXED_PW TEST_SECRET MGMT_LEGACY MGMT_IMPORT SMTP_PW API_PW ONVIF_PW
 
 cleanup() {
   if [[ -n "${SERVER_PID:-}" ]]; then
@@ -95,6 +97,65 @@ echo (string)$stmt->fetchColumn();
 PHP
   )"
   test "$sqlite_duplicate_group_migration" = "2"
+
+  OLD_HIDE_STATE="$STATE_DIR/old-hide-archive"
+  mkdir -p "$OLD_HIDE_STATE"
+  sqlite_hide_archive_migration="$(
+    SESAME_PORTAL_STATE_DIR="$OLD_HIDE_STATE" SESAME_PORTAL_SECRET="$TEST_SECRET" php <<'PHP'
+<?php
+require getenv('ROOT') . '/app/Portal.php';
+$pdo = \SesamePortal\DB::pdo();
+$now = \SesamePortal\Util::now();
+$pdo->exec('CREATE TABLE portal_groups (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    parent_group_id INTEGER REFERENCES portal_groups(id) ON DELETE SET NULL,
+    name TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT "",
+    blocked INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL
+)');
+$pdo->exec('CREATE TABLE group_folders (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    group_id INTEGER NOT NULL REFERENCES portal_groups(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT "",
+    blocked INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL
+)');
+$pdo->exec('CREATE TABLE users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    login TEXT NOT NULL UNIQUE,
+    password_hash TEXT NOT NULL,
+    role TEXT NOT NULL,
+    blocked INTEGER NOT NULL DEFAULT 0,
+    hide_archive INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL
+)');
+$pdo->exec('CREATE TABLE user_folders (
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    folder_id INTEGER NOT NULL REFERENCES group_folders(id) ON DELETE CASCADE,
+    PRIMARY KEY (user_id, folder_id)
+)');
+$pdo->prepare('INSERT INTO portal_groups(name, description, blocked, created_at) VALUES(?, ?, ?, ?)')
+    ->execute(['Hide Group', 'hide archive migration', 0, $now]);
+$pdo->prepare('INSERT INTO group_folders(group_id, name, description, blocked, created_at) VALUES(?, ?, ?, ?, ?)')
+    ->execute([1, 'Hide Folder', 'hide archive folder', 0, $now]);
+$pdo->prepare('INSERT INTO users(login, password_hash, role, blocked, hide_archive, created_at) VALUES(?, ?, ?, ?, ?, ?)')
+    ->execute(['hide-migrator', 'x', 'user', 0, 1, $now]);
+$pdo->prepare('INSERT INTO user_folders(user_id, folder_id) VALUES(?, ?)')
+    ->execute([1, 1]);
+\SesamePortal\DB::migrate();
+$hidden = (int)$pdo->query('SELECT hide_archive FROM user_folders WHERE user_id = 1')->fetchColumn();
+try {
+    $pdo->query('SELECT hide_archive FROM users WHERE id = 1');
+    $usersHide = true;
+} catch (\Throwable) {
+    $usersHide = false;
+}
+echo $hidden . ($usersHide ? 'column-kept' : 'column-dropped');
+PHP
+  )"
+  test "$sqlite_hide_archive_migration" = "1column-dropped"
 fi
 
 php "$ROOT/bin/portal" migrate >/dev/null
@@ -200,12 +261,40 @@ $pdo->prepare('INSERT INTO camera_folders(camera_id, folder_id) VALUES(?, ?)')
 $pdo->prepare('INSERT INTO users(login, password_hash, role, blocked, static_token_hash, created_at) VALUES(?, ?, ?, ?, ?, ?)')
     ->execute(['plain-user', password_hash(getenv('PLAIN_PW'), PASSWORD_DEFAULT), 'user', 0, password_hash(getenv('PLAIN_TOKEN'), PASSWORD_DEFAULT), $now]);
 $plainUserId = \SesamePortal\DB::lastInsertId('users');
-$pdo->prepare('UPDATE users SET hide_archive = 1 WHERE id = ?')
-    ->execute([$plainUserId]);
 $pdo->prepare('UPDATE users SET read_only = 0 WHERE id = ?')
     ->execute([$plainUserId]);
 $pdo->prepare('INSERT INTO user_folders(user_id, folder_id) VALUES(?, ?)')
     ->execute([$plainUserId, $smokeFolder1]);
+$pdo->prepare('UPDATE user_folders SET hide_archive = 1 WHERE user_id = ? AND folder_id = ?')
+    ->execute([$plainUserId, $smokeFolder1]);
+$pdo->prepare('INSERT INTO portal_groups(name, description, blocked, created_at) VALUES(?, ?, ?, ?)')
+    ->execute(['Mixed Group', 'mixed archive access group', 0, $now]);
+$mixedGroupId = \SesamePortal\DB::lastInsertId('portal_groups');
+$pdo->prepare('INSERT INTO group_folders(group_id, name, description, blocked, created_at) VALUES(?, ?, ?, ?, ?)')
+    ->execute([$mixedGroupId, 'Mixed Restricted', 'archive hidden', 0, $now]);
+$mixedRestrictedFolder = \SesamePortal\DB::lastInsertId('group_folders');
+$pdo->prepare('INSERT INTO group_folders(group_id, name, description, blocked, created_at) VALUES(?, ?, ?, ?, ?)')
+    ->execute([$mixedGroupId, 'Mixed Open', 'archive allowed', 0, $now]);
+$mixedOpenFolder = \SesamePortal\DB::lastInsertId('group_folders');
+$pdo->prepare('INSERT INTO cameras(name, source_url, server_id, server_selection, retention_days, dvr_stream_name, created_at, updated_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?)')
+    ->execute(['ZZ Mixed Restricted Cam', 'rtsp://example.invalid/mixed-restricted', 1, 'manual', '1d', 'mixed-restricted-cam', $now, $now]);
+$mixedRestrictedCameraId = \SesamePortal\DB::lastInsertId('cameras');
+$pdo->prepare('INSERT INTO cameras(name, source_url, server_id, server_selection, retention_days, dvr_stream_name, created_at, updated_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?)')
+    ->execute(['ZZ Mixed Shared Cam', 'rtsp://example.invalid/mixed-shared', 1, 'manual', '1d', 'mixed-shared-cam', $now, $now]);
+$mixedSharedCameraId = \SesamePortal\DB::lastInsertId('cameras');
+$pdo->prepare('INSERT INTO camera_folders(camera_id, folder_id) VALUES(?, ?)')
+    ->execute([$mixedRestrictedCameraId, $mixedRestrictedFolder]);
+$pdo->prepare('INSERT INTO camera_folders(camera_id, folder_id) VALUES(?, ?)')
+    ->execute([$mixedSharedCameraId, $mixedRestrictedFolder]);
+$pdo->prepare('INSERT INTO camera_folders(camera_id, folder_id) VALUES(?, ?)')
+    ->execute([$mixedSharedCameraId, $mixedOpenFolder]);
+$pdo->prepare('INSERT INTO users(login, password_hash, role, blocked, static_token_hash, created_at) VALUES(?, ?, ?, ?, ?, ?)')
+    ->execute(['mixed-user', password_hash(getenv('MIXED_PW'), PASSWORD_DEFAULT), 'user', 0, password_hash(getenv('MIXED_TOKEN'), PASSWORD_DEFAULT), $now]);
+$mixedUserId = \SesamePortal\DB::lastInsertId('users');
+$pdo->prepare('INSERT INTO user_folders(user_id, folder_id, hide_archive) VALUES(?, ?, 1)')
+    ->execute([$mixedUserId, $mixedRestrictedFolder]);
+$pdo->prepare('INSERT INTO user_folders(user_id, folder_id, hide_archive) VALUES(?, ?, 0)')
+    ->execute([$mixedUserId, $mixedOpenFolder]);
 \SesamePortal\DvrClient::syncCamera(2);
 $pdo->prepare('INSERT INTO audit_logs(actor_user_id, action, details, created_at) VALUES(?, ?, ?, ?)')
     ->execute([1, 'camera.save', 'camera_id=1 sync=ok', $now]);
@@ -502,12 +591,14 @@ printf "%s" "$admin_users_page" | grep -F -q 'data-submit-progress="Сохран
 printf "%s" "$admin_users_page" | grep -F -q 'data-submit-status'
 printf "%s" "$admin_users_page" | grep -F -q 'name="admin_comment"'
 printf "%s" "$admin_users_page" | grep -F -q 'name="phone"'
-printf "%s" "$admin_users_page" | grep -F -q 'name="hide_archive"'
+printf "%s" "$admin_users_page" | grep -F -q 'name="folder_hide_archive_ids[]"'
+printf "%s" "$admin_users_page" | grep -F -q 'data-folder-archive'
+printf "%s" "$admin_users_page" | grep -q "Отметьте «без архива» у папки"
+printf "%s" "$admin_users_page" | grep -q "Только онлайн (без архива)"
 printf "%s" "$admin_users_page" | grep -F -q 'name="read_only"'
 printf "%s" "$admin_users_page" | grep -F -q 'name="folder_id"'
 printf "%s" "$admin_users_page" | grep -q "Все папки"
 printf "%s" "$admin_users_page" | grep -F -q '<th>Комментарий администратора</th>'
-printf "%s" "$admin_users_page" | grep -F -q '<th>Скрывать архив</th>'
 ! printf "%s" "$admin_users_page" | grep -F -q '>Удалить</button>'
 user_csrf="$(printf "%s" "$admin_users_page" | sed -n 's/.*name="csrf" value="\([^"]*\)".*/\1/p' | head -n 1)"
 test -n "$user_csrf"
@@ -537,7 +628,7 @@ printf "%s" "$admin_user_edit_page" | php -r '$html = stream_get_contents(STDIN)
 api_admin_user="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/api/portal/v1/users/1")"
 printf "%s" "$api_admin_user" | php -r '$d=json_decode(stream_get_contents(STDIN), true); $ids=$d["user"]["folderIds"] ?? []; sort($ids); exit($ids === [1, 2] ? 0 : 1);'
 printf "%s" "$api_admin_user" | grep -q '"adminComment": "admin-only smoke note"'
-printf "%s" "$api_admin_user" | grep -q '"hideArchive": false'
+printf "%s" "$api_admin_user" | grep -q '"archiveHiddenFolderIds": \[\]'
 api_me_no_admin_comment="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/api/portal/v1/me")"
 ! printf "%s" "$api_me_no_admin_comment" | grep -q '"adminComment"'
 api_duplicate_user_status="$(
@@ -1617,6 +1708,29 @@ hidden_archive_allowed="$(
     "http://127.0.0.1:$PORT/api/sesamedvr/auth?uri=$hidden_archive_uri"
 )"
 test "$hidden_archive_allowed" = "403"
+
+mixed_qs="$(php -r 'echo rawurlencode("token=" . getenv("MIXED_TOKEN"));')"
+mixed_restricted_live="$(
+  curl -sS -o /dev/null -w '%{http_code}' \
+    "http://127.0.0.1:$PORT/api/sesamedvr/auth?token=NonAvailable&qs=$mixed_qs&name=mixed-restricted-cam&proto=hls&dvr=false"
+)"
+test "$mixed_restricted_live" = "200"
+mixed_restricted_archive="$(
+  curl -sS -o /dev/null -w '%{http_code}' \
+    "http://127.0.0.1:$PORT/api/sesamedvr/auth?token=NonAvailable&qs=$mixed_qs&name=mixed-restricted-cam&proto=hls&dvr=true"
+)"
+test "$mixed_restricted_archive" = "403"
+mixed_shared_archive="$(
+  curl -sS -o /dev/null -w '%{http_code}' \
+    "http://127.0.0.1:$PORT/api/sesamedvr/auth?token=NonAvailable&qs=$mixed_qs&name=mixed-shared-cam&proto=hls&dvr=true"
+)"
+test "$mixed_shared_archive" = "200"
+mixed_shared_uri="$(php -r 'echo rawurlencode("/mixed-shared-cam/archive-1700000000-60.mp4?token=" . getenv("MIXED_TOKEN"));')"
+mixed_shared_archive_media="$(
+  curl -sS -o /dev/null -w '%{http_code}' \
+    "http://127.0.0.1:$PORT/api/sesamedvr/auth?uri=$mixed_shared_uri"
+)"
+test "$mixed_shared_archive_media" = "200"
 archive_audit_page="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/admin/audit?q=archive.download&action=archive.download&actor=1")"
 printf "%s" "$archive_audit_page" | grep -q "archive.download"
 printf "%s" "$archive_audit_page" | grep -q "camera_id=1"
@@ -1876,7 +1990,7 @@ test "$admin_home_status" = "200"
 # Onboarding form has must_change_password, email fields
 onboarding_form_page="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/admin/users?edit=3")"
 printf "%s" "$onboarding_form_page" | grep -q 'name="read_only"'
-printf "%s" "$onboarding_form_page" | grep -q 'name="hide_archive"'
+printf "%s" "$onboarding_form_page" | grep -F -q 'name="folder_hide_archive_ids[]"'
 
 # Admin users form has email field for viewing/editing user email
 admin_users_email_form="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/admin/users?edit=3&lang=ru")"

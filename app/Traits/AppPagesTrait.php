@@ -887,7 +887,6 @@ trait AppPagesTrait
                 $password = (string)Util::post('password');
                 $role = Util::post('role') === 'admin' ? 'admin' : 'user';
                 $blocked = Util::checkbox('blocked');
-                $hideArchive = Util::checkbox('hide_archive');
                 $readOnly = Util::checkbox('read_only');
                 $beforeUser = $id > 0 ? self::rowById('users', $id) : null;
                 $mustChangePassword = $id === 0
@@ -896,7 +895,12 @@ trait AppPagesTrait
                 $generatedPassword = '';
                 $adminComment = trim((string)Util::post('admin_comment'));
                 $beforeFolderIds = $id > 0 ? self::linkedIds('user_folders', 'user_id', $id, 'folder_id') : [];
+                $beforeArchiveHiddenFolderIds = $id > 0 ? self::userArchiveHiddenFolderIds($id) : [];
                 $folderIds = self::formIntArray('folder_ids_json', 'folder_ids');
+                $archiveHiddenFolderIds = array_values(array_intersect(
+                    self::apiIntArray($_POST['folder_hide_archive_ids'] ?? []),
+                    $folderIds
+                ));
                 $missingFolderIds = self::missingIds('group_folders', $folderIds);
                 if ($missingFolderIds !== []) {
                     $message = 'Selected folders contain unknown id(s): ' . implode(', ', $missingFolderIds);
@@ -922,23 +926,24 @@ trait AppPagesTrait
                             if (strlen($password) < 6) {
                                 $message = self::t('users.passwordShort', 'Пароль должен быть не короче 6 символов');
                             } else {
-                                $pdo->prepare('UPDATE users SET login=?, name=?, phone=?, email=?, password_hash=?, role=?, blocked=?, hide_archive=?, read_only=?, must_change_password=?, admin_comment=? WHERE id=?')
-                                    ->execute([$login, $name, $phone, $email, password_hash($password, PASSWORD_DEFAULT), $role, $blocked, $hideArchive, $readOnly, $mustChangePassword, $adminComment, $id]);
+                                $pdo->prepare('UPDATE users SET login=?, name=?, phone=?, email=?, password_hash=?, role=?, blocked=?, read_only=?, must_change_password=?, admin_comment=? WHERE id=?')
+                                    ->execute([$login, $name, $phone, $email, password_hash($password, PASSWORD_DEFAULT), $role, $blocked, $readOnly, $mustChangePassword, $adminComment, $id]);
                             }
                         } else {
-                            $pdo->prepare('UPDATE users SET login=?, name=?, phone=?, email=?, role=?, blocked=?, hide_archive=?, read_only=?, must_change_password=?, admin_comment=? WHERE id=?')
-                                ->execute([$login, $name, $phone, $email, $role, $blocked, $hideArchive, $readOnly, $mustChangePassword, $adminComment, $id]);
+                            $pdo->prepare('UPDATE users SET login=?, name=?, phone=?, email=?, role=?, blocked=?, read_only=?, must_change_password=?, admin_comment=? WHERE id=?')
+                                ->execute([$login, $name, $phone, $email, $role, $blocked, $readOnly, $mustChangePassword, $adminComment, $id]);
                         }
                     } else {
-                        $pdo->prepare('INSERT INTO users(login, name, phone, email, password_hash, role, blocked, hide_archive, read_only, must_change_password, admin_comment, daily_token, daily_token_date, created_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
-                            ->execute([$login, $name, $phone, $email, password_hash($password, PASSWORD_DEFAULT), $role, $blocked, $hideArchive, $readOnly, $mustChangePassword, $adminComment, Util::randomToken(), TokenService::today(), Util::now()]);
+                        $pdo->prepare('INSERT INTO users(login, name, phone, email, password_hash, role, blocked, read_only, must_change_password, admin_comment, daily_token, daily_token_date, created_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+                            ->execute([$login, $name, $phone, $email, password_hash($password, PASSWORD_DEFAULT), $role, $blocked, $readOnly, $mustChangePassword, $adminComment, Util::randomToken(), TokenService::today(), Util::now()]);
                         $id = DB::lastInsertId('users');
                     }
                     if ($message === '') {
                         self::replaceLinks('user_folders', 'user_id', $id, 'folder_id', $folderIds);
-                        $afterUser = self::rowById('users', $id) ?: ['login' => $login, 'phone' => $phone, 'role' => $role, 'blocked' => $blocked, 'hide_archive' => $hide_archive];
+                        self::setUserFoldersArchiveHidden($id, $archiveHiddenFolderIds);
+                        $afterUser = self::rowById('users', $id) ?: ['login' => $login, 'phone' => $phone, 'role' => $role, 'blocked' => $blocked];
                         $afterFolderIds = self::linkedIds('user_folders', 'user_id', $id, 'folder_id');
-                        self::logUserSaveAudit(null, $id, $beforeUser, $afterUser, $beforeFolderIds, $afterFolderIds);
+                        self::logUserSaveAudit(null, $id, $beforeUser, $afterUser, $beforeFolderIds, $afterFolderIds, $beforeArchiveHiddenFolderIds, $archiveHiddenFolderIds);
                         $backTarget = $generatedPassword !== '' ? '' : self::safeLocalPath((string)Util::post('back', ''));
                         if ($backTarget !== '') {
                             header('Location: ' . $backTarget);
@@ -963,11 +968,12 @@ trait AppPagesTrait
 
         $edit = self::rowById('users', (int)($_GET['edit'] ?? 0));
         $linkedFolders = $edit ? self::linkedIds('user_folders', 'user_id', (int)$edit['id'], 'folder_id') : [];
+        $linkedArchiveHiddenFolders = $edit ? self::userArchiveHiddenFolderIds((int)$edit['id']) : [];
         $folders = Repo::allFolders();
         $list = self::filteredUsers();
         $users = $list['rows'];
         $backPath = self::safeLocalPath((string)($_GET['back'] ?? ''));
-        self::layout(self::t('users.title', 'Пользователи'), function () use ($users, $edit, $folders, $linkedFolders, $message, $messageClass, $list, $backPath) {
+        self::layout(self::t('users.title', 'Пользователи'), function () use ($users, $edit, $folders, $linkedFolders, $linkedArchiveHiddenFolders, $message, $messageClass, $list, $backPath) {
             self::notice($message, $messageClass);
             echo '<div class="user-admin-stack">';
             echo '<details class="panel user-create-panel"' . ($edit ? ' open' : '') . '>';
@@ -1016,9 +1022,8 @@ trait AppPagesTrait
             echo '<label>' . self::t('column.role', 'Роль') . '<select name="role"><option value="user">user</option><option value="admin" ' . (($edit['role'] ?? '') === 'admin' ? 'selected' : '') . '>admin</option></select></label>';
             echo '<label>' . self::t('users.adminComment', 'Комментарий администратора') . '<textarea name="admin_comment" rows="3">' . Util::h($edit['admin_comment'] ?? '') . '</textarea></label>';
             echo '<label class="check"><input type="checkbox" name="blocked" ' . (!empty($edit['blocked']) ? 'checked' : '') . '> ' . self::t('users.blocked', 'Заблокирован') . '</label>';
-            echo '<label class="check"><input type="checkbox" name="hide_archive" ' . (!empty($edit['hide_archive']) ? 'checked' : '') . '> ' . self::t('users.hideArchive', 'Скрывать архив') . '</label>';
             echo '<label class="check"><input type="checkbox" name="read_only" ' . (!empty($edit['read_only']) ? 'checked' : '') . '> ' . self::t('users.readOnly', 'Режим только для чтения') . '</label>';
-            self::folderCheckboxTree(self::t('folders.title', 'Папки'), 'folder_ids[]', $folders, $linkedFolders, 'folder_ids_json');
+            self::folderCheckboxTree(self::t('folders.title', 'Папки'), 'folder_ids[]', $folders, $linkedFolders, 'folder_ids_json', 'folder_hide_archive_ids[]', $linkedArchiveHiddenFolders);
             echo '<div class="form-submit-row"><button type="submit" class="primary" data-submit-button>' . self::t('action.save', 'Сохранить') . '</button><div class="submit-progress" data-submit-status hidden role="status" aria-live="polite">' . Util::h($savingLabel) . '</div></div></form>';
             if ($edit) {
                 $editHasToken = trim((string)($edit['static_token_hash'] ?? '')) !== '';
@@ -1035,7 +1040,7 @@ trait AppPagesTrait
                 }
             }
             echo '</details>';
-            self::table(self::t('users.title', 'Пользователи'), ['login', 'phone', 'role', 'admin_comment', 'blocked', 'hide_archive', 'static_token_hash', 'last_login_at'], $users, '/admin/users', false, $list);
+            self::table(self::t('users.title', 'Пользователи'), ['login', 'phone', 'role', 'admin_comment', 'blocked', 'static_token_hash', 'last_login_at'], $users, '/admin/users', false, $list);
             echo '</div>';
         });
     }

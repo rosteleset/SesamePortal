@@ -2078,23 +2078,60 @@ final class I18n
         }
 
         foreach ([
-            'ru' => 'Скрывать архив',
-            'en' => 'Hide archive',
-            'de' => 'Archiv ausblenden',
-            'fr' => 'Masquer l’archive',
-            'es' => 'Ocultar archivo',
-            'it' => 'Nascondi archivio',
-            'pt' => 'Ocultar arquivo',
-            'bg' => 'Скриване на архива',
-            'pl' => 'Ukryj archiwum',
-            'zh' => '隐藏归档',
-            'ja' => 'アーカイブを非表示',
-            'ko' => '아카이브 숨기기',
-            'ar' => 'إخفاء الأرشيف',
-            'hy' => 'Թաքցնել արխիվը',
+            'ru' => 'Только онлайн (без архива)',
+            'en' => 'Online only (no archive)',
+            'de' => 'Nur online (kein Archiv)',
+            'fr' => 'En ligne uniquement (pas d’archive)',
+            'es' => 'Solo en línea (sin archivo)',
+            'it' => 'Solo online (senza archivio)',
+            'pt' => 'Somente on-line (sem arquivo)',
+            'bg' => 'Само онлайн (без архив)',
+            'pl' => 'Tylko online (bez archiwum)',
+            'zh' => '仅在线（无归档）',
+            'ja' => 'オンラインのみ（アーカイブなし）',
+            'ko' => '온라인 전용 (아카이브 없음)',
+            'ar' => 'عبر الإنترنت فقط (بدون أرشيف)',
+            'hy' => 'Միայն առցանց (առանց արխիվի)',
         ] as $locale => $label) {
-            $messages[$locale]['users.hideArchive'] = $label;
-            $messages[$locale]['column.hide_archive'] = $label;
+            $messages[$locale]['users.foldersArchiveRestricted'] = $label;
+        }
+
+        foreach ([
+            'ru' => 'без архива',
+            'en' => 'no archive',
+            'de' => 'kein Archiv',
+            'fr' => 'sans archive',
+            'es' => 'sin archivo',
+            'it' => 'senza archivio',
+            'pt' => 'sem arquivo',
+            'bg' => 'без архив',
+            'pl' => 'bez archiwum',
+            'zh' => '无归档',
+            'ja' => 'アーカイブなし',
+            'ko' => '아카이브 없음',
+            'ar' => 'بدون أرشيف',
+            'hy' => 'առանց արխիվի',
+        ] as $locale => $label) {
+            $messages[$locale]['users.folderNoArchive'] = $label;
+        }
+
+        foreach ([
+            'ru' => 'Отметьте «без архива» у папки — пользователь сможет смотреть камеры этой папки только в реальном времени.',
+            'en' => 'Tick "no archive" for a folder — the user can only watch its cameras live.',
+            'de' => 'Haken Sie „kein Archiv“ für einen Ordner an — der Benutzer kann die Kameras dieses Ordners nur live sehen.',
+            'fr' => 'Cochez « sans archive » pour un dossier — l’utilisateur ne peut voir les caméras de ce dossier qu’en direct.',
+            'es' => 'Marque «sin archivo» para una carpeta — el usuario solo puede ver las cámaras de esa carpeta en vivo.',
+            'it' => 'Seleziona «senza archivio» per una cartella — l’utente può vedere le telecamere di quella cartella solo in diretta.',
+            'pt' => 'Marque «sem arquivo» para uma pasta — o usuário só pode ver as câmeras dessa pasta ao vivo.',
+            'bg' => 'Отметете „без архив“ за папка — потребителят може да гледа камерите на тази папка само на живо.',
+            'pl' => 'Zaznacz „bez archiwum” dla folderu — użytkownik może oglądać kamery tego folderu tylko na żywo.',
+            'zh' => '为文件夹勾选“无归档”——用户只能实时观看该文件夹的摄像头。',
+            'ja' => 'フォルダーに「アーカイブなし」をチェックすると、ユーザーはそのフォルダーのカメラをライブのみ閲覧できます。',
+            'ko' => '폴더에 "아카이브 없음"을 선택하면 사용자는 해당 폴더의 카메라를 라이브로만 볼 수 있습니다.',
+            'ar' => 'حدد «بدون أرشيف» للمجلد — يمكن للمستخدم مشاهدة كاميرات هذا المجلد مباشرة فقط.',
+            'hy' => 'Նշեք «առանց արխիվի» թղթապանակի համար — օգտատերը կարող է դիտել այդ թղթապանակի տեսախցիկները միայն ուղիղ եթերում։',
+        ] as $locale => $hint) {
+            $messages[$locale]['users.foldersArchiveRestrictedHint'] = $hint;
         }
 
         foreach ([

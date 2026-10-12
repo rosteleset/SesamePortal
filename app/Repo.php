@@ -453,6 +453,32 @@ final class Repo
         return (bool)$stmt->fetch();
     }
 
+    /**
+     * Архив скрыт, если доступ к камере есть только через папки с hide_archive=1.
+     * Semantics «любая папка открывает»: достаточно одной папки с hide_archive=0,
+     * в которой лежит камера. Админ всегда видит архив.
+     */
+    public static function cameraArchiveHiddenForUser(array $user, int $cameraId): bool
+    {
+        if ($user['role'] === 'admin') {
+            return false;
+        }
+
+        $folderIds = self::userAccessibleFolderIds($user);
+        if (!$folderIds) {
+            return true;
+        }
+
+        $stmt = DB::pdo()->prepare(
+            'SELECT COUNT(*) FROM user_folders uf
+             JOIN camera_folders cf ON cf.folder_id = uf.folder_id AND cf.camera_id = ?
+             WHERE uf.user_id = ? AND uf.hide_archive = 0
+               AND uf.folder_id IN (' . self::placeholders($folderIds) . ')'
+        );
+        $stmt->execute([$cameraId, (int)$user['id'], ...$folderIds]);
+        return (int)$stmt->fetchColumn() === 0;
+    }
+
     public static function mosaicsForUser(array $user): array
     {
         if ($user['role'] === 'admin') {

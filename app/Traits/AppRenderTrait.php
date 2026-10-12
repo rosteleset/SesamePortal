@@ -1246,13 +1246,6 @@ trait AppRenderTrait
             return;
         }
 
-        if ($column === 'hide_archive') {
-            $enabled = (int)$value === 1;
-            $label = $enabled ? self::t('agents.yes', 'да') : self::t('agents.no', 'нет');
-            echo '<td><span class="pill ' . ($enabled ? 'warn' : 'success') . '">' . Util::h($label) . '</span></td>';
-            return;
-        }
-
         if ($column === 'static_token_hash') {
             $hasToken = trim((string)$value) !== '';
             $label = $hasToken
@@ -1601,12 +1594,14 @@ trait AppRenderTrait
         echo '</div></fieldset>';
     }
 
-    private static function folderCheckboxTree(string $title, string $name, array $folders, array $selected, string $jsonName = ''): void
+    private static function folderCheckboxTree(string $title, string $name, array $folders, array $selected, string $jsonName = '', string $archiveHiddenName = '', array $archiveHidden = []): void
     {
         $groups = Repo::all('portal_groups', 'name ASC');
         [$byId, $children, $foldersByGroup] = self::folderTreeStructure($folders, $groups);
         $selectedIds = self::apiIntArray($selected);
         $selectedSet = array_flip($selectedIds);
+        $archiveHiddenSet = array_flip(self::apiIntArray($archiveHidden));
+        $withArchiveHidden = $archiveHiddenName !== '';
 
         echo '<fieldset class="group-tree-field folder-tree-field"><legend>' . Util::h($title) . '</legend>';
         if (!$folders) {
@@ -1622,9 +1617,26 @@ trait AppRenderTrait
         if ($jsonName !== '') {
             echo '<input type="hidden" name="' . Util::h($jsonName) . '" value="' . Util::h(json_encode($selectedIds)) . '" data-group-tree-json>';
         }
+        if ($withArchiveHidden) {
+            echo '<p class="group-tree-hint">' . Util::h(self::t('users.foldersArchiveRestrictedHint', 'Отметьте «без архива» у папки — пользователь сможет смотреть камеры этой папки только в реальном времени.')) . '</p>';
+        }
         echo '<div class="group-tree-list group-tree-checkbox-list" role="tree" aria-label="' . Util::h($title) . '">';
 
-        $renderGroup = static function (int $groupId, int $depth) use (&$renderGroup, $byId, $children, $foldersByGroup, $name, $jsonName, $selectedSet): void {
+        $renderFolderRow = static function (array $folder, int $depth, string $spacer) use ($name, $jsonName, $selectedSet, $withArchiveHidden, $archiveHiddenName, $archiveHiddenSet): void {
+            $fid = (int)$folder['id'];
+            $inputName = $jsonName === '' ? ' name="' . Util::h($name) . '"' : '';
+            $archiveLabel = Util::h(self::t('users.folderNoArchive', 'без архива'));
+            $archiveTitle = Util::h(self::t('users.foldersArchiveRestricted', 'Только онлайн (без архива)'));
+            echo '<div class="group-tree-row" style="--depth: ' . (int)$depth . '">';
+            echo $spacer;
+            echo '<label class="group-tree-check" role="treeitem" aria-level="' . (int)($depth + 1) . '"><input type="checkbox"' . $inputName . ' value="' . $fid . '" ' . (isset($selectedSet[$fid]) ? 'checked' : '') . '> <span>' . Util::h((string)$folder['name']) . '</span></label>';
+            if ($withArchiveHidden) {
+                echo '<label class="group-tree-archive" title="' . $archiveTitle . '"><input type="checkbox" name="' . Util::h($archiveHiddenName) . '" value="' . $fid . '" data-folder-archive' . (isset($archiveHiddenSet[$fid]) ? ' checked' : '') . (isset($selectedSet[$fid]) ? '' : ' disabled') . '> <span>' . $archiveLabel . '</span></label>';
+            }
+            echo '</div>';
+        };
+
+        $renderGroup = static function (int $groupId, int $depth) use (&$renderGroup, $byId, $children, $foldersByGroup, $renderFolderRow): void {
             if (!isset($byId[$groupId])) {
                 return;
             }
@@ -1643,12 +1655,7 @@ trait AppRenderTrait
             echo '<div class="group-tree-children" data-group-tree-children hidden>';
 
             foreach ($foldersByGroup[$groupId] ?? [] as $folder) {
-                $fid = (int)$folder['id'];
-                $inputName = $jsonName === '' ? ' name="' . Util::h($name) . '"' : '';
-                echo '<div class="group-tree-row" style="--depth: ' . (int)($depth + 1) . '">';
-                echo '<span class="group-tree-spacer" aria-hidden="true"></span>';
-                echo '<label class="group-tree-check" role="treeitem" aria-level="' . (int)($depth + 2) . '"><input type="checkbox"' . $inputName . ' value="' . $fid . '" ' . (isset($selectedSet[$fid]) ? 'checked' : '') . '> <span>' . Util::h((string)$folder['name']) . '</span></label>';
-                echo '</div>';
+                $renderFolderRow($folder, $depth + 1, '<span class="group-tree-spacer" aria-hidden="true"></span>');
             }
 
             foreach ($children[$groupId] ?? [] as $childId) {
@@ -1668,11 +1675,7 @@ trait AppRenderTrait
             }
         }
         foreach ($rootlessFolders as $folder) {
-            $fid = (int)$folder['id'];
-            $inputName = $jsonName === '' ? ' name="' . Util::h($name) . '"' : '';
-            echo '<div class="group-tree-row" style="--depth: 0">';
-            echo '<label class="group-tree-check" role="treeitem" aria-level="1"><input type="checkbox"' . $inputName . ' value="' . $fid . '" ' . (isset($selectedSet[$fid]) ? 'checked' : '') . '> <span>' . Util::h((string)$folder['name']) . '</span></label>';
-            echo '</div>';
+            $renderFolderRow($folder, 0, '');
         }
 
         echo '</div></fieldset>';

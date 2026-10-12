@@ -900,7 +900,7 @@
       if (!field || !input) return;
       const ids = [];
       const seen = new Set();
-      field.querySelectorAll('.group-tree-checkbox-list input[type="checkbox"]:checked').forEach((checkbox) => {
+      field.querySelectorAll('.group-tree-checkbox-list input[type="checkbox"]:checked:not([data-folder-archive])').forEach((checkbox) => {
         const id = Number.parseInt(checkbox.value, 10);
         if (Number.isFinite(id) && id > 0 && !seen.has(id)) {
           seen.add(id);
@@ -910,17 +910,30 @@
       input.value = JSON.stringify(ids);
     };
 
+    const syncFolderArchiveToggles = (field) => {
+      if (!field) return;
+      field.querySelectorAll(".group-tree-checkbox-list .group-tree-row").forEach((row) => {
+        const folderBox = row.querySelector('input[type="checkbox"]:not([data-folder-archive])');
+        const archiveBox = row.querySelector("input[data-folder-archive]");
+        if (!archiveBox) return;
+        archiveBox.disabled = !folderBox?.checked;
+        if (!folderBox?.checked) archiveBox.checked = false;
+      });
+    };
+
     jsonInputs.forEach((input) => {
       const field = input.closest(".group-tree-field");
       if (!field || field.dataset.groupTreeJsonBound === "1") return;
       field.dataset.groupTreeJsonBound = "1";
       field.addEventListener("change", (event) => {
-        if (event.target?.matches?.('.group-tree-checkbox-list input[type="checkbox"]')) {
+        if (event.target?.matches?.('.group-tree-checkbox-list input[type="checkbox"]:not([data-folder-archive])')) {
           syncGroupTreeJson(field);
+          syncFolderArchiveToggles(field);
         }
       });
       field.closest("form")?.addEventListener("submit", () => syncGroupTreeJson(field), { capture: true });
       syncGroupTreeJson(field);
+      syncFolderArchiveToggles(field);
     });
 
     toggles.forEach((toggle) => {
@@ -935,11 +948,12 @@
         event.preventDefault();
         const field = button.closest(".group-tree-field");
         const checked = button.hasAttribute("data-group-tree-check-all");
-        field?.querySelectorAll('.group-tree-checkbox-list input[type="checkbox"]').forEach((checkbox) => {
+        field?.querySelectorAll('.group-tree-checkbox-list input[type="checkbox"]:not([data-folder-archive])').forEach((checkbox) => {
           checkbox.checked = checked;
           checkbox.dispatchEvent(new Event("change", { bubbles: true }));
         });
         syncGroupTreeJson(field);
+        syncFolderArchiveToggles(field);
       });
     });
 

@@ -43,7 +43,7 @@ trait AppAuthBackendTrait
             return;
         }
 
-        if (self::userArchiveHidden($user)) {
+        if ($camera && Repo::cameraArchiveHiddenForUser($user, (int)$camera['id'])) {
             $restriction = self::authBackendArchiveRestriction();
             if ($restriction === 'deny') {
                 http_response_code(403);
@@ -67,11 +67,6 @@ trait AppAuthBackendTrait
     private static function authBackendAllowsUnknownCamera(?array $staticUser): bool
     {
         return $staticUser !== null && ($staticUser['role'] ?? '') === 'admin';
-    }
-
-    private static function userArchiveHidden(array $user): bool
-    {
-        return (int)($user['hide_archive'] ?? 0) === 1;
     }
 
     private static function authBackendArchiveRestriction(): string
