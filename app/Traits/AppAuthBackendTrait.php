@@ -538,7 +538,7 @@ trait AppAuthBackendTrait
         echo '<div class="portal-update-banner-actions">';
         if ((bool)($status['toolInstalled'] ?? false)) {
             self::smallPost(
-                '/admin/settings',
+                '/admin/settings?tab=portal-updates',
                 ['action' => 'run_update'],
                 self::t('settings.installUpdate', 'Обновить Portal'),
                 'primary',

@@ -208,7 +208,7 @@ trait AppPagesTrait
         // Вкладка запоминается в query формы: ответ на POST приходит без
         // редиректа, поэтому ссылка формы — единственный способ остаться на ней.
         $tab = (string)($_GET['tab'] ?? '');
-        $activeTab = $tab === 'customization' ? 'customization' : 'general';
+        $activeTab = in_array($tab, ['customization', 'portal-updates'], true) ? $tab : 'general';
 
         self::layout(self::t('settings.title', 'Настройки'), function () use ($message, $messageClass, $status, $updateResult, $activeTab) {
             self::notice($message, $messageClass);
@@ -216,12 +216,12 @@ trait AppPagesTrait
             self::tabNav([
                 ['general', self::t('settings.tabGeneral', 'Основные')],
                 ['customization', self::t('settings.tabCustomization', 'Кастомизация')],
+                ['portal-updates', self::t('settings.portalUpdates', 'Обновления Portal')],
             ], $activeTab);
 
-            // Обе вкладки отдаются в HTML, неактивная скрыта атрибутом hidden —
+            // Все вкладки отдаются в HTML, неактивная скрыта атрибутом hidden —
             // страница остаётся читаемой без JS, а проверки в tests/ видят всё.
             echo '<div class="tab-panel" data-tab-panel="general"' . ($activeTab !== 'general' ? ' hidden' : '') . '>';
-            self::portalUpdatePanel($status, $updateResult);
             echo '<div class="map-settings-grid">';
             self::mapProviderPanel();
             self::mapViewPanel();
@@ -233,6 +233,10 @@ trait AppPagesTrait
 
             echo '<div class="tab-panel" data-tab-panel="customization"' . ($activeTab !== 'customization' ? ' hidden' : '') . '>';
             self::brandingPanel();
+            echo '</div>';
+
+            echo '<div class="tab-panel" data-tab-panel="portal-updates"' . ($activeTab !== 'portal-updates' ? ' hidden' : '') . '>';
+            self::portalUpdatePanel($status, $updateResult);
             echo '</div>';
             echo '</div>';
         });
@@ -453,11 +457,12 @@ trait AppPagesTrait
         $current = is_array($status['current'] ?? null) ? $status['current'] : [];
         $latest = is_array($status['latest'] ?? null) ? $status['latest'] : [];
         $badge = self::portalUpdateBadge($status);
-        $open = $updateResult !== null ? ' open' : '';
 
-        echo '<details class="panel portal-update-panel"' . $open . '>';
-        echo '<summary class="section-head portal-update-summary"><div><h2>' . self::t('settings.portalUpdates', 'Обновления Portal') . '</h2><p class="muted">' . Util::h(self::t('settings.updateHint', 'Portal сравнивает текущую сборку с последним commit выбранной ветки GitHub.')) . '</p></div>';
-        echo '<span class="pill ' . Util::h($badge['class']) . '">' . Util::h($badge['text']) . '</span></summary>';
+        // Вкладка «Обновления Portal» всегда развёрнута: это отдельная вкладка,
+        // сворачивать её не нужно, поэтому вместо <details> — обычная секция.
+        echo '<section class="panel portal-update-panel">';
+        echo '<div class="section-head"><div><h2>' . self::t('settings.portalUpdates', 'Обновления Portal') . '</h2><p class="muted">' . Util::h(self::t('settings.updateHint', 'Portal сравнивает текущую сборку с последним commit выбранной ветки GitHub.')) . '</p></div>';
+        echo '<span class="pill ' . Util::h($badge['class']) . '">' . Util::h($badge['text']) . '</span></div>';
 
         echo '<div class="portal-version-grid">';
         self::portalVersionCard(self::t('settings.currentVersion', 'Текущая версия'), $current);
@@ -475,10 +480,10 @@ trait AppPagesTrait
         echo '</dl>';
 
         echo '<div class="form-actions portal-update-actions">';
-        self::smallPost('/admin/settings', ['action' => 'check_update'], self::t('settings.checkUpdates', 'Проверить обновления'));
+        self::smallPost('/admin/settings?tab=portal-updates', ['action' => 'check_update'], self::t('settings.checkUpdates', 'Проверить обновления'));
         if ((bool)($status['enabled'] ?? false) && (bool)($status['toolInstalled'] ?? false) && (bool)($status['updateAvailable'] ?? false)) {
             self::smallPost(
-                '/admin/settings',
+                '/admin/settings?tab=portal-updates',
                 ['action' => 'run_update'],
                 self::t('settings.installUpdate', 'Обновить Portal'),
                 'primary',
@@ -501,7 +506,7 @@ trait AppPagesTrait
             echo '<details class="technical-result" open><summary>' . Util::h($summary) . '</summary><pre>' . Util::h((string)($updateResult['output'] ?? '')) . '</pre></details>';
         }
 
-        echo '</details>';
+        echo '</section>';
     }
 
     private static function portalUpdateBadge(array $status): array

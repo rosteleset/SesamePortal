@@ -474,15 +474,27 @@ map_save_status="$(
 test "$map_save_status" = "200"
 php -r 'require getenv("ROOT")."/app/Portal.php"; echo \SesamePortal\DB::setting("map_provider","");' | grep -q "yandex"
 
-# Settings: две вкладки — «Основные» и «Кастомизация» (обе отдаются сервером).
+# Settings: три вкладки — «Основные», «Кастомизация», «Обновления Portal» (все отдаются сервером).
 printf "%s" "$settings_page" | grep -q 'data-tabset'
 printf "%s" "$settings_page" | grep -q 'data-tab="general"'
 printf "%s" "$settings_page" | grep -q 'data-tab="customization"'
+printf "%s" "$settings_page" | grep -q 'data-tab="portal-updates"'
 printf "%s" "$settings_page" | grep -q 'data-tab-panel="general"'
 printf "%s" "$settings_page" | grep -q 'data-tab-panel="customization"[^>]*hidden'
+printf "%s" "$settings_page" | grep -q 'data-tab-panel="portal-updates"[^>]*hidden'
 custom_tab_page="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/admin/settings?tab=customization&lang=ru")"
 printf "%s" "$custom_tab_page" | grep -q 'data-tab-panel="general"[^>]*hidden'
 ! printf "%s" "$custom_tab_page" | grep -q 'data-tab-panel="customization"[^>]*hidden'
+printf "%s" "$custom_tab_page" | grep -q 'data-tab-panel="portal-updates"[^>]*hidden'
+updates_tab_page="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/admin/settings?tab=portal-updates&lang=ru")"
+printf "%s" "$updates_tab_page" | grep -q 'data-tab-panel="general"[^>]*hidden'
+printf "%s" "$updates_tab_page" | grep -q 'data-tab-panel="customization"[^>]*hidden'
+! printf "%s" "$updates_tab_page" | grep -q 'data-tab-panel="portal-updates"[^>]*hidden'
+# Панель обновлений всегда развёрнута (обычная секция, не сворачиваемый <details>),
+# а кнопки проверки/обновления возвращают на вкладку «Обновления Portal».
+printf "%s" "$updates_tab_page" | grep -q 'class="panel portal-update-panel"'
+! printf "%s" "$updates_tab_page" | grep -q '<details class="panel portal-update-panel"'
+printf "%s" "$updates_tab_page" | grep -q 'action="/admin/settings?tab=portal-updates"'
 branding_slots="$(printf "%s" "$custom_tab_page" | grep -o 'class="branding-slot"' | wc -l)"
 test "$branding_slots" = "6"
 printf "%s" "$custom_tab_page" | grep -q 'name="action" value="save_branding_name"'
