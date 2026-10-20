@@ -6,6 +6,31 @@ namespace SesamePortal;
 
 trait CameraFields
 {
+    private static function rememberCameraEdit(array $camera, bool $loaded): string
+    {
+        $snapshots = $_SESSION['camera_edits'] ?? [];
+        // Separate tokens keep tabs independent; keep the session bounded.
+        $snapshots = array_slice($snapshots, -31, null, true);
+        $token = Util::randomToken();
+        $snapshots[$token] = ['camera' => $camera, 'identity' => self::cameraEditIdentity($camera), 'loaded' => $loaded];
+        $_SESSION['camera_edits'] = $snapshots;
+        return $token;
+    }
+
+    private static function cameraEditSnapshot(?array $current, string $token): ?array
+    {
+        $snapshot = $_SESSION['camera_edits'][$token] ?? null;
+        if (!$current || ($snapshot['identity'] ?? null) !== self::cameraEditIdentity($current)) {
+            return null;
+        }
+        return $snapshot;
+    }
+
+    private static function cameraEditIdentity(array $camera): array
+    {
+        return [(int)$camera['id'], (int)$camera['server_id'], $camera['dvr_stream_name'], $camera['dvr_control_mode']];
+    }
+
     private static function cameraControlMode(mixed $value): string
     {
         $mode = trim((string)$value);

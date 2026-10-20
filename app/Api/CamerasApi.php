@@ -242,7 +242,14 @@ trait CamerasApi
         $syncRequested = array_key_exists('sync', $input)
             ? self::apiBool($input['sync'])
             : empty($input['skipSync']);
-        $sync = $syncRequested ? DvrClient::syncCamera($id) : ['ok' => true, 'message' => 'sync skipped'];
+        $saved = Repo::camera($id);
+        $changes = $current ? DvrClient::cameraSettingsInputPatch($saved, $input) : null;
+        if ($current && $current['dvr_control_mode'] !== $saved['dvr_control_mode']) {
+            $changes = array_replace($changes, array_intersect_key(
+                DvrClient::cameraSettingsPatch($current, $saved), array_flip(['sourceType', 'source', 'push'])
+            ));
+        }
+        $sync = $syncRequested ? DvrClient::syncCamera($id, $changes) : ['ok' => true, 'message' => 'sync skipped'];
         Audit::log('camera.save', $name . ' mode=' . $controlMode . ' sync=' . ($sync['message'] ?? ''));
         self::apiJson(['camera' => self::apiCameraRow(self::apiCameraById($id), true), 'sync' => $sync], $current ? 200 : 201);
     }

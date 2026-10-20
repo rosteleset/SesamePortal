@@ -4,6 +4,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 php "$ROOT/tests/module_bootstrap.php"
 php "$ROOT/tests/auth_backend.php"
+php "$ROOT/tests/camera_settings.php"
 STATE_DIR="$(mktemp -d)"
 PORT="${SESAME_PORTAL_TEST_PORT:-18089}"
 DVR_PORT="${SESAME_PORTAL_TEST_DVR_PORT:-$((PORT + 1))}"

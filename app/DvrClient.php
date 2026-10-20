@@ -6,7 +6,122 @@ namespace SesamePortal;
 
 final class DvrClient
 {
-    public static function syncCamera(int $cameraId): array
+    private const CAMERA_SETTINGS = [
+        'name' => 'displayName',
+        'source_url' => 'source',
+        'blocked' => 'enabled',
+        'retention_days' => 'retentionDays',
+        'archive_enabled' => 'archiveEnabled',
+        'webrtc_fast_start' => 'webrtcFastStart',
+        'event_archive_retention_enabled' => 'eventArchiveRetentionEnabled',
+        'event_archive_max_bytes' => 'eventArchiveMaxBytes',
+        'event_archive_max_duration' => 'eventArchiveMaxDuration',
+        'event_archive_max_age' => 'eventArchiveMaxAge',
+        'timelapse_enabled' => 'timelapseEnabled',
+        'timelapse_frames_per_hour' => 'timelapseFramesPerHour',
+        'timelapse_retention_days' => 'timelapseRetentionDays',
+        'timelapse_playback_fps' => 'timelapsePlaybackFps',
+        'direct_archive_video_timeline_repair_mode' => 'directArchiveVideoTimelineRepairMode',
+        'audio_codec' => 'audioCodec',
+    ];
+
+    public static function loadCameraSettings(array $camera): array
+    {
+        $name = (string)($camera['dvr_stream_name'] ?: $camera['name']);
+        $result = self::apiRequest((int)$camera['server_id'], 'GET', '/api/streams/' . rawurlencode($name), null, 8);
+        $stream = $result['data'] ?? null;
+        if (empty($result['ok']) || !is_array($stream) || ($stream['name'] ?? null) !== $name) {
+            return ['ok' => false, 'camera' => $camera];
+        }
+        foreach (self::CAMERA_SETTINGS as $field => $remote) {
+            if (!array_key_exists($remote, $stream)) continue;
+            $value = $stream[$remote];
+            if ($field === 'blocked') $value = $value ? 0 : 1;
+            elseif (is_bool($value)) $value = (int)$value;
+            elseif ($field === 'name') $value = trim((string)$value) ?: $name;
+            elseif ($field === 'retention_days') $value = (string)$value;
+            $camera[$field] = $value;
+        }
+        if (($camera['dvr_control_mode'] ?? '') === 'edge_agent' && is_array($stream['push'] ?? null)) {
+            foreach (['agent_id' => 'agentId', 'agent_camera_id' => 'agentCameraId', 'onvif_events_requested' => 'onvifEventsRequested'] as $field => $remote) {
+                if (array_key_exists($remote, $stream['push'])) {
+                    $camera[$field] = $field === 'onvif_events_requested'
+                        ? (int)(bool)$stream['push'][$remote] : $stream['push'][$remote];
+                }
+            }
+        }
+        return ['ok' => true, 'camera' => $camera];
+    }
+
+    public static function cameraSettingsPatch(array $before, array $after): array
+    {
+        $old = self::editableCameraPayload($before);
+        $new = self::editableCameraPayload($after);
+        $patch = [];
+        foreach ($new as $key => $value) {
+            if ($key === 'push' && is_array($value)) {
+                $changed = array_filter($value, static fn($v, $k): bool => !array_key_exists($k, $old['push'] ?? []) || $old['push'][$k] !== $v, ARRAY_FILTER_USE_BOTH);
+                if ($changed !== []) $patch[$key] = $changed;
+            } elseif (!array_key_exists($key, $old) || $old[$key] !== $value) {
+                $patch[$key] = $value;
+            }
+        }
+        if (($before['dvr_control_mode'] ?? 'managed') !== ($after['dvr_control_mode'] ?? 'managed')) {
+            $agent = ($after['dvr_control_mode'] ?? '') === 'edge_agent';
+            $patch['sourceType'] = $agent ? 'push' : 'direct';
+            $patch['source'] = $agent ? 'push://' . $after['dvr_stream_name'] : (string)$after['source_url'];
+            $patch['push'] = $agent ? array_merge($new['push'], [
+                'transport' => 'rtmp', 'publisherKind' => 'agent',
+                'streamName' => $after['dvr_stream_name'], 'requested' => true,
+            ]) : null;
+        }
+        return $patch;
+    }
+
+    public static function cameraSettingsInputPatch(array $camera, array $input): array
+    {
+        // API PATCH/PUT callers express intent by field presence, not by the stale local copy.
+        $payload = self::editableCameraPayload($camera);
+        $patch = [];
+        foreach (self::CAMERA_SETTINGS as $field => $remote) {
+            $aliases = [$field, $remote];
+            if ($field === 'name') $aliases = ['name', 'displayName', 'display_name'];
+            if ($field === 'source_url') $aliases = ['source_url', 'sourceUrl'];
+            if ($field === 'blocked') $aliases = ['blocked'];
+            if ($field === 'event_archive_max_bytes') $aliases = [...$aliases, 'eventArchiveMaxMb', 'event_archive_max_mb'];
+            if (array_intersect($aliases, array_keys($input)) && array_key_exists($remote, $payload)) {
+                $patch[$remote] = $payload[$remote];
+            }
+        }
+        foreach (['agent_id' => 'agentId', 'agent_camera_id' => 'agentCameraId', 'onvif_events_requested' => 'onvifEventsRequested'] as $field => $remote) {
+            if (array_intersect([$field, $remote], array_keys($input)) && isset($payload['push'])) {
+                $patch['push'][$remote] = $payload['push'][$remote];
+            }
+        }
+        return $patch;
+    }
+
+    private static function editableCameraPayload(array $camera): array
+    {
+        $payload = array_merge([
+            'displayName' => trim((string)$camera['name']),
+            'enabled' => (int)($camera['blocked'] ?? 0) === 0,
+            'retentionDays' => (string)($camera['retention_days'] ?? ''),
+            'archiveEnabled' => (int)($camera['archive_enabled'] ?? 1) === 1,
+        ], self::cameraDvrOptionsPayload($camera));
+        if (($camera['dvr_control_mode'] ?? '') === 'edge_agent') {
+            $payload['push'] = [
+                'agentId' => trim((string)($camera['agent_id'] ?? '')),
+                'agentCameraId' => trim((string)($camera['agent_camera_id'] ?? '')),
+                'onvifEventsRequested' => (int)($camera['onvif_events_requested'] ?? 0) === 1,
+            ];
+        } else {
+            $payload['source'] = trim((string)($camera['source_url'] ?? ''));
+        }
+        return $payload;
+    }
+
+    public static function syncCamera(int $cameraId, ?array $changes = null): array
     {
         $camera = Repo::camera($cameraId);
         if (!$camera || !$camera['server_id']) {
@@ -22,6 +137,9 @@ final class DvrClient
         if ($controlMode === 'read_only') {
             return self::storeCameraSync($cameraId, true, I18n::t('cameras.readOnlySyncSkipped', 'Read-only mode: DVR management skipped'));
         }
+        if ($changes === []) {
+            return self::storeCameraSync($cameraId, true, I18n::t('cameras.noDvrChanges', 'No DVR settings changed'));
+        }
 
         $token = Crypto::decrypt($server['management_token_enc'] ?? null);
         if ($token === '') {
@@ -33,6 +151,19 @@ final class DvrClient
         $displayName = $displayName !== '' ? $displayName : $name;
         if (!Util::isDvrStreamName($name)) {
             return self::storeCameraSync($cameraId, false, I18n::t('cameras.invalidStreamName', 'Technical stream name must start with a Latin letter or digit and can contain only Latin letters, digits, dot, hyphen, and underscore, up to 128 characters.'));
+        }
+
+        if ($changes !== null) {
+            if ($controlMode === 'managed' && array_intersect(['source', 'sourceType', 'push'], array_keys($changes))) {
+                $existing = self::fetchStream($server, $token, $name);
+                if (is_array($existing) && self::streamUsesAgentPublisher($existing)) {
+                    return self::storeCameraSync($cameraId, false, I18n::t('cameras.agentOverwriteBlocked', 'This DVR stream is already managed by Edge Agent.'));
+                }
+            }
+            $endpoint = rtrim($server['base_url'], '/') . '/api/streams/' . rawurlencode($name);
+            $result = self::request('PUT', $endpoint, $token, $changes);
+            // An existing stream disappearing is not permission to recreate it from stale settings.
+            return self::storeCameraSync($cameraId, $result['status'] >= 200 && $result['status'] < 300, self::responseSummary($result, $endpoint));
         }
 
         if ($controlMode === 'edge_agent') {

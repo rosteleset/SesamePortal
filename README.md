@@ -50,6 +50,14 @@ Each camera can run in one of three modes:
 - `read_only`: SesamePortal does not change DVR configuration and only uses the
   selected DVR server plus `dvr_stream_name` for preview, auth, and playback.
 
+Opening an existing camera's settings reads its current stream configuration
+from DVR. Saving sends only fields changed relative to that form's snapshot;
+unchanged settings, including concurrent DVR edits, are not sent back. Each tab
+has its own snapshot. If DVR cannot be read, managed-camera saving is blocked
+instead of writing the cached configuration. API updates forward only explicitly
+supplied fields. Creation and the separate manual sync action still send the
+full Portal-managed configuration.
+
 Per camera, Portal can add an HTML/CSS watermark with the current user's login
 over the Portal player and control its intensity. The video stream is not
 transcoded for this.
@@ -228,6 +236,7 @@ for ownership boundaries and release requirements.
 ```bash
 find app -name '*.php' -exec php -l {} \;
 php tests/module_bootstrap.php
+php tests/camera_settings.php
 bash -n scripts/install.sh
 tests/http_smoke.sh
 bash tests/release_smoke.sh

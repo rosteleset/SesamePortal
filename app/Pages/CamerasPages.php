@@ -13,10 +13,17 @@ trait CamerasPages
         Auth::requireAdmin();
         $pdo = DB::pdo();
         $message = '';
+        $settingsWarning = '';
+        $retryForm = null;
+        $editToken = '';
+        $settingsLoaded = false;
         if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
             $action = (string)Util::post('action');
             $id = (int)Util::post('id', 0);
             if ($action === 'save') {
+                $current = $id > 0 ? Repo::camera($id) : null;
+                $editToken = (string)Util::post('camera_edit_token');
+                $snapshot = self::cameraEditSnapshot($current, $editToken);
                 $selection = Util::post('server_selection') === 'auto' ? 'auto' : 'manual';
                 $controlMode = self::cameraControlMode(Util::post('dvr_control_mode'));
                 $serverId = (int)Util::post('server_id', 0) ?: null;
@@ -34,7 +41,7 @@ trait CamerasPages
                         'display_name' => Util::post('display_name', Util::post('name')),
                         'dvr_stream_name' => Util::post('dvr_stream_name'),
                     ],
-                    $id > 0 ? Repo::camera($id) : null
+                    $current
                 );
                 $agentId = trim((string)Util::post('agent_id'));
                 $agentCameraId = trim((string)Util::post('agent_camera_id'));
@@ -46,7 +53,16 @@ trait CamerasPages
                     $message = I18n::t('cameras.sourceRequired', 'Source URL is required for full DVR management mode');
                 } elseif ($controlMode === 'edge_agent' && (!$serverId || $agentId === '' || $agentCameraId === '')) {
                     $message = I18n::t('cameras.agentRequired', 'Edge-agent mode requires server, Agent ID, and Agent camera ID');
+                } elseif ($id > 0 && $controlMode !== 'read_only' && empty($snapshot['loaded'])) {
+                    $message = self::t('cameras.settingsReloadRequired', 'Reload the camera settings before saving. No changes were saved.');
                 } else {
+                    $maxBytes = self::cameraEventArchiveMaxBytesFromPost();
+                    $baseline = $snapshot['camera'] ?? null;
+                    if ($baseline && array_key_exists('event_archive_max_mb', $_POST)
+                        && $maxBytes === self::cameraOptionalMegabytesAsBytes(self::eventArchiveBytesToMegabytesInput($baseline['event_archive_max_bytes'] ?? null))) {
+                        // The MB input is rounded for display; an untouched field must retain exact bytes.
+                        $maxBytes = $baseline['event_archive_max_bytes'] ?? null;
+                    }
                     $values = [
                         $name,
                         $sourceUrl,
@@ -60,7 +76,7 @@ trait CamerasPages
                         Util::checkbox('archive_enabled'),
                         Util::checkbox('webrtc_fast_start'),
                         Util::checkbox('event_archive_retention_enabled'),
-                        self::cameraEventArchiveMaxBytesFromPost(),
+                        $maxBytes,
                         self::cameraOptionalString(Util::post('event_archive_max_duration')),
                         self::cameraOptionalString(Util::post('event_archive_max_age')),
                         Util::checkbox('timelapse_enabled'),
@@ -87,7 +103,16 @@ trait CamerasPages
                         $id = DB::lastInsertId('cameras');
                     }
                     self::replaceLinks('camera_groups', 'camera_id', $id, 'group_id', $_POST['group_ids'] ?? []);
-                    $sync = DvrClient::syncCamera($id);
+                    $saved = Repo::camera($id);
+                    $changes = $current && $baseline ? DvrClient::cameraSettingsPatch($baseline, $saved) : null;
+                    $sync = DvrClient::syncCamera($id, $changes);
+                    if (empty($sync['ok']) && $baseline) {
+                        $retryForm = $saved;
+                        $settingsLoaded = true;
+                        $_SESSION['camera_edits'][$editToken]['identity'] = self::cameraEditIdentity($saved);
+                    } elseif ($editToken !== '') {
+                        unset($_SESSION['camera_edits'][$editToken]);
+                    }
                     $message = self::cameraSaveNotice($sync);
                     Audit::log('camera.save', $name . ' mode=' . $controlMode . ' sync=' . $sync['message']);
                 }
@@ -127,6 +152,19 @@ trait CamerasPages
 
         $edit = self::rowById('cameras', (int)($_GET['edit'] ?? 0));
         $form = self::cameraFormDefaults($edit);
+        if ($edit) {
+            if ($retryForm && (int)$retryForm['id'] === (int)$edit['id']) {
+                $form = $retryForm;
+            } else {
+                $live = DvrClient::loadCameraSettings($edit);
+                $settingsLoaded = $live['ok'];
+                $form = $live['camera'];
+                $editToken = self::rememberCameraEdit($form, $settingsLoaded);
+                if (!$settingsLoaded) {
+                    $settingsWarning = self::t('cameras.settingsUnavailable', 'DVR settings could not be read. Showing the saved copy; DVR changes cannot be saved.');
+                }
+            }
+        }
         $delete = self::cameraDeleteCandidate((int)($_GET['delete'] ?? 0));
         $linkedGroups = $edit ? self::linkedIds('camera_groups', 'camera_id', (int)$edit['id'], 'group_id') : [];
         $servers = Repo::all('dvr_servers', 'name ASC');
@@ -135,8 +173,9 @@ trait CamerasPages
         $backPath = self::safeLocalPath((string)($_GET['back'] ?? ''));
         $cameras = $list['rows'];
         $defaultMapCenter = PortalSettings::mapCenter();
-        self::layout(self::t('cameras.title', 'Камеры'), function () use ($edit, $form, $delete, $servers, $groups, $linkedGroups, $cameras, $message, $list, $backPath, $defaultMapCenter) {
+        self::layout(self::t('cameras.title', 'Камеры'), function () use ($edit, $form, $delete, $servers, $groups, $linkedGroups, $cameras, $message, $settingsWarning, $list, $backPath, $defaultMapCenter, $editToken, $settingsLoaded) {
             self::notice($message);
+            self::notice($settingsWarning);
             if ($delete) {
                 self::cameraDeletePanel($delete);
             }
@@ -151,6 +190,9 @@ trait CamerasPages
             echo '</div>';
             echo '<form method="post" class="form">' . Csrf::field();
             echo '<input type="hidden" name="action" value="save"><input type="hidden" name="id" value="' . Util::h($edit['id'] ?? 0) . '">';
+            if ($edit) {
+                echo '<input type="hidden" name="camera_edit_token" value="' . Util::h($editToken) . '">';
+            }
             echo '<label>' . self::t('cameras.displayName', 'Название потока') . '<input name="display_name" value="' . Util::h($form['name'] ?? '') . '"></label>';
             $edgeAgentMode = ($form['dvr_control_mode'] ?? 'managed') === 'edge_agent';
             echo '<label>' . self::t('cameras.mode', 'Режим камеры') . '<select name="dvr_control_mode" data-camera-mode-select>';
@@ -212,7 +254,8 @@ trait CamerasPages
             echo '</select></label></div></details>';
             echo '<label class="check"><input type="checkbox" name="blocked" ' . (!empty($form['blocked']) ? 'checked' : '') . '> ' . self::t('cameras.blocked', 'Заблокирована') . '</label>';
             self::groupCheckboxTree(self::t('cameras.groups', 'Группы'), 'group_ids[]', $groups, $linkedGroups);
-            echo '<button class="primary">' . self::t('action.saveSync', 'Сохранить и синхронизировать') . '</button></form></section>';
+            $saveDisabled = $edit && !$settingsLoaded && ($form['dvr_control_mode'] ?? 'managed') !== 'read_only';
+            echo '<button class="primary"' . ($saveDisabled ? ' disabled' : '') . '>' . self::t('action.saveSync', 'Сохранить и синхронизировать') . '</button></form></section>';
             self::table(self::t('cameras.title', 'Камеры'), ['name', 'server_name', 'dvr_control_mode', 'agent_id', 'agent_camera_id', 'retention_days', 'archive_enabled', 'last_sync_message'], $cameras, '/admin/cameras', true, $list);
             echo '</div>';
         });
