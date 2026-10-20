@@ -18,7 +18,10 @@ if (($_SERVER['HTTP_X_MANAGEMENT_TOKEN'] ?? '') !== 'settings-test-secret') {
     $server = $matches[1];
     $name = isset($matches[2]) ? rawurldecode($matches[2]) : ($input['name'] ?? '');
     $stream = $state['servers'][$server][$name] ?? null;
-    if ($method === 'POST' && !isset($matches[2])) {
+    if ($method === 'GET' && !isset($matches[2])) {
+        $rows = array_values($state['servers'][$server] ?? []);
+        $result = !empty($state['wrappedLists'][$server]) ? ['streams' => $rows] : $rows;
+    } elseif ($method === 'POST' && !isset($matches[2])) {
         $state['servers'][$server][$name] = $input;
         $status = 201;
         $result = $input;
@@ -38,4 +41,4 @@ if (($_SERVER['HTTP_X_MANAGEMENT_TOKEN'] ?? '') !== 'settings-test-secret') {
 }
 file_put_contents($file, json_encode($state, JSON_THROW_ON_ERROR), LOCK_EX);
 http_response_code($status);
-echo json_encode($result, JSON_THROW_ON_ERROR);
+echo json_encode($state['responses'][$method . ' ' . $path] ?? $result, JSON_THROW_ON_ERROR);

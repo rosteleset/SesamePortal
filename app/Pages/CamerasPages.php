@@ -95,7 +95,9 @@ trait CamerasPages
                         $stream,
                     ];
                     if ($id > 0) {
-                        $pdo->prepare('UPDATE cameras SET name=?, source_url=?, server_id=?, server_selection=?, latitude=?, longitude=?, direction_deg=?, view_angle_deg=?, retention_days=?, archive_enabled=?, webrtc_fast_start=?, event_archive_retention_enabled=?, event_archive_max_bytes=?, event_archive_max_duration=?, event_archive_max_age=?, timelapse_enabled=?, timelapse_frames_per_hour=?, timelapse_retention_days=?, timelapse_playback_fps=?, direct_archive_video_timeline_repair_mode=?, audio_codec=?, dvr_control_mode=?, agent_id=?, agent_camera_id=?, onvif_events_requested=?, watermark_enabled=?, watermark_intensity=?, blocked=?, dvr_stream_name=?, updated_at=? WHERE id=?')
+                        $resetObserved = (int)$current['server_id'] !== (int)$serverId || $current['dvr_stream_name'] !== $stream
+                            ? ', dvr_retention_days=NULL, dvr_archive_enabled=NULL' : '';
+                        $pdo->prepare('UPDATE cameras SET name=?, source_url=?, server_id=?, server_selection=?, latitude=?, longitude=?, direction_deg=?, view_angle_deg=?, retention_days=?, archive_enabled=?, webrtc_fast_start=?, event_archive_retention_enabled=?, event_archive_max_bytes=?, event_archive_max_duration=?, event_archive_max_age=?, timelapse_enabled=?, timelapse_frames_per_hour=?, timelapse_retention_days=?, timelapse_playback_fps=?, direct_archive_video_timeline_repair_mode=?, audio_codec=?, dvr_control_mode=?, agent_id=?, agent_camera_id=?, onvif_events_requested=?, watermark_enabled=?, watermark_intensity=?, blocked=?, dvr_stream_name=?, updated_at=?' . $resetObserved . ' WHERE id=?')
                             ->execute([...$values, Util::now(), $id]);
                     } else {
                         $pdo->prepare('INSERT INTO cameras(name, source_url, server_id, server_selection, latitude, longitude, direction_deg, view_angle_deg, retention_days, archive_enabled, webrtc_fast_start, event_archive_retention_enabled, event_archive_max_bytes, event_archive_max_duration, event_archive_max_age, timelapse_enabled, timelapse_frames_per_hour, timelapse_retention_days, timelapse_playback_fps, direct_archive_video_timeline_repair_mode, audio_codec, dvr_control_mode, agent_id, agent_camera_id, onvif_events_requested, watermark_enabled, watermark_intensity, blocked, dvr_stream_name, created_at, updated_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
@@ -170,6 +172,9 @@ trait CamerasPages
         $servers = Repo::all('dvr_servers', 'name ASC');
         $groups = self::groupRowsWithDisplayLabels(Repo::all('portal_groups', 'name ASC'));
         $list = self::filteredCameras();
+        if ($settingsWarning === '' && $list['settings_unavailable'] !== []) {
+            $settingsWarning = self::t('cameras.listSettingsUnavailable', 'Some DVR settings could not be refreshed. The camera table keeps their last known values.');
+        }
         $backPath = self::safeLocalPath((string)($_GET['back'] ?? ''));
         $cameras = $list['rows'];
         $defaultMapCenter = PortalSettings::mapCenter();
@@ -308,6 +313,9 @@ trait CamerasPages
     private static function filteredCameras(int $pageSize = 25): array
     {
         $filters = self::cameraListFilters();
+        $unavailable = $filters['server_id'] === 'none' ? [] : DvrClient::refreshCameraListSettings(
+            $filters['server_id'] !== '' ? (int)$filters['server_id'] : null
+        );
         $page = $filters['page'];
         $where = [];
         $params = [];
@@ -332,9 +340,9 @@ trait CamerasPages
         }
 
         if ($filters['archive'] === 'on') {
-            $where[] = 'c.archive_enabled = 1';
+            $where[] = 'COALESCE(c.dvr_archive_enabled, c.archive_enabled) = 1';
         } elseif ($filters['archive'] === 'off') {
-            $where[] = 'c.archive_enabled = 0';
+            $where[] = 'COALESCE(c.dvr_archive_enabled, c.archive_enabled) = 0';
         }
 
         if ($filters['sync'] === 'ok') {
@@ -365,7 +373,7 @@ trait CamerasPages
         $count->execute($params);
         $total = (int)$count->fetchColumn();
 
-        $stmt = $pdo->prepare('SELECT DISTINCT c.*, s.name AS server_name, s.base_url AS server_url FROM cameras c' . $join . $sqlWhere . ' ORDER BY ' . self::cameraListOrderSql($filters['sort'], $filters['dir']) . ' LIMIT ? OFFSET ?');
+        $stmt = $pdo->prepare('SELECT DISTINCT c.*, COALESCE(c.dvr_retention_days, c.retention_days) AS retention_days, COALESCE(c.dvr_archive_enabled, c.archive_enabled) AS archive_enabled, s.name AS server_name, s.base_url AS server_url FROM cameras c' . $join . $sqlWhere . ' ORDER BY ' . self::cameraListOrderSql($filters['sort'], $filters['dir']) . ' LIMIT ? OFFSET ?');
         $bind = [...$params, $pageSize, ($page - 1) * $pageSize];
         foreach ($bind as $idx => $value) {
             $stmt->bindValue($idx + 1, $value, is_int($value) ? PDO::PARAM_INT : PDO::PARAM_STR);
@@ -376,6 +384,7 @@ trait CamerasPages
             'total' => $total,
             'page' => $page,
             'pageSize' => $pageSize,
+            'settings_unavailable' => $unavailable,
             ...$filters,
         ];
     }
@@ -429,8 +438,8 @@ trait CamerasPages
             'stream' => 'c.dvr_stream_name',
             'server' => 'COALESCE(s.name, \'\')',
             'mode' => 'c.dvr_control_mode',
-            'archive' => 'c.archive_enabled',
-            'retention' => 'c.retention_days',
+            'archive' => 'COALESCE(c.dvr_archive_enabled, c.archive_enabled)',
+            'retention' => 'COALESCE(c.dvr_retention_days, c.retention_days)',
             'sync' => 'COALESCE(c.last_sync_ok, -1)',
             'updated' => 'c.updated_at',
             'created' => 'c.created_at',

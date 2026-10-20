@@ -58,6 +58,13 @@ instead of writing the cached configuration. API updates forward only explicitly
 supplied fields. Creation and the separate manual sync action still send the
 full Portal-managed configuration.
 
+The administrative camera table refreshes archive depth and recording status
+with one stream-list read per selected DVR before filtering and pagination.
+These values update only the local display metadata, never DVR configuration.
+Observations are stored separately so unsent `skipSync` edits remain intact.
+Opening a camera form also refreshes this metadata. An unavailable DVR or
+missing stream leaves the last known values intact and shows a table warning.
+
 Per camera, Portal can add an HTML/CSS watermark with the current user's login
 over the Portal player and control its intensity. The video stream is not
 transcoded for this.

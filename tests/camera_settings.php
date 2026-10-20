@@ -120,6 +120,20 @@ function saveSettings(array $form): array
     return settingsRequest('POST', '/admin/cameras?edit=' . $form['id'], $form);
 }
 
+function settingsTable(string $html): array
+{
+    $dom = new DOMDocument();
+    @$dom->loadHTML('<?xml encoding="utf-8" ?>' . $html);
+    $xpath = new DOMXPath($dom);
+    $rows = [];
+    foreach ($xpath->query('//table[contains(@class,"table-cameras")]/tbody/tr') as $row) {
+        $id = $xpath->query('.//input[@name="id"]', $row)->item(0);
+        $cells = $xpath->query('./td', $row);
+        if ($id) $rows[(int)$id->getAttribute('value')] = array_map(static fn($cell) => trim($cell->textContent), iterator_to_array($cells));
+    }
+    return $rows;
+}
+
 try {
     DB::migrate();
     $pdo = DB::pdo();
@@ -138,6 +152,7 @@ try {
     ];
     $agent = array_replace($stream, [
         'sourceType' => 'push', 'source' => 'push://cam', 'displayName' => 'Agent on second DVR',
+        'retentionDays' => '2d', 'archiveEnabled' => false,
         'push' => ['agentId' => 'current-agent', 'agentCameraId' => 'current-camera', 'onvifEventsRequested' => true,
             'transport' => 'cmaf', 'publisherKind' => 'agent', 'requested' => true, 'tokenHash' => 'keep'],
     ]);
@@ -152,11 +167,66 @@ try {
     }
     $base = startSettingsServer(['-t', 'public', 'public/index.php']);
     expectSettings(settingsRequest('POST', '/login', ['login' => 'settings-admin', 'password' => 'test-password'])[0] === 303, 'Login');
+
+    $table = settingsTable(settingsRequest('GET', '/admin/cameras')[1]);
+    expectSettings($table[1][5] === '30m' && $table[2][5] === '2d', 'Table loads current retention from the correct DVR without opening a camera form');
+    expectSettings($table[1][6] === 'да' && $table[2][6] === 'нет', 'Table loads current archive recording flags');
+    expectSettings(array_column(fixture()['requests'], 'path') === ['/one/api/streams', '/two/api/streams'], 'Only one batch request per DVR, not one request per camera');
+    $local = $pdo->query('SELECT * FROM cameras WHERE id=1')->fetch();
+    expectSettings($local['name'] === 'Stale one' && $local['source_url'] === 'rtsp://example.invalid/stale' && $local['retention_days'] === '7d'
+        && $local['updated_at'] === $now && $local['last_sync_at'] === null, 'Refresh only updates display metadata, not local names, sources or sync status');
+    expectSettings(writes() === [], 'Reading table never writes to DVR');
+    expectSettings(array_keys(settingsTable(settingsRequest('GET', '/admin/cameras?sort=retention&dir=asc')[1])) === [2, 1], 'Retention sorting uses observed DVR values');
+    expectSettings(array_keys(settingsTable(settingsRequest('GET', '/admin/cameras?sort=archive&dir=asc')[1])) === [2, 1], 'Archive sorting uses observed DVR values');
+
+    $startRequests = count(fixture()['requests']);
+    $filtered = settingsTable(settingsRequest('GET', '/admin/cameras?archive=off&server_id=2')[1]);
+    expectSettings(array_keys($filtered) === [2], 'Archive filter uses live values before pagination');
+    expectSettings(array_column(array_slice(fixture()['requests'], $startRequests), 'path') === ['/two/api/streams'], 'Server filter only contacts the selected DVR');
+    fixture(function (&$s) {
+        $s['servers']['two']['cam']['retentionDays'] = '15m';
+        $s['servers']['two']['cam']['archiveEnabled'] = true;
+        $s['wrappedLists']['two'] = true;
+    });
+    $filtered = settingsTable(settingsRequest('GET', '/admin/cameras?archive=off&server_id=2')[1]);
+    expectSettings($filtered === [] && $pdo->query('SELECT dvr_retention_days FROM cameras WHERE id=2')->fetchColumn() === '15m', 'Next table open refreshes direct DVR edits, including wrapped list responses');
+    [$status, $body] = settingsRequest('GET', '/api/portal/v1/cameras?server_id=2', null, true);
+    expectSettings($status === 200 && json_decode($body, true)['cameras'][0]['retentionDays'] === '15m', 'Admin API list uses refreshed table metadata too');
+
+    fixture(function (&$s) { $s['errors']['GET /two/api/streams'] = 503; $s['servers']['one']['cam']['retentionDays'] = '45m'; });
+    $unavailableList = settingsRequest('GET', '/admin/cameras')[1];
+    $table = settingsTable($unavailableList);
+    expectSettings($table[1][5] === '45m' && $table[2][5] === '15m', 'Unavailable DVR keeps cached values while other DVR refreshes');
+    expectSettings(str_contains($unavailableList, 'последние известные значения'), 'List warns when cached values are shown');
+    fixture(function (&$s) {
+        unset($s['errors']['GET /two/api/streams']);
+        $s['servers']['one']['cam']['retentionDays'] = '30m';
+        $s['servers']['two']['cam']['retentionDays'] = '2d';
+        $s['servers']['two']['cam']['archiveEnabled'] = false;
+    });
+    foreach ([['unexpected' => true], []] as $invalidList) {
+        fixture(function (&$s) use ($invalidList) { $s['responses']['GET /two/api/streams'] = $invalidList; });
+        $page = settingsRequest('GET', '/admin/cameras?server_id=2')[1];
+        expectSettings(settingsTable($page)[2][5] === '15m' && str_contains($page, 'последние известные значения'), 'Invalid response or missing stream keeps last known metadata and warns');
+    }
+    fixture(function (&$s) { unset($s['responses']['GET /two/api/streams']); });
+    $startRequests = count(fixture()['requests']);
+    settingsRequest('GET', '/admin/cameras?server_id=none');
+    expectSettings(count(fixture()['requests']) === $startRequests, 'Unassigned camera filter performs no DVR requests');
+    settingsRequest('GET', '/admin/cameras');
+    $old = SesamePortal\Repo::camera(1);
+    $pdo->exec("UPDATE cameras SET retention_days='4h' WHERE id=1");
+    (new ReflectionMethod(DvrClient::class, 'cacheCameraListSettings'))->invoke(null, $old, ['retentionDays' => '1h']);
+    expectSettings($pdo->query('SELECT retention_days FROM cameras WHERE id=1')->fetchColumn() === '4h', 'In-flight refresh does not overwrite a concurrent save');
+    (new ReflectionMethod(DvrClient::class, 'cacheCameraListSettings'))->invoke(null, $old, ['retentionDays' => '10m']);
+    expectSettings($pdo->query('SELECT dvr_retention_days FROM cameras WHERE id=1')->fetchColumn() === '1h', 'An older snapshot cannot overwrite a newer observed value');
+
     $form = settingsForm(1);
     expectSettings($form['display_name'] === $stream['displayName'] && $form['source_url'] === $stream['source'], 'Fresh title and source');
     expectSettings($form['retention_days'] === '30m' && $form['event_archive_max_mb'] === '64' && $form['event_archive_max_age'] === '60d', 'Fresh event archive limits');
     expectSettings(isset($form['webrtc_fast_start'], $form['event_archive_retention_enabled']), 'Fresh booleans');
-    expectSettings($pdo->query('SELECT retention_days FROM cameras WHERE id=1')->fetchColumn() === '7d', 'Opening is read-only');
+    expectSettings($pdo->query('SELECT dvr_retention_days FROM cameras WHERE id=1')->fetchColumn() === '30m'
+        && $pdo->query('SELECT retention_days FROM cameras WHERE id=1')->fetchColumn() === '4h' && writes() === [], 'Opening refreshes observations without modifying editable settings or DVR');
     $secondTab = settingsForm(1);
     expectSettings($form['camera_edit_token'] !== $secondTab['camera_edit_token'], 'Independent tab snapshots');
     fixture(function (&$s) {
@@ -253,14 +323,23 @@ try {
     settingsRequest('PATCH', '/api/portal/v1/cameras/2', ['onvifEventsRequested' => true], true);
     expectSettings(lastWrite()['body'] === ['push' => ['onvifEventsRequested' => true]], 'API agent update preserves nested fields');
     $beforeWrites = count(writes());
-    settingsRequest('PATCH', '/api/portal/v1/cameras/1', ['audioCodec' => 'copy', 'skipSync' => true], true);
+    settingsRequest('PATCH', '/api/portal/v1/cameras/1', ['audioCodec' => 'copy', 'retentionDays' => '8h', 'skipSync' => true], true);
     expectSettings(count(writes()) === $beforeWrites, 'skipSync preserved');
+    $table = settingsTable(settingsRequest('GET', '/admin/cameras')[1]);
+    expectSettings($table[1][5] === '4h' && $pdo->query('SELECT retention_days FROM cameras WHERE id=1')->fetchColumn() === '8h', 'Table displays actual DVR depth without discarding unsent skipSync settings');
+    expectSettings(count(writes()) === $beforeWrites, 'Refreshing pending settings does not trigger a sync');
     [$status, $body] = settingsRequest('POST', '/api/portal/v1/cameras', [
         'name' => 'Created camera', 'dvrStreamName' => 'new-cam', 'serverId' => 1,
         'sourceUrl' => 'rtsp://example.invalid/new', 'retentionDays' => '5d',
     ], true);
     expectSettings($status === 201 && json_decode($body, true)['sync']['ok'], 'New stream still created');
     expectSettings(lastWrite()['method'] === 'POST' && fixture()['servers']['one']['new-cam']['authMode'] === 'authBackend', 'New stream gets full initial configuration');
+    $createdId = (int)json_decode($body, true)['camera']['id'];
+    settingsRequest('GET', '/admin/cameras');
+    expectSettings($pdo->query('SELECT dvr_retention_days FROM cameras WHERE id=' . $createdId)->fetchColumn() === '5d', 'Created stream receives observed metadata on table read');
+    settingsRequest('PATCH', '/api/portal/v1/cameras/' . $createdId, ['serverId' => 2, 'skipSync' => true], true);
+    expectSettings($pdo->query('SELECT dvr_retention_days FROM cameras WHERE id=' . $createdId)->fetchColumn() === null, 'Rebinding clears observations from the previous DVR');
+    settingsRequest('PATCH', '/api/portal/v1/cameras/' . $createdId, ['serverId' => 1, 'skipSync' => true], true);
 
     $modeChange = settingsForm(1);
     $modeChange['dvr_control_mode'] = 'edge_agent';

@@ -101,6 +101,8 @@ final class DB
         self::ensureColumn('cameras', 'last_sync_ok', 'INTEGER');
         self::ensureColumn('cameras', 'last_sync_message', 'TEXT');
         self::ensureColumn('cameras', 'archive_enabled', 'INTEGER NOT NULL DEFAULT 1');
+        self::ensureColumn('cameras', 'dvr_retention_days', 'VARCHAR(64)');
+        self::ensureColumn('cameras', 'dvr_archive_enabled', 'INTEGER');
         self::ensureColumn('cameras', 'webrtc_fast_start', 'INTEGER NOT NULL DEFAULT 0');
         self::ensureColumn('cameras', 'event_archive_retention_enabled', 'INTEGER NOT NULL DEFAULT 0');
         self::ensureColumn('cameras', 'event_archive_max_bytes', self::driver() === 'sqlite' ? 'INTEGER' : 'BIGINT');

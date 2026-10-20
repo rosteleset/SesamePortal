@@ -23,12 +23,14 @@ final class I18nCatalog
         $settingsMessages = [
             'cameras.settingsReloadRequired' => 'Reload the camera settings before saving. No changes were saved.',
             'cameras.settingsUnavailable' => 'DVR settings could not be read. Showing the saved copy; DVR changes cannot be saved.',
+            'cameras.listSettingsUnavailable' => 'Some DVR settings could not be refreshed. The camera table keeps their last known values.',
             'cameras.noDvrChanges' => 'No DVR settings changed',
         ];
         foreach ($messages as $locale => &$items) {
             $items += $locale === 'ru' ? [
                 'cameras.settingsReloadRequired' => 'Перед сохранением заново откройте настройки камеры. Изменения не сохранены.',
                 'cameras.settingsUnavailable' => 'Не удалось прочитать настройки с DVR. Показана сохранённая копия; сохранение изменений на DVR недоступно.',
+                'cameras.listSettingsUnavailable' => 'Не удалось обновить часть параметров с DVR. Для них в таблице камер показаны последние известные значения.',
                 'cameras.noDvrChanges' => 'Настройки DVR не изменены',
             ] : $settingsMessages;
         }

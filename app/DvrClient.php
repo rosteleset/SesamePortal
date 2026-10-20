@@ -33,6 +33,7 @@ final class DvrClient
         if (empty($result['ok']) || !is_array($stream) || ($stream['name'] ?? null) !== $name) {
             return ['ok' => false, 'camera' => $camera];
         }
+        self::cacheCameraListSettings($camera, $stream);
         foreach (self::CAMERA_SETTINGS as $field => $remote) {
             if (!array_key_exists($remote, $stream)) continue;
             $value = $stream[$remote];
@@ -51,6 +52,65 @@ final class DvrClient
             }
         }
         return ['ok' => true, 'camera' => $camera];
+    }
+
+    public static function refreshCameraListSettings(?int $serverId = null): array
+    {
+        $query = DB::pdo()->prepare('SELECT id, server_id, name, dvr_stream_name, dvr_retention_days, dvr_archive_enabled FROM cameras WHERE server_id IS NOT NULL'
+            . ($serverId !== null ? ' AND server_id = ?' : ''));
+        $query->execute($serverId !== null ? [$serverId] : []);
+        $byServer = [];
+        foreach ($query->fetchAll() as $camera) {
+            $byServer[(int)$camera['server_id']][] = $camera;
+        }
+        $unavailable = [];
+        foreach ($byServer as $id => $cameras) {
+            $result = self::apiRequest($id, 'GET', '/api/streams', null, 5);
+            $data = $result['data'] ?? null;
+            $streams = is_array($data) ? (array_is_list($data) ? $data : ($data['streams'] ?? null)) : null;
+            if (empty($result['ok']) || !is_array($streams) || !array_is_list($streams)) {
+                $unavailable[] = $id;
+                continue;
+            }
+            $byName = [];
+            foreach ($streams as $stream) {
+                if (is_array($stream) && is_string($stream['name'] ?? null)) {
+                    $byName[$stream['name']] = $stream;
+                }
+            }
+            foreach ($cameras as $camera) {
+                $name = (string)($camera['dvr_stream_name'] ?: $camera['name']);
+                if (!isset($byName[$name])) {
+                    $unavailable[] = $id;
+                    continue;
+                }
+                self::cacheCameraListSettings($camera, $byName[$name]);
+            }
+        }
+        return array_values(array_unique($unavailable));
+    }
+
+    private static function cacheCameraListSettings(array $camera, array $stream): void
+    {
+        $changes = [];
+        if (isset($stream['retentionDays']) && (is_string($stream['retentionDays']) || is_int($stream['retentionDays']))) {
+            $value = (string)$stream['retentionDays'];
+            if ($camera['dvr_retention_days'] === null || $value !== (string)$camera['dvr_retention_days']) $changes['dvr_retention_days'] = $value;
+        }
+        if (isset($stream['archiveEnabled']) && in_array($stream['archiveEnabled'], [true, false, 0, 1], true)) {
+            $value = (int)$stream['archiveEnabled'];
+            if ($camera['dvr_archive_enabled'] === null || $value !== (int)$camera['dvr_archive_enabled']) $changes['dvr_archive_enabled'] = $value;
+        }
+        if ($changes === []) return;
+        // Observations are separate from editable settings, including unsent API changes.
+        $sql = 'UPDATE cameras SET ' . implode(', ', array_map(static fn($field) => $field . '=?', array_keys($changes)))
+            . ' WHERE id=? AND server_id=? AND dvr_stream_name=?';
+        $params = [...array_values($changes), $camera['id'], $camera['server_id'], $camera['dvr_stream_name']];
+        foreach (['dvr_retention_days', 'dvr_archive_enabled'] as $field) {
+            $sql .= ' AND ' . $field . ($camera[$field] === null ? ' IS NULL' : '=?');
+            if ($camera[$field] !== null) $params[] = $camera[$field];
+        }
+        DB::pdo()->prepare($sql)->execute($params);
     }
 
     public static function cameraSettingsPatch(array $before, array $after): array
