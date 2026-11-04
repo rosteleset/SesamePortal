@@ -684,7 +684,7 @@
       <div class="map-popup-card">
         ${preview}
         <strong>${escapeHtml(camera.name)}</strong>
-        <span>${escapeHtml(camera.server || "")}</span>
+        ${camera.server ? `<span>${escapeHtml(camera.server)}</span>` : ""}
         <div class="map-popup-actions">
           <a href="${escapeHtml(camera.player)}">${escapeHtml(tr("openVideo", "Открыть видео"))}</a>
           <form method="post" action="/favorite/toggle" class="favorite-form">

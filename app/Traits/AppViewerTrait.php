@@ -28,7 +28,7 @@ trait AppViewerTrait
         self::layout($title, function () use ($mode, $filter, $searchQuery, $cameras, $favorites, $cameraPager, $cols, $previewRefresh, $isAdmin, $canRename) {
             self::filters($mode, [], $filter, $searchQuery, $cols, $previewRefresh);
             if ($mode === 'map') {
-                self::map($cameras, $favorites);
+                self::map($cameras, $favorites, $isAdmin);
             } else {
                 self::mosaic($cameras, $favorites, $cameraPager ?? [], $cols, $previewRefresh, $isAdmin, $canRename);
             }
@@ -133,7 +133,7 @@ trait AppViewerTrait
         ]);
     }
 
-    private static function map(array $cameras, array $favorites): void
+    private static function map(array $cameras, array $favorites, bool $isAdmin): void
     {
         echo '<section class="panel map-panel"><div id="map" class="map"></div></section>';
         $payload = [];
@@ -153,8 +153,10 @@ trait AppViewerTrait
                 'player' => self::playerUrl($camera),
                 'preview' => self::previewUrl($camera),
                 'streamUnavailable' => self::cameraStreamUnavailableFromMapMetrics($camera, $streamUnavailableByServer),
-                'server' => $camera['server_name'] ?? self::t('common.noServer', 'Без сервера'),
             ];
+            if ($isAdmin) {
+                $payload[count($payload) - 1]['server'] = $camera['server_name'] ?? self::t('common.noServer', 'Без сервера');
+            }
         }
         echo '<script>window.SESAME_CAMERAS = ' . json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . ';</script>';
     }

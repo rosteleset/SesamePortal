@@ -1122,6 +1122,7 @@ printf "%s" "$map_page" | grep -q '"/viewer/preview?id=1"'
 printf "%s" "$map_page" | grep -q "leaflet.markercluster"
 printf "%s" "$map_page" | grep -q "direction"
 printf "%s" "$map_page" | grep -q "viewAngle"
+printf "%s" "$map_page" | grep -q '"server":"Smoke DVR"'
 printf "%s" "$map_page" | grep -q "window.SESAME_CSRF"
 map_search_page="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/viewer/map?q=smoke%20cam")"
 printf "%s" "$map_search_page" | grep -q "Smoke Cam"
@@ -1178,6 +1179,10 @@ plain_mosaic_page="$(curl -fsS -b "$PLAIN_COOKIE_JAR" "http://127.0.0.1:$PORT/")
 grep -q "camera-grid cols-3" <<<"$plain_mosaic_page"
 grep -F -q 'class="active" href="/?cols=3"' <<<"$plain_mosaic_page"
 ! printf "%s" "$plain_mosaic_page" | grep -q "camera-tech"
+# Map payload for a regular user has no DVR server data (popup shows only the camera name)
+plain_map_page="$(curl -fsS -b "$PLAIN_COOKIE_JAR" "http://127.0.0.1:$PORT/viewer/map?q=smoke%20cam")"
+printf "%s" "$plain_map_page" | grep -q "Smoke Cam"
+! printf "%s" "$plain_map_page" | grep -q '"server":'
 plain_player_page="$(curl -fsS -b "$PLAIN_COOKIE_JAR" "http://127.0.0.1:$PORT/viewer/player?id=1")"
 ! printf "%s" "$plain_player_page" | grep -q "settings_url="
 ! printf "%s" "$plain_player_page" | grep -q "admin%2Fcameras"
