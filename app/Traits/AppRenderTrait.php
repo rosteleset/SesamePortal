@@ -1239,6 +1239,16 @@ trait AppRenderTrait
 
     private static function tableCell(string $column, mixed $value): void
     {
+        if ($column === 'sub_owner_login') {
+            $owner = trim((string)$value);
+            if ($owner === '') {
+                echo '<td class="muted">-</td>';
+                return;
+            }
+            echo '<td><span class="pill"><span class="pill-strong">' . Util::h(self::t('users.subPill', 'суб')) . '</span> · ' . Util::h($owner) . '</span></td>';
+            return;
+        }
+
         if ($column === 'archive_enabled') {
             $enabled = (int)$value === 1;
             $label = $enabled ? self::t('agents.yes', 'да') : self::t('agents.no', 'нет');

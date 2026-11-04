@@ -89,6 +89,13 @@ final class Repo
             return array_map('intval', array_column(self::all('group_folders', 'id ASC'), 'id'));
         }
 
+        // Суб-пользователь: «виртуальные» папки — те, где есть хотя бы одна
+        // выданная ему камера. Используются только для дерева папок в UI,
+        // права на камерах считаются по camera_shares (см. accessibleCameraScope).
+        if (self::isSubUser($user)) {
+            return self::subUserFolderIds((int)$user['id']);
+        }
+
         $folderIds = self::directUserFolderIds((int)$user['id']);
         if (!$folderIds) {
             return [];
@@ -102,6 +109,58 @@ final class Repo
         );
         $stmt->execute($folderIds);
         return array_map('intval', array_column($stmt->fetchAll(), 'id'));
+    }
+
+    public static function isSubUser(array $user): bool
+    {
+        return ($user['role'] ?? '') !== 'admin' && !empty($user['owner_user_id']);
+    }
+
+    /**
+     * Папки, в которых у суб-пользователя есть хотя бы одна доступная камера.
+     */
+    private static function subUserFolderIds(int $userId): array
+    {
+        $stmt = DB::pdo()->prepare(
+            'SELECT DISTINCT cf.folder_id
+             FROM camera_shares sh
+             JOIN users own ON own.id = sh.owner_user_id AND own.blocked = 0
+             JOIN camera_folders cf ON cf.camera_id = sh.camera_id
+             JOIN group_folders gf ON gf.id = cf.folder_id AND gf.blocked = 0
+             JOIN portal_groups g ON g.id = gf.group_id AND g.blocked = 0
+             WHERE sh.sub_user_id = ?'
+        );
+        $stmt->execute([$userId]);
+        return array_map('intval', array_column($stmt->fetchAll(), 'folder_id'));
+    }
+
+    /**
+     * Канонический набор JOIN'ов, дающих суб-пользователю доступ к камере:
+     * share существует + владелец не заблокирован + владелец имеет доступ к
+     * камере через свою папку + папка/группа не заблокированы. Камера при этом
+     * может быть не заблокирована (проверяется отдельно, где и раньше).
+     * Плейсхолдер с id суб-пользователя уходит в joinParams.
+     */
+    private static function subUserShareJoin(string $cameraAlias, string $part): string
+    {
+        $p = $part;
+        return ' JOIN camera_shares ' . $p . '_sh ON ' . $p . '_sh.camera_id = ' . $cameraAlias . '.id'
+            . ' AND ' . $p . '_sh.sub_user_id = ?'
+            . ' JOIN users ' . $p . '_own ON ' . $p . '_own.id = ' . $p . '_sh.owner_user_id AND ' . $p . '_own.blocked = 0'
+            . ' JOIN camera_folders ' . $p . '_ocf ON ' . $p . '_ocf.camera_id = ' . $cameraAlias . '.id'
+            . ' JOIN user_folders ' . $p . '_ouf ON ' . $p . '_ouf.user_id = ' . $p . '_sh.owner_user_id'
+            . ' AND ' . $p . '_ouf.folder_id = ' . $p . '_ocf.folder_id'
+            . ' JOIN group_folders ' . $p . '_gf ON ' . $p . '_gf.id = ' . $p . '_ocf.folder_id AND ' . $p . '_gf.blocked = 0'
+            . ' JOIN portal_groups ' . $p . '_g ON ' . $p . '_g.id = ' . $p . '_gf.group_id AND ' . $p . '_g.blocked = 0';
+    }
+
+    /**
+     * Архив открыт для суб-пользователя по конкретной строке share-цепочки:
+     * владелец разрешил архив в share И его папка с камерой не hide_archive.
+     */
+    private static function archiveOpenSql(string $part): string
+    {
+        return $part . '_sh.allow_archive = 1 AND ' . $part . '_ouf.hide_archive = 0';
     }
 
     public static function accessibleCameras(array $user, string $filter = 'all', string $query = ''): array
@@ -200,7 +259,9 @@ final class Repo
         $where = ['c.blocked = 0'];
         $join = 'LEFT JOIN dvr_servers s ON s.id = c.server_id';
 
-        if ($user['role'] !== 'admin') {
+        $subUser = self::isSubUser($user);
+
+        if (!$subUser && $user['role'] !== 'admin') {
             $accessFolderIds = self::userAccessibleFolderIds($user);
             if (!$accessFolderIds) {
                 $where[] = '1 = 0';
@@ -209,6 +270,11 @@ final class Repo
                 $where[] = 'cf_access.folder_id IN (' . self::placeholders($accessFolderIds) . ')';
                 array_push($whereParams, ...$accessFolderIds);
             }
+        } elseif ($subUser) {
+            // Доступ суб-пользователя задаёт share-таблица, а не user_folders:
+            // работает только пока у владельца доступ к камере сохраняется.
+            $join .= self::subUserShareJoin('c', 'shx');
+            array_push($joinParams, (int)$user['id']);
         }
 
         if ($filter === 'favorites') {
@@ -439,6 +505,15 @@ final class Repo
             return (bool)$stmt->fetch();
         }
 
+        if (self::isSubUser($user)) {
+            $sql = 'SELECT c.id FROM cameras c'
+                . self::subUserShareJoin('c', 'shx')
+                . ' WHERE c.id = ? AND c.blocked = 0 LIMIT 1';
+            $stmt = DB::pdo()->prepare($sql);
+            $stmt->execute([(int)$user['id'], $cameraId]);
+            return (bool)$stmt->fetch();
+        }
+
         $folderIds = self::userAccessibleFolderIds($user);
         if (!$folderIds) {
             return false;
@@ -457,11 +532,22 @@ final class Repo
      * Архив скрыт, если доступ к камере есть только через папки с hide_archive=1.
      * Semantics «любая папка открывает»: достаточно одной папки с hide_archive=0,
      * в которой лежит камера. Админ всегда видит архив.
+     * Для суб-пользователя: share должен явно разрешать архив (allow_archive=1),
+     * и у владельца архив по этой камере должен оставаться открытым.
      */
     public static function cameraArchiveHiddenForUser(array $user, int $cameraId): bool
     {
         if ($user['role'] === 'admin') {
             return false;
+        }
+
+        if (self::isSubUser($user)) {
+            $sql = 'SELECT COUNT(*) FROM cameras c'
+                . self::subUserShareJoin('c', 'shx')
+                . ' WHERE c.id = ? AND c.blocked = 0 AND ' . self::archiveOpenSql('shx');
+            $stmt = DB::pdo()->prepare($sql);
+            $stmt->execute([(int)$user['id'], $cameraId]);
+            return (int)$stmt->fetchColumn() === 0;
         }
 
         $folderIds = self::userAccessibleFolderIds($user);

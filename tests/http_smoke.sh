@@ -2443,6 +2443,241 @@ if [[ -z "${SESAME_PORTAL_DB_DSN:-}" ]]; then
     test "$ro_legacy_cols" = "dropped"
 fi
 
+# --- Sub-users: owner shares cameras via profile ------------------------------
+# Owner 'share-owner' sees the Smoke Folder (archive open). He invites a sub
+# by phone, grants two cameras (one with archive) and the access chain is
+# derived from the owner's own folders live.
+SHARE_PW="$(rand_secret 20)"
+export SHARE_PW
+share_seed="$(SHARE_PW="$SHARE_PW" php <<'PHP'
+<?php
+require getenv('ROOT') . '/app/Portal.php';
+\SesamePortal\DB::migrate();
+$pdo = \SesamePortal\DB::pdo();
+$now = \SesamePortal\Util::now();
+$folderId = (int)$pdo->query("SELECT id FROM group_folders WHERE name = 'Smoke Folder'")->fetchColumn();
+$cameraIds = [];
+foreach ($pdo->query('SELECT id, name FROM cameras') as $row) {
+    $cameraIds[$row['name']] = (int)$row['id'];
+}
+$pdo->prepare('INSERT INTO users(login, password_hash, role, blocked, read_only, must_change_password, created_at) VALUES(?,?,?,?,0,0,?)')
+    ->execute(['share-owner', password_hash(getenv('SHARE_PW'), PASSWORD_DEFAULT), 'user', 0, $now]);
+$ownerId = (int)\SesamePortal\DB::lastInsertId('users');
+$pdo->prepare('INSERT INTO user_folders(user_id, folder_id, hide_archive) VALUES(?,?,0)')->execute([$ownerId, $folderId]);
+echo 'SHARE_OWNER_ID=' . $ownerId . "\n";
+echo 'SHARE_SMOKE_CAM=' . $cameraIds['Smoke Cam'] . "\n";
+echo 'SHARE_YARD_CAM=' . $cameraIds['Двор Камера'] . "\n";
+echo 'SHARE_RO_CAM=' . $cameraIds['Read Only Cam'] . "\n";
+PHP
+)"
+export SHARE_OWNER_ID SHARE_SMOKE_CAM SHARE_YARD_CAM SHARE_RO_CAM
+eval "$share_seed"
+test -n "$SHARE_OWNER_ID" -a -n "$SHARE_SMOKE_CAM" -a -n "$SHARE_YARD_CAM" -a -n "$SHARE_RO_CAM"
+
+SHARE_COOKIE_JAR="$STATE_DIR/share-cookies.txt"
+curl -fsS -c "$SHARE_COOKIE_JAR" "http://127.0.0.1:$PORT/login?lang=ru" >/dev/null
+share_login_status="$(
+  curl -sS -o /dev/null -w '%{http_code}' -b "$SHARE_COOKIE_JAR" -c "$SHARE_COOKIE_JAR" \
+    -d "login=share-owner" -d "password=$SHARE_PW" \
+    "http://127.0.0.1:$PORT/login"
+)"
+test "$share_login_status" = "303"
+
+share_profile_page="$(curl -fsS -b "$SHARE_COOKIE_JAR" "http://127.0.0.1:$PORT/profile?lang=ru")"
+printf "%s" "$share_profile_page" | grep -q 'Доступ по номеру телефона'
+printf "%s" "$share_profile_page" | grep -q 'Добавить суб-пользователя'
+printf "%s" "$share_profile_page" | grep -q 'Пока никто не приглашён.'
+share_csrf="$(printf "%s" "$share_profile_page" | sed -n 's/.*name="csrf" value="\([^"]*\)".*/\1/p' | head -n 1)"
+test -n "$share_csrf"
+
+# The main profile form still works for the owner (legacy action='update')
+share_name_save="$(
+  curl -fsS -b "$SHARE_COOKIE_JAR" \
+    -d "csrf=$share_csrf" -d "action=update" -d 'name=Ольга Хозяин' \
+    "http://127.0.0.1:$PORT/profile"
+)"
+printf "%s" "$share_name_save" | grep -q 'Профиль сохранён'
+share_name_db="$( SHARE_OWNER_ID="$SHARE_OWNER_ID" php -r 'require getenv("ROOT") . "/app/Portal.php"; $id=(int)getenv("SHARE_OWNER_ID"); echo (string)\SesamePortal\DB::pdo()->query("SELECT name FROM users WHERE id=$id")->fetchColumn();')"
+test "$share_name_db" = "Ольга Хозяин"
+
+# Invalid phone is rejected loudly
+share_bad_phone="$(
+  curl -fsS -b "$SHARE_COOKIE_JAR" \
+    -d "csrf=$share_csrf" -d 'action=share_addsub' -d 'name=Ольга' -d 'phone=123' \
+    "http://127.0.0.1:$PORT/profile"
+)"
+printf "%s" "$share_bad_phone" | grep -q 'Некорректный номер телефона'
+
+# A number that already belongs to another user is rejected
+share_dup_phone="$(
+  curl -fsS -b "$SHARE_COOKIE_JAR" \
+    -d "csrf=$share_csrf" -d 'action=share_addsub' -d 'name=Дубль' -d 'phone=79000000001' \
+    "http://127.0.0.1:$PORT/profile"
+)"
+printf "%s" "$share_dup_phone" | grep -q 'Этот номер уже используется'
+
+# Successfully invite the sub
+share_add_page="$(
+  curl -fsS -b "$SHARE_COOKIE_JAR" \
+    -d "csrf=$share_csrf" -d 'action=share_addsub' -d 'name=Ольга (соседка)' -d 'phone=79000000007' \
+    "http://127.0.0.1:$PORT/profile"
+)"
+printf "%s" "$share_add_page" | grep -q 'Суб-пользователь создан'
+sub_seed="$( SHARE_OWNER_ID="$SHARE_OWNER_ID" php <<'PHP'
+<?php
+require getenv('ROOT') . '/app/Portal.php';
+$row = \SesamePortal\DB::pdo()->query('SELECT id, login, read_only, blocked, must_change_password, owner_user_id, password_hash FROM users WHERE phone = \'79000000007\'')->fetch(\PDO::FETCH_ASSOC);
+if (!$row) { fwrite(STDERR, "sub row missing\n"); exit(1); }
+$ok = str_starts_with($row['login'], 'sub-')
+    && (int)$row['read_only'] === 1
+    && (int)$row['blocked'] === 0
+    && (int)$row['must_change_password'] === 0
+    && (int)$row['owner_user_id'] === (int)getenv('SHARE_OWNER_ID')
+    && !password_verify('', (string)$row['password_hash']);
+echo $ok ? (string)$row['id'] : 'bad-sub-row';
+PHP
+)"
+test "$sub_seed" != "bad-sub-row"
+SHARE_SUB_ID="$sub_seed"
+export SHARE_SUB_ID
+
+# Granting a camera the owner cannot see is rejected
+share_grant_forbidden="$( curl -fsS -b "$SHARE_COOKIE_JAR" \
+  -d "csrf=$share_csrf" -d 'action=share_save' -d "sub_id=$SHARE_SUB_ID" \
+  -d "cam[]=$SHARE_RO_CAM" "http://127.0.0.1:$PORT/profile" )"
+printf "%s" "$share_grant_forbidden" | grep -q 'Одна из выбранных камер вам недоступна'
+
+# Archive for a camera the owner cannot open archive for is rejected:
+# Read Only Cam belongs to another folder + Smoke Cam archive is open — use
+# the owner's own folder with hide_archive flipped on temporarily.
+share_arch_off="$(php -r 'require getenv("ROOT") . "/app/Portal.php"; \SesamePortal\DB::pdo()->exec("UPDATE user_folders SET hide_archive = 1 WHERE user_id = " . (int)getenv("SHARE_OWNER_ID"));')"
+share_arch_forbidden="$( curl -fsS -b "$SHARE_COOKIE_JAR" \
+  -d "csrf=$share_csrf" -d 'action=share_save' -d "sub_id=$SHARE_SUB_ID" \
+  -d "cam[]=$SHARE_SMOKE_CAM" -d "arch[]=$SHARE_SMOKE_CAM" "http://127.0.0.1:$PORT/profile" )"
+share_arch_on="$(php -r 'require getenv("ROOT") . "/app/Portal.php"; \SesamePortal\DB::pdo()->exec("UPDATE user_folders SET hide_archive = 0 WHERE user_id = " . (int)getenv("SHARE_OWNER_ID"));')"
+printf "%s" "$share_arch_forbidden" | grep -q 'Архив недоступен по одной из отмеченных камер'
+
+# Successful share: Smoke Cam (with archive) + Двор Камера (no archive)
+share_save_page="$( curl -fsS -b "$SHARE_COOKIE_JAR" \
+  -d "csrf=$share_csrf" -d 'action=share_save' -d "sub_id=$SHARE_SUB_ID" \
+  -d "cam[]=$SHARE_SMOKE_CAM" -d "cam[]=$SHARE_YARD_CAM" -d "arch[]=$SHARE_SMOKE_CAM" \
+  "http://127.0.0.1:$PORT/profile" )"
+saved_page="$(curl -fsS -b "$SHARE_COOKIE_JAR" "http://127.0.0.1:$PORT/profile?lang=ru")"
+printf "%s" "$share_save_page" | grep -q 'Доступ суб-пользователя сохранён'
+printf "%s" "$share_save_page" | grep -q 'Ольга (соседка)'
+printf "%s" "$share_save_page" | grep -q '2 кам.'
+
+sub_scope="$( SHARE_SUB_ID="$SHARE_SUB_ID" SHARE_RO_CAM="$SHARE_RO_CAM" php <<'PHP'
+<?php
+require getenv('ROOT') . '/app/Portal.php';
+$user = \SesamePortal\DB::pdo()->query('SELECT * FROM users WHERE id = ' . (int)getenv('SHARE_SUB_ID'))->fetch(\PDO::FETCH_ASSOC);
+$ids = array_map('intval', array_column(\SesamePortal\Repo::accessibleCameras($user), 'id'));
+sort($ids);
+$roCam = (int)getenv('SHARE_RO_CAM');
+echo in_array($roCam, $ids, true) ? 'ro-cam-leaked' : implode(',', $ids);
+PHP
+)"
+share_expected="$(printf '%s\n' "$SHARE_SMOKE_CAM" "$SHARE_YARD_CAM" | sort -n | tr '\n' ',' | sed 's/,$//')"
+test "$sub_scope" = "$share_expected"
+
+# Renders per-sub camera checkboxes + archive checkbox for the open one
+printf "%s" "$share_save_page" | grep -q 'name="sub_id"'
+printf "%s" "$share_save_page" | grep -q 'Сохранить доступ'
+printf "%s" "$share_save_page" | grep -q 'Удалить суб-пользователя'
+printf "%s" "$share_save_page" | grep -q 'архив'
+
+# Sub signs in via phone callback
+SUB_COOKIE_JAR="$STATE_DIR/sub-cookies.txt"
+sub_start_json="$(curl -fsS -X POST -H 'Content-Type: application/json' \
+  -d '{"phone":"79000000007"}' \
+  "http://127.0.0.1:$PORT/api/portal/v1/auth/callback/start")"
+sub_pending_id="$(printf "%s" "$sub_start_json" | php -r '$d = json_decode(stream_get_contents(STDIN), true); echo (string)($d["pending_id"] ?? "");')"
+test -n "$sub_pending_id"
+sub_webhook_json="$(curl -fsS -X POST -H 'Authorization: Bearer smoke-callback-secret-1' -H 'Content-Type: application/json' \
+  -d '{"phone":"79000000007","call_id":"smoke-call-sub-1"}' \
+  "http://127.0.0.1:$PORT/api/portal/v1/auth/callback/webhook")"
+printf "%s" "$sub_webhook_json" | grep -q '"ok": true'
+sub_poll_json="$(curl -fsS "http://127.0.0.1:$PORT/api/portal/v1/auth/callback/poll?pending_id=$sub_pending_id")"
+printf "%s" "$sub_poll_json" | grep -q '"status": "confirmed"'
+sub_complete_json="$(curl -fsS -c "$SUB_COOKIE_JAR" -X POST -H 'Content-Type: application/json' \
+  -d "{\"pending_id\":\"$sub_pending_id\"}" \
+  "http://127.0.0.1:$PORT/api/portal/v1/auth/callback/complete")"
+printf "%s" "$sub_complete_json" | grep -q '"redirect": "/"'
+sub_me="$(curl -fsS -b "$SUB_COOKIE_JAR" "http://127.0.0.1:$PORT/api/portal/v1/me")"
+printf "%s" "$sub_me" | grep -q '"phone": "79000000007"'
+sub_login="$(printf "%s" "$sub_me" | php -r '$d = json_decode(stream_get_contents(STDIN), true); echo (string)(($d["user"]["login"] ?? ""));')"
+case "$sub_login" in sub-*) ;; *) echo "unexpected sub login: $sub_login"; exit 1;; esac
+
+# Sub sees only granted cameras
+sub_mosaic="$(curl -fsS -b "$SUB_COOKIE_JAR" "http://127.0.0.1:$PORT/?lang=ru")"
+printf "%s" "$sub_mosaic" | grep -q 'Smoke Cam'
+printf "%s" "$sub_mosaic" | grep -q 'Двор Камера'
+! printf "%s" "$sub_mosaic" | grep -q 'Read Only Cam'
+
+# Sub's profile is read-only and has no share panel
+sub_profile="$(curl -fsS -b "$SUB_COOKIE_JAR" "http://127.0.0.1:$PORT/profile?lang=ru")"
+printf "%s" "$sub_profile" | grep -E -q 'name="name" value="[^"]*" maxlength="255" readonly disabled>'
+printf "%s" "$sub_profile" | grep -q 'name="phone" type="tel" value="79000000007"[^>]*readonly disabled>'
+! printf "%s" "$sub_profile" | grep -q 'Добавить суб-пользователя'
+
+# Admin list marks the sub and shows its owner
+admin_sub_page="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/admin/users?lang=ru")"
+printf "%s" "$admin_sub_page" | grep -q "$sub_login"
+printf "%s" "$admin_sub_page" | grep -q 'pill-strong">суб</span> · share-owner'
+printf "%s" "$admin_sub_page" | grep -q '>Суб-пользователь<'
+
+# Owner accidentally stops having the folder -> sub access evaporates
+php -r 'require getenv("ROOT") . "/app/Portal.php"; \SesamePortal\DB::pdo()->exec("DELETE FROM user_folders WHERE user_id = " . (int)getenv("SHARE_OWNER_ID"));'
+sub_evaporated="$( SHARE_SUB_ID="$SHARE_SUB_ID" php <<'PHP'
+<?php
+require getenv('ROOT') . '/app/Portal.php';
+$user = \SesamePortal\DB::pdo()->query('SELECT * FROM users WHERE id = ' . (int)getenv('SHARE_SUB_ID'))->fetch(\PDO::FETCH_ASSOC);
+echo count(\SesamePortal\Repo::accessibleCameras($user));
+PHP
+)"
+test "$sub_evaporated" = "0"
+sub_mosaic_empty="$(curl -fsS -b "$SUB_COOKIE_JAR" "http://127.0.0.1:$PORT/?lang=ru")"
+! printf "%s" "$sub_mosaic_empty" | grep -q 'Smoke Cam'
+# ...and returns when the folder link is restored
+SHARE_FOLDER_ID="$( SHARE_OWNER_ID="$SHARE_OWNER_ID" php -r 'require getenv("ROOT") . "/app/Portal.php"; $id=(int)getenv("SHARE_OWNER_ID"); echo (string)\SesamePortal\DB::pdo()->query("SELECT id FROM group_folders WHERE name = '"'"'Smoke Folder'"'"'")->fetchColumn();')"
+export SHARE_FOLDER_ID
+test -n "$SHARE_FOLDER_ID"
+php -r 'require getenv("ROOT") . "/app/Portal.php"; \SesamePortal\DB::pdo()->prepare("INSERT INTO user_folders(user_id, folder_id, hide_archive) VALUES(?,?,0)")->execute([(int)getenv("SHARE_OWNER_ID"), (int)getenv("SHARE_FOLDER_ID")]);'
+sub_restored="$( SHARE_SUB_ID="$SHARE_SUB_ID" php <<'PHP'
+<?php
+require getenv('ROOT') . '/app/Portal.php';
+$user = \SesamePortal\DB::pdo()->query('SELECT * FROM users WHERE id = ' . (int)getenv('SHARE_SUB_ID'))->fetch(\PDO::FETCH_ASSOC);
+echo count(\SesamePortal\Repo::accessibleCameras($user));
+PHP
+)"
+test "$sub_restored" = "2"
+
+# Delete the sub: users row and its shares are gone
+share_delete_page="$( curl -fsS -b "$SHARE_COOKIE_JAR" \
+  -d "csrf=$share_csrf" -d 'action=share_delete' -d "sub_id=$SHARE_SUB_ID" \
+  "http://127.0.0.1:$PORT/profile" )"
+printf "%s" "$share_delete_page" | grep -q 'Суб-пользователь удалён'
+deleted_page="$(curl -fsS -b "$SHARE_COOKIE_JAR" "http://127.0.0.1:$PORT/profile?lang=ru")"
+printf "%s" "$share_delete_page" | grep -q 'Суб-пользователь удалён'
+sub_gone="$( SHARE_SUB_ID="$SHARE_SUB_ID" php <<'PHP'
+<?php
+require getenv('ROOT') . '/app/Portal.php';
+$pdo = \SesamePortal\DB::pdo();
+$user = $pdo->query('SELECT id FROM users WHERE id = ' . (int)getenv('SHARE_SUB_ID'))->fetch(\PDO::FETCH_COLUMN);
+$shares = $pdo->query('SELECT COUNT(*) FROM camera_shares WHERE sub_user_id = ' . (int)getenv('SHARE_SUB_ID'))->fetchColumn();
+echo ($user || (int)$shares) ? 'rows-left' : 'clean';
+PHP
+)"
+test "$sub_gone" = "clean"
+
+# Sub callback login now fails: the account is gone
+sub_gone_start_status="$(
+  curl -sS -o /dev/null -w '%{http_code}' -X POST -H 'Content-Type: application/json' \
+    -d '{"phone":"79000000007"}' \
+    "http://127.0.0.1:$PORT/api/portal/v1/auth/callback/start"
+)"
+test "$sub_gone_start_status" = "401"
+
 # --- OpenAPI document and Swagger UI -------------------------------------------
 # Structural contract of the document itself: resolvable refs, unique operationIds,
 # path parameters, and a route list that matches what AppApiTrait dispatches.

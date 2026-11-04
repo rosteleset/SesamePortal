@@ -706,12 +706,20 @@ trait AppPagesTrait
         $user = Auth::requireLogin();
         $userId = (int)$user['id'];
         $readOnly = ($user['role'] ?? '') !== 'admin' && !empty($user['read_only']);
+        $canShare = self::canShareCameras($user);
         $message = '';
         $messageClass = '';
+        $action = (string)Util::post('action', 'update');
         if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
             if ($readOnly) {
                 $message = self::t('profile.readOnly', 'Профиль доступен только для чтения');
                 $messageClass = 'danger';
+            } elseif ($canShare && $action === 'share_addsub') {
+                [$message, $messageClass] = self::shareAddSub($user);
+            } elseif ($canShare && $action === 'share_save') {
+                [$message, $messageClass] = self::shareSave($user);
+            } elseif ($canShare && $action === 'share_delete') {
+                [$message, $messageClass] = self::shareDelete($user);
             } else {
                 $name = trim((string)Util::post('name'));
                 $email = trim((string)Util::post('email'));
@@ -755,7 +763,7 @@ trait AppPagesTrait
                 }
             }
         }
-        self::layout(self::t('profile.title', 'Профиль'), function () use ($user, $message, $messageClass, $readOnly): void {
+        self::layout(self::t('profile.title', 'Профиль'), function () use ($user, $message, $messageClass, $readOnly, $canShare): void {
             self::notice($message, $messageClass);
             echo '<section class="panel"><div class="section-head"><h2>' . Util::h(self::t('profile.title', 'Профиль')) . '</h2><p class="muted">' . Util::h(self::t('profile.description', 'Отредактируйте личные данные и параметры входа')) . '</p></div>';
             echo '<form method="post" class="form profile-form">' . Csrf::field();
@@ -773,7 +781,269 @@ trait AppPagesTrait
             }
             echo '</form>';
             echo '</section>';
+            if ($canShare) {
+                self::profileSharePanel($user);
+            }
         });
+    }
+
+    /**
+     * Суб-пользователи — особые аккаунты, созданные обычным пользователем,
+     * вход по звонку на их телефон, доступ только к выданным камерам.
+     */
+    private static function canShareCameras(array $user): bool
+    {
+        return ($user['role'] ?? '') !== 'admin'
+            && empty($user['read_only'])
+            && empty($user['owner_user_id']);
+    }
+
+    private static function profileSharePanel(array $user): void
+    {
+        $stmt = DB::pdo()->prepare('SELECT id, login, name, phone, blocked FROM users WHERE owner_user_id = ? ORDER BY name ASC, login ASC');
+        $stmt->execute([(int)$user['id']]);
+        $subs = $stmt->fetchAll();
+
+        echo '<section class="panel profile-share-panel"><div class="section-head"><h2>' . Util::h(self::t('profile.shareTitle', 'Доступ по номеру телефона')) . '</h2>';
+        echo '<p class="muted">' . Util::h(self::t('profile.shareDesc', 'Пригласите суб-пользователя: он подтвердит вход звонком с своего номера и увидит только выбранные вами камеры. Открыть ему архив можно отдельно, камера за камерой.')) . '</p></div>';
+
+        echo '<form method="post" class="form profile-share-add">' . Csrf::field();
+        echo '<input type="hidden" name="action" value="share_addsub">';
+        echo '<div class="form-row">';
+        echo '<label>' . Util::h(self::t('profile.shareName', 'Имя суб-пользователя')) . '<input name="name" maxlength="255" placeholder="' . Util::h(self::t('profile.shareNamePlaceholder', 'Например: Ольга (соседка)')) . '"></label>';
+        echo '<label>' . Util::h(self::t('profile.sharePhone', 'Его номер телефона')) . '<input name="phone" type="tel" required placeholder="+7 ___ ___-__-__" autocomplete="off"></label>';
+        echo '</div>';
+        echo '<p class="field-hint">' . Util::h(self::t('profile.shareAddHint', 'Номер не должен совпадать с телефоном другого пользователя. Пароль суб-пользователю недоступен: вход подтверждается звонком на этот номер.')) . '</p>';
+        echo '<div class="form-actions"><button type="submit" class="primary">' . Util::h(self::t('profile.shareAdd', 'Добавить суб-пользователя')) . '</button></div>';
+        echo '</form>';
+
+        if (!$subs) {
+            echo '<p class="muted profile-share-empty">' . Util::h(self::t('profile.shareEmpty', 'Пока никто не приглашён.')) . '</p>';
+            echo '</section>';
+            return;
+        }
+
+        foreach ($subs as $sub) {
+            self::shareSubPanel($user, $sub);
+        }
+        echo '</section>';
+    }
+
+    private static function shareAddSub(array $user): array
+    {
+        $phone = self::normalizePhone((string)Util::post('phone'));
+        $name = trim((string)Util::post('name'));
+        if ($phone === '') {
+            return [self::t('profile.shareInvalidPhone', 'Некорректный номер телефона'), 'danger'];
+        }
+        if (mb_strlen($name) > 255) {
+            return [self::t('profile.shareNameTooLong', 'Имя слишком длинное'), 'danger'];
+        }
+        $pdo = DB::pdo();
+        $stmt = $pdo->prepare('SELECT id FROM users WHERE phone = ?');
+        $stmt->execute([$phone]);
+        if ($stmt->fetch()) {
+            return [self::t('profile.sharePhoneTaken', 'Этот номер уже используется. Суб-пользователь нужен только для нового номера.'), 'danger'];
+        }
+        $login = '';
+        for ($attempt = 0; $attempt < 10; $attempt++) {
+            $candidate = 'sub-' . Util::randomToken(4);
+            $stmt = $pdo->prepare('SELECT id FROM users WHERE login = ?');
+            $stmt->execute([$candidate]);
+            if (!$stmt->fetch()) {
+                $login = $candidate;
+                break;
+            }
+        }
+        if ($login === '') {
+            return [self::t('profile.shareLoginBusy', 'Не удалось подобрать логин — попробуйте ещё раз'), 'danger'];
+        }
+        $pdo->prepare('INSERT INTO users(login, name, phone, password_hash, role, blocked, read_only, must_change_password, owner_user_id, created_at) VALUES(?,?,?,?,?,?,?,0,?,?)')
+            ->execute([$login, $name, $phone, password_hash(Util::randomToken(16), PASSWORD_DEFAULT), 'user', 0, 1, (int)$user['id'], Util::now()]);
+        Audit::logForUser((int)$user['id'], 'share.sub.create', 'login=' . Audit::cleanValue($login) . ' phone=' . Audit::cleanValue($phone));
+        return [self::t('profile.shareCreated', 'Суб-пользователь создан. Вход — только по звонку с его номера.'), 'success'];
+    }
+
+    private static function shareSave(array $user): array
+    {
+        $subId = (int)Util::post('sub_id', 0);
+        $stmt = DB::pdo()->prepare('SELECT id, name, phone FROM users WHERE id = ? AND owner_user_id = ?');
+        $stmt->execute([$subId, (int)$user['id']]);
+        if (!$stmt->fetch()) {
+            return [self::t('profile.shareSubNotFound', 'Суб-пользователь не найден'), 'danger'];
+        }
+
+        $camIds = self::apiIntArray($_POST['cam'] ?? []);
+        $archIds = self::apiIntArray($_POST['arch'] ?? []);
+        if (count($camIds) > 500) {
+            return [self::t('profile.shareTooManyCams', 'Слишком много камер'), 'danger'];
+        }
+        $camSet = array_fill_keys($camIds, true);
+        $archIds = array_values(array_filter($archIds, static fn(int $id): bool => isset($camSet[$id]) && $id > 0));
+
+        if ($camIds) {
+            $available = [];
+            foreach (Repo::accessibleCameras($user) as $camera) {
+                $available[(int)$camera['id']] = true;
+            }
+            if (array_diff($camIds, array_keys($available))) {
+                return [self::t('profile.shareCameraNotAvailable', 'Одна из выбранных камер вам недоступна'), 'danger'];
+            }
+        }
+        foreach ($archIds as $cameraId) {
+            if (Repo::cameraArchiveHiddenForUser($user, $cameraId)) {
+                return [self::t('profile.shareArchiveNotAvailable', 'Архив недоступен по одной из отмеченных камер'), 'danger'];
+            }
+        }
+
+        $pdo = DB::pdo();
+        $pdo->prepare('DELETE FROM camera_shares WHERE sub_user_id = ?')->execute([$subId]);
+        $now = Util::now();
+        $insert = $pdo->prepare('INSERT INTO camera_shares(owner_user_id, sub_user_id, camera_id, allow_archive, created_at) VALUES(?,?,?,?,?)');
+        foreach ($camIds as $cameraId) {
+            $insert->execute([(int)$user['id'], $subId, $cameraId, in_array($cameraId, $archIds, true) ? 1 : 0, $now]);
+        }
+        Audit::logForUser((int)$user['id'], 'share.save', 'sub_id=' . $subId . ' cameras=' . implode(',', $camIds) . ' archive=' . implode(',', $archIds));
+        return [self::t('profile.shareSaved', 'Доступ суб-пользователя сохранён'), 'success'];
+    }
+
+    private static function shareDelete(array $user): array
+    {
+        $subId = (int)Util::post('sub_id', 0);
+        $stmt = DB::pdo()->prepare('SELECT id, name, login, phone FROM users WHERE id = ? AND owner_user_id = ?');
+        $stmt->execute([$subId, (int)$user['id']]);
+        $sub = $stmt->fetch();
+        if (!$sub) {
+            return [self::t('profile.shareSubNotFound', 'Суб-пользователь не найден'), 'danger'];
+        }
+        DB::pdo()->prepare('DELETE FROM users WHERE id = ?')->execute([$subId]);
+        Audit::logForUser((int)$user['id'], 'share.sub.delete', 'login=' . Audit::cleanValue($sub['login']) . ' phone=' . Audit::cleanValue($sub['phone']));
+        return [self::t('profile.shareDeleted', 'Суб-пользователь удалён'), 'success'];
+    }
+
+    private static function shareSubPanel(array $owner, array $sub): void
+    {
+        $subId = (int)$sub['id'];
+        $stmt = DB::pdo()->prepare('SELECT camera_id, allow_archive FROM camera_shares WHERE sub_user_id = ?');
+        $stmt->execute([$subId]);
+        $shares = [];
+        foreach ($stmt->fetchAll() as $row) {
+            $shares[(int)$row['camera_id']] = (int)$row['allow_archive'];
+        }
+        $sharedCount = count($shares);
+
+        $summaryTitle = trim((string)($sub['name'] ?? '')) !== '' ? (string)$sub['name'] : (string)$sub['login'];
+        echo '<details class="share-sub"><summary class="share-sub-summary">';
+        echo '<span class="share-sub-name">' . Util::h($summaryTitle) . '</span>';
+        echo '<span class="muted share-sub-phone">' . Util::h(self::callbackFormatPhone((string)($sub['phone'] ?? ''))) . '</span>';
+        if (!empty($sub['blocked'])) {
+            echo '<span class="pill danger">' . Util::h(self::t('users.blocked', 'Заблокирован')) . '</span>';
+        }
+        echo '<span class="pill share-sub-count">' . Util::h($sharedCount . ' ' . self::t('profile.shareCamerasWord', 'кам.')) . '</span>';
+        echo '</summary>';
+
+        $cameras = Repo::accessibleCameras($owner);
+        if (!$cameras) {
+            echo '<p class="muted">' . Util::h(self::t('profile.shareNoCameras', 'У вас нет камер, которые можно выдать.')) . '</p>';
+        } else {
+            echo '<form method="post" class="form share-cam-form">' . Csrf::field();
+            echo '<input type="hidden" name="sub_id" value="' . $subId . '">';
+            self::shareCameraGroups($owner, $cameras, $shares);
+            echo '<div class="form-actions">';
+            echo '<button type="submit" class="primary" name="action" value="share_save">' . Util::h(self::t('profile.shareSave', 'Сохранить доступ')) . '</button>';
+            echo '</div>';
+            echo '</form>';
+        }
+
+        $deleteFormId = 'share-del-form-' . $subId;
+        self::smallPostFormOpen(
+            $deleteFormId,
+            '/profile',
+            ['action' => 'share_delete', 'sub_id' => $subId],
+            sprintf(self::t('profile.shareDeleteConfirm', 'Удалить суб-пользователя «%s»? Доступ отзовётся полностью.'), $summaryTitle)
+        );
+        self::smallPostFormClose();
+        echo '<div class="form-actions share-sub-danger">';
+        self::smallPostButton($deleteFormId, self::t('profile.shareDelete', 'Удалить суб-пользователя'), 'danger');
+        echo '</div>';
+        echo '</details>';
+    }
+
+    /**
+     * Камеры владельца по папкам: чекбокс «вид» на каждую камеру +
+     * чекбокс «архив» там, где у владельца архив открыт.
+     */
+    private static function shareCameraGroups(array $owner, array $cameras, array $shares): void
+    {
+        $stmt = DB::pdo()->prepare('SELECT camera_id, folder_id FROM camera_folders WHERE camera_id IN (' . implode(', ', array_fill(0, count($cameras), '?')) . ')');
+        $stmt->execute(array_map('intval', array_column($cameras, 'id')));
+        $cameraFolder = [];
+        foreach ($stmt->fetchAll() as $row) {
+            $cameraId = (int)$row['camera_id'];
+            // Камера может лежать в нескольких папках владельца — группа по первой папке.
+            if (!isset($cameraFolder[$cameraId])) {
+                $cameraFolder[$cameraId] = (int)$row['folder_id'];
+            }
+        }
+
+        $folders = [];
+        foreach (Repo::foldersForUser($owner) as $folder) {
+            $label = trim((string)($folder['name'] ?? ''));
+            $groupName = trim((string)($folder['group_name'] ?? ''));
+            if ($groupName !== '') {
+                $label = $groupName . ' / ' . $label;
+            }
+            $folders[(int)$folder['id']] = $label !== '' ? $label : self::t('folders.title', 'Папки');
+        }
+
+        $groups = [];
+        foreach ($cameras as $camera) {
+            $cameraId = (int)$camera['id'];
+            $folderId = $cameraFolder[$cameraId] ?? 0;
+            $groups[$folderId][] = $camera;
+        }
+
+        $order = [];
+        foreach ($folders as $folderId => $label) {
+            if (isset($groups[$folderId])) {
+                $order[] = $folderId;
+            }
+        }
+        foreach ($groups as $groupId => $list) {
+            if (!in_array($groupId, $order, true)) {
+                $order[] = $groupId;
+            }
+        }
+
+        $unassigned = self::t('profile.shareNoFolder', 'Без папки');
+        foreach ($order as $folderId) {
+            echo '<div class="share-cam-group">';
+            echo '<div class="share-cam-group-name">' . Util::h($folders[$folderId] ?? $unassigned) . '</div>';
+            foreach ($groups[$folderId] as $camera) {
+                $archiveAllowed[(int)$camera['id']] = !Repo::cameraArchiveHiddenForUser($owner, (int)$camera['id']);
+                self::shareCameraRow($camera, $shares, $archiveAllowed[(int)$camera['id']]);
+            }
+            echo '</div>';
+        }
+    }
+
+    private static function shareCameraRow(array $camera, array $shares, bool $archiveAllowed): void
+    {
+        $cameraId = (int)$camera['id'];
+        $granted = ($shares[$cameraId] ?? null) !== null;
+        $archiveGranted = $granted && (int)$shares[$cameraId] === 1;
+
+        echo '<div class="share-cam-row">';
+        echo '<label class="share-cam"><input type="checkbox" name="cam[]" value="' . $cameraId . '"' . ($granted ? ' checked' : '') . '>';
+        echo '<span class="share-cam-name">' . Util::h((string)($camera['name'] ?? '')) . '</span></label>';
+        if ($archiveAllowed || $archiveGranted) {
+            if ($archiveAllowed) {
+                echo '<label class="share-cam-arch"><input type="checkbox" name="arch[]" value="' . $cameraId . '"' . ($archiveGranted ? ' checked' : '') . '> ' . Util::h(self::t('profile.shareArchiveCheckbox', 'архив')) . '</label>';
+            } else {
+                echo '<span class="pill share-cam-arch">' . Util::h(self::t('profile.shareArchiveCheckbox', 'архив')) . '</span>';
+            }
+        }
+        echo '</div>';
     }
 
     private static function forgotPassword(): void
@@ -977,6 +1247,25 @@ trait AppPagesTrait
         $folders = Repo::allFolders();
         $list = self::filteredUsers();
         $users = $list['rows'];
+        // Админский минимум: пометить суб-пользователей и показать, чьи они.
+        $ownerIds = [];
+        foreach ($users as $row) {
+            if (!empty($row['owner_user_id'])) {
+                $ownerIds[(int)$row['owner_user_id']] = true;
+            }
+        }
+        $ownerLogins = [];
+        if ($ownerIds) {
+            $stmt = DB::pdo()->prepare('SELECT id, login FROM users WHERE id IN (' . implode(', ', array_fill(0, count($ownerIds), '?')) . ')');
+            $stmt->execute(array_keys($ownerIds));
+            foreach ($stmt->fetchAll() as $row) {
+                $ownerLogins[(int)$row['id']] = (string)$row['login'];
+            }
+        }
+        foreach ($users as &$row) {
+            $row['sub_owner_login'] = !empty($row['owner_user_id']) ? ($ownerLogins[(int)$row['owner_user_id']] ?? '') : '';
+        }
+        unset($row);
         $backPath = self::safeLocalPath((string)($_GET['back'] ?? ''));
         self::layout(self::t('users.title', 'Пользователи'), function () use ($users, $edit, $folders, $linkedFolders, $linkedArchiveHiddenFolders, $message, $messageClass, $list, $backPath) {
             self::notice($message, $messageClass);
@@ -1045,7 +1334,7 @@ trait AppPagesTrait
                 }
             }
             echo '</details>';
-            self::table(self::t('users.title', 'Пользователи'), ['login', 'phone', 'role', 'admin_comment', 'blocked', 'static_token_hash', 'last_login_at'], $users, '/admin/users', false, $list);
+            self::table(self::t('users.title', 'Пользователи'), ['login', 'phone', 'role', 'sub_owner_login', 'admin_comment', 'blocked', 'static_token_hash', 'last_login_at'], $users, '/admin/users', false, $list);
             echo '</div>';
         });
     }
