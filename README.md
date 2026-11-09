@@ -51,10 +51,11 @@ show Safari's installation steps. The sheet can copy the portal's clean root
 URL, without player parameters or tokens, for opening it outside a messenger.
 
 On Firefox for Android, **How to install** shows browser-specific instructions:
-close the guide and select **Install** or **Add app to Home screen** in Firefox's
-menu (under **More** in some versions). Launch the portal from the new home-screen
-icon afterwards. A regular shortcut may open a browser tab. If Firefox does not
-offer app installation, use Chrome.
+close the guide and select **More → Add app to Home screen** in Firefox's menu
+(or **Install** in other versions). Firefox may leave the existing browser tab
+open: go to your phone's home screen and tap the new SesamePortal icon. A regular
+shortcut may open a browser tab. If Firefox does not offer app installation,
+use Chrome.
 
 Select **Remember me** when signing in on a personal device. The server does not
 impose a fixed login lifetime: access lasts until logout, password change,
