@@ -973,10 +973,11 @@ tr:last-child td {
 }
 .group-filter {
   display: inline-flex;
+  flex-wrap: wrap;
   gap: 8px;
   align-items: center;
   flex: 1 1 640px;
-  min-width: min(360px, 100%);
+  min-width: 0;
   max-width: min(1120px, 100%);
 }
 .group-tree-picker {
@@ -1152,7 +1153,7 @@ tr:last-child td {
 }
 .camera-search-input {
   flex: 1 1 220px;
-  min-width: 180px;
+  min-width: min(180px, 100%);
   height: 42px;
   border: 1px solid var(--line);
   border-radius: 12px;
@@ -1862,6 +1863,10 @@ body.player-view .player-frame {
   white-space: nowrap;
 }
 @media(max-width:980px) {
+  .shell {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto 1fr;
+  }
   .player-watermark {
     inset: 0 0 clamp(132px, 24vh, 220px) 0;
     grid-template-columns: repeat(2, minmax(120px, 1fr));
@@ -1992,6 +1997,17 @@ body.player-view .player-frame {
   }
   .density-switch {
     display: none;
+  }
+  .group-filter {
+    flex-basis: 100%;
+  }
+  .group-filter .group-tree-picker {
+    flex-basis: 100%;
+    min-width: 0;
+    max-width: none;
+  }
+  .group-filter-submit {
+    flex-grow: 1;
   }
   .login-card {
     padding: 26px;
