@@ -87,19 +87,19 @@ trait LayoutUi
 
     private static function pwaInstallControl(): void
     {
-        echo '<div class="pwa-install" data-pwa-controls hidden><button type="button" data-pwa-install aria-haspopup="dialog" aria-controls="pwa-install-dialog">' . self::icon('download') . '<span>' . Util::h(self::t('pwa.install', 'Установить приложение')) . '</span></button></div>';
+        echo '<div class="pwa-install" data-pwa-controls hidden><button type="button" data-pwa-install aria-haspopup="dialog" aria-controls="pwa-install-dialog">' . self::icon('download') . '<span data-pwa-install-label>' . Util::h(self::t('pwa.install', 'Установить приложение')) . '</span></button></div>';
     }
 
     private static function pwaInstallSuggestion(): void
     {
         echo '<section class="pwa-suggestion" data-pwa-controls data-pwa-suggestion hidden aria-label="' . Util::h(self::t('pwa.title', 'SesamePortal на вашем телефоне')) . '">';
         echo '<img src="/assets/pwa/icon-192.png" width="48" height="48" alt=""><div class="pwa-suggestion-copy"><strong>' . Util::h(self::t('pwa.title', 'SesamePortal на вашем телефоне')) . '</strong><p>' . Util::h(self::t('pwa.benefit', 'Открывайте камеры с иконки на главном экране.')) . '</p></div>';
-        echo '<div class="pwa-suggestion-actions"><button type="button" class="primary" data-pwa-install aria-haspopup="dialog" aria-controls="pwa-install-dialog">' . Util::h(self::t('pwa.install', 'Установить приложение')) . '</button><button type="button" data-pwa-dismiss>' . Util::h(self::t('pwa.later', 'Позже')) . '</button></div></section>';
+        echo '<div class="pwa-suggestion-actions"><button type="button" class="primary" data-pwa-install aria-haspopup="dialog" aria-controls="pwa-install-dialog"><span data-pwa-install-label>' . Util::h(self::t('pwa.install', 'Установить приложение')) . '</span></button><button type="button" data-pwa-dismiss>' . Util::h(self::t('pwa.later', 'Позже')) . '</button></div></section>';
     }
 
     private static function pwaInstallDialog(): void
     {
-        echo '<dialog id="pwa-install-dialog" class="pwa-dialog" data-pwa-help aria-labelledby="pwa-install-title" aria-describedby="pwa-install-description">';
+        echo '<dialog id="pwa-install-dialog" class="pwa-dialog" data-pwa-help data-install-label="' . Util::h(self::t('pwa.install', 'Установить приложение')) . '" data-help-label="' . Util::h(self::t('pwa.howToInstall', 'Как установить')) . '" aria-labelledby="pwa-install-title" aria-describedby="pwa-install-description">';
         echo '<div class="pwa-dialog-heading"><img src="/assets/pwa/icon-192.png" width="52" height="52" alt=""><div><h2 id="pwa-install-title">' . Util::h(self::t('pwa.install', 'Установить приложение')) . '</h2><p id="pwa-install-description">' . Util::h(self::t('pwa.benefit', 'Открывайте камеры с иконки на главном экране.')) . '</p></div><button type="button" class="pwa-dialog-close" data-pwa-close aria-label="' . Util::h(self::t('pwa.close', 'Закрыть')) . '">×</button></div>';
         $platformSteps = [
             'ios' => [
@@ -109,8 +109,13 @@ trait LayoutUi
             ],
             'android' => [
                 self::t('pwa.androidMenu', 'Откройте меню браузера «⋮».'),
-                self::t('pwa.androidInstall', 'Выберите «Установить приложение» или «Добавить на главный экран».'),
-                self::t('pwa.androidConfirm', 'Подтвердите установку. Иконка SesamePortal появится на телефоне.'),
+                self::t('pwa.androidInstall', 'Выберите «Установить приложение» или «Добавить на главный экран» → «Установить». «Создать ярлык» открывает сайт во вкладке.'),
+                self::t('pwa.androidConfirm', 'Подтвердите установку и откройте SesamePortal с новой иконки на главном экране телефона.'),
+            ],
+            'android-firefox' => [
+                self::t('pwa.firefoxMenu', 'Откройте портал в обычной вкладке Firefox. Закройте эту подсказку и нажмите меню браузера «⋮».'),
+                self::t('pwa.firefoxInstall', 'Выберите «Установить» или «Добавить приложение на главный экран». В некоторых версиях пункт находится в разделе «Ещё».'),
+                self::t('pwa.firefoxConfirm', 'Подтвердите добавление и откройте SesamePortal с новой иконки на главном экране телефона.'),
             ],
             'desktop' => [
                 self::t('pwa.desktopMenu', 'Нажмите значок установки в адресной строке или откройте меню браузера.'),
@@ -128,9 +133,12 @@ trait LayoutUi
             }
             echo '</ol>';
             if ($platform !== 'desktop') {
-                echo '<p class="pwa-browser-hint">' . Util::h($platform === 'ios'
-                    ? self::t('pwa.iosBrowser', 'Нет нужного пункта или сайт открыт внутри мессенджера? Скопируйте адрес ниже и откройте его в Safari.')
-                    : self::t('pwa.androidBrowser', 'Нет нужного пункта или сайт открыт внутри мессенджера? Скопируйте адрес ниже и откройте его в Chrome.')) . '</p>';
+                $hint = match ($platform) {
+                    'ios' => self::t('pwa.iosBrowser', 'Нет нужного пункта или сайт открыт внутри мессенджера? Скопируйте адрес ниже и откройте его в Safari.'),
+                    'android-firefox' => self::t('pwa.firefoxBrowser', '«Добавить на главный экран» без слова «приложение» может создать обычный ярлык. Если иконка открывает вкладку или пункта установки нет, скопируйте адрес ниже и установите приложение через Chrome.'),
+                    default => self::t('pwa.androidBrowser', 'Нет нужного пункта или сайт открыт внутри мессенджера? Скопируйте адрес ниже и откройте его в Chrome.'),
+                };
+                echo '<p class="pwa-browser-hint">' . Util::h($hint) . '</p>';
             }
             echo '</div>';
         }

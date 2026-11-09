@@ -10,6 +10,7 @@
     || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
   const android = /Android/i.test(navigator.userAgent);
   const platform = ios ? 'ios' : android ? 'android' : 'desktop';
+  const helpPlatform = android && /Firefox\//i.test(navigator.userAgent) ? 'android-firefox' : platform;
   const dismissalKey = 'sesame-portal-pwa-install-dismissed-until';
   let installPrompt = null;
   let installed = false;
@@ -22,6 +23,10 @@
     else dialog.removeAttribute('open');
   };
   const refresh = () => {
+    const helpOnly = helpPlatform === 'android-firefox' && !installPrompt;
+    document.querySelectorAll('[data-pwa-install-label]').forEach(label => {
+      label.textContent = helpOnly ? dialog.dataset.helpLabel : dialog.dataset.installLabel;
+    });
     controls.forEach(control => {
       control.hidden = inApp() || (control.hasAttribute('data-pwa-suggestion')
         && (platform === 'desktop' || dismissedUntil > Date.now()));
@@ -58,7 +63,7 @@
   const showHelp = () => {
     if (!dialog || inApp()) return;
     dialog.querySelectorAll('[data-pwa-platform]').forEach(section => {
-      section.hidden = section.dataset.pwaPlatform !== platform;
+      section.hidden = section.dataset.pwaPlatform !== helpPlatform;
     });
     // Share only the portal entry point, never camera URLs, tokens or query strings.
     dialog.querySelector('[data-pwa-url]').value = new URL('/', location.href).href;
@@ -104,6 +109,7 @@
         showHelp();
       } finally {
         buttons.forEach(item => { item.disabled = false; });
+        refresh();
       }
     });
   });
