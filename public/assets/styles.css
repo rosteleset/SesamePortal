@@ -3755,8 +3755,8 @@ span.share-cam-arch{cursor:default}
     flex: 1 1 0;
     flex-direction: column;
     min-height: 0;
-    background: #000;
-    color: #fff;
+    background: var(--ivory);
+    color: var(--ink);
   }
   .player-events-title {
     flex: 0 0 auto;
@@ -3766,7 +3766,7 @@ span.share-cam-arch{cursor:default}
     font-weight: 800;
     letter-spacing: .04em;
     text-transform: uppercase;
-    color: rgba(255,255,255,.65);
+    color: var(--muted);
   }
   .player-events-grid {
     flex: 1 1 auto;
@@ -3783,8 +3783,8 @@ span.share-cam-arch{cursor:default}
   .player-event {
     position: relative;
     display: block;
-    background: #161616;
-    border: 1px solid #242424;
+    background: var(--surface);
+    border: 1px solid var(--line-strong);
     border-radius: 12px;
     overflow: hidden;
     min-height: 0;
@@ -3795,7 +3795,7 @@ span.share-cam-arch{cursor:default}
     height: clamp(84px, 26vw, 132px);
     object-fit: cover;
     flex: none;
-    background: #0e0e0e;
+    background: var(--soft);
   }
   .player-event-time {
     position: absolute;
@@ -3815,7 +3815,7 @@ span.share-cam-arch{cursor:default}
     font-weight: 800;
     letter-spacing: .04em;
     text-transform: uppercase;
-    color: rgba(255,255,255,.6);
+    color: var(--muted);
     padding: 4px 2px 0;
     margin-top: 6px;
   }
