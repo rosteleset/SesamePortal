@@ -12,12 +12,14 @@ trait AppRenderTrait
     private static function layout(string $title, callable $body, ?array $userOverride = [], string $bodyClass = '', bool $showChrome = true): void
     {
         $user = $userOverride === null ? null : Auth::user();
-        $theme = $user && $showChrome ? (string)($user['theme'] ?? '') : '';
+        // Тема применяется и на страницах без шапки (например, плеер PWA),
+        // иначе PWA-панели рендерятся в дефолтной светлой теме.
+        $theme = $user ? (string)($user['theme'] ?? '') : '';
         if (!in_array($theme, ['light', 'dark'], true)) {
             $theme = '';
         }
         echo '<!doctype html><html lang="' . Util::h(I18n::htmlLocale()) . '" dir="' . Util::h(I18n::dir()) . '"' . ($theme !== '' ? ' data-theme="' . Util::h($theme) . '"' : '') . '><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">';
-        if ($user && $showChrome && $theme === '') {
+        if ($user && $theme === '') {
             echo '<script>if(!document.documentElement.dataset.theme&&window.matchMedia){document.documentElement.dataset.theme=matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light";document.documentElement.dataset.themeAuto="1";}</script>';
         }
         echo '<title>' . Util::h($title) . ' - ' . Util::h(self::appName()) . '</title>';
