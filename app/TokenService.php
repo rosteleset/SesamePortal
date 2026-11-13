@@ -152,6 +152,19 @@ final class TokenService
             return null;
         }
 
+        // Fast path: verify only the camera(s) matching the requested name instead of
+        // bcrypt-scanning every camera's permanent token hash.
+        if ($cameraName !== '') {
+            $stmt = DB::pdo()->prepare('SELECT * FROM cameras WHERE blocked = 0 AND permanent_token_hash IS NOT NULL AND (dvr_stream_name = ? OR name = ?)');
+            $stmt->execute([$cameraName, $cameraName]);
+            foreach ($stmt->fetchAll() as $camera) {
+                if ($camera['permanent_token_hash'] && password_verify($token, $camera['permanent_token_hash'])) {
+                    return $camera;
+                }
+            }
+            return null;
+        }
+
         $stmt = DB::pdo()->query('SELECT * FROM cameras WHERE blocked = 0 AND permanent_token_hash IS NOT NULL');
         foreach ($stmt->fetchAll() as $camera) {
             if ($camera['permanent_token_hash'] && password_verify($token, $camera['permanent_token_hash'])) {

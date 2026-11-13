@@ -20,8 +20,12 @@ trait AppAuthBackendTrait
             }
         }
 
-        $staticUser = TokenService::userByStaticToken($token);
-        $user = $staticUser ?: TokenService::userByToken($token);
+        $user = TokenService::userByToken($token);
+        $staticUser = null;
+        if ($user === null) {
+            $staticUser = TokenService::userByStaticToken($token);
+            $user = $staticUser;
+        }
         if (!$user || $cameraName === '') {
             http_response_code(403);
             echo "denied\n";
