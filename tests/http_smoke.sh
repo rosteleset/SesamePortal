@@ -1187,6 +1187,49 @@ plain_player_page="$(curl -fsS -b "$PLAIN_COOKIE_JAR" "http://127.0.0.1:$PORT/vi
 ! printf "%s" "$plain_player_page" | grep -q "settings_url="
 ! printf "%s" "$plain_player_page" | grep -q "admin%2Fcameras"
 
+# Motion events strip under the player (PWA portrait hides it via CSS on other layouts)
+# Import DVR (server 3) is blocked by an earlier test — temporarily unblock, then restore.
+php -r 'require getenv("ROOT") . "/app/Portal.php"; \SesamePortal\DB::pdo()->exec("UPDATE dvr_servers SET blocked = 0 WHERE id = 3");'
+admin_events_player="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/viewer/player?id=3")"
+printf "%s" "$admin_events_player" | grep -q 'data-player-events'
+! printf "%s" "$admin_events_player" | grep -q 'player-events-sentinel'
+printf "%s" "$admin_events_player" | grep -q 'player-events-grid'
+printf "%s" "$admin_events_player" | grep -F -q '/viewer/preview?id=3&amp;ts='
+printf "%s" "$admin_events_player" | grep -q 'player-events-day'
+printf "%s" "$admin_events_player" | grep -q 'player-event-time'
+printf "%s" "$admin_events_player" | grep -q 'События'
+! printf "%s" "$admin_events_player" | grep -q 'Движение ·'
+# Archive hidden per folder -> no strip at all
+! printf "%s" "$plain_player_page" | grep -q 'data-player-events'
+# Regular user without access to the camera: 403 on both the strip JSON and the mark-up
+plain_strip_forbidden="$(curl -sS -b "$PLAIN_COOKIE_JAR" -o /dev/null -w '%{http_code}' "http://127.0.0.1:$PORT/viewer/player/events?id=3")"
+test "$plain_strip_forbidden" = "403"
+# Player strip JSON: batch with cursor backwards; limit is clamped
+strip_json="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/viewer/player/events?id=3")"
+printf "%s" "$strip_json" | grep -q '"ok": true'
+printf "%s" "$strip_json" | grep -q '"cameraId": 3'
+Strip_events_len="$(printf "%s" "$strip_json" | php -r '$d = json_decode(stream_get_contents(STDIN), true); echo count($d["events"] ?? []);')"
+test "$Strip_events_len" -ge 1
+printf "%s" "$strip_json" | grep -q '"timeLabel"'
+printf "%s" "$strip_json" | grep -q '"dayLabel"'
+strip_json_limit="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/viewer/player/events?id=3&limit=1")"
+strip_limit_len="$(printf "%s" "$strip_json_limit" | php -r '$d = json_decode(stream_get_contents(STDIN), true); echo count($d["events"] ?? []);')"
+test "$strip_limit_len" -le 1
+strip_paging_before="$(printf "%s" "$strip_json_limit" | php -r '$d = json_decode(stream_get_contents(STDIN), true); echo (int)($d["nextBefore"] ?? -1);')"
+strip_paging_json="$(curl -fsS -b "$COOKIE_JAR" "http://127.0.0.1:$PORT/viewer/player/events?id=3&before=$strip_paging_before")"
+printf "%s" "$strip_paging_json" | grep -q '"ok": true'
+strip_paging_len="$(printf "%s" "$strip_paging_json" | php -r '$d = json_decode(stream_get_contents(STDIN), true); echo count($d["events"] ?? []);')"
+test "$strip_paging_len" -eq 0
+# No session: the strip JSON redirects to the login page
+strip_anon="$(curl -sS -o /dev/null -w '%{http_code}' "http://127.0.0.1:$PORT/viewer/player/events?id=3")"
+test "$strip_anon" = "303"
+php -r 'require getenv("ROOT") . "/app/Portal.php"; \SesamePortal\DB::pdo()->exec("UPDATE dvr_servers SET blocked = 1 WHERE id = 3");'
+# Assets carry the strip glue
+grep -q "initPlayerEvents" <<<"$app_js_asset"
+grep -q "data-player-events-sentinel" <<<"$app_js_asset"
+grep -q "\.player-events" <<<"$styles_css_asset"
+grep -q "display-mode: standalone" <<<"$styles_css_asset"
+
 # Events: quick camera search is admin-only
 plain_events_page="$(curl -fsS -b "$PLAIN_COOKIE_JAR" "http://127.0.0.1:$PORT/viewer/events")"
 ! printf "%s" "$plain_events_page" | grep -F -q 'name="q"'

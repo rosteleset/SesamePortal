@@ -83,6 +83,7 @@
   initCameraPositionEditor();
   initPlayer();
   initPreviewRefresh();
+  initPlayerEvents();
   initDensitySwitch();
   initGroupTreePickers();
   initCameraFormVisibility();
@@ -549,6 +550,265 @@
     const number = Number(value);
     if (!Number.isFinite(number)) return 0;
     return ((Math.round(number) % 360) + 360) % 360;
+  }
+
+  function initPlayerEvents() {
+    const section = document.querySelector("[data-player-events]");
+    if (!section) return;
+    const sentinel = section.querySelector("[data-player-events-sentinel]");
+    const grid = section.querySelector(".player-events-grid");
+    if (!sentinel || !grid || sentinel.dataset.playerEventsBound === "1") return;
+    sentinel.dataset.playerEventsBound = "1";
+    let busy = false;
+    let hasMore = true;
+
+    // Состояние ленты (курсор + позиция скролла) переживает переходы по клику
+    // на событие и history.back(): сохраняем в sessionStorage, восстанавливаем
+    // при загрузке страницы плеера.
+    let stateKey = "";
+    try {
+      const cameraId = new URL(sentinel.dataset.playerEventsUrl, window.location.origin).searchParams.get("id") || "0";
+      stateKey = "sesame:player-events:" + cameraId;
+    } catch (error) {
+      stateKey = "";
+    }
+    let restoring = null; // {before, scrollTop, cards} пока идёт восстановление
+
+    function readState() {
+      if (!stateKey) return null;
+      try {
+        const raw = sessionStorage.getItem(stateKey);
+        if (!raw) return null;
+        const state = JSON.parse(raw);
+        if (!state || typeof state !== "object") return null;
+        return state;
+      } catch (error) {
+        return null;
+      }
+    }
+
+    function saveState() {
+      if (restoring || !stateKey) return;
+      try {
+        sessionStorage.setItem(stateKey, JSON.stringify({
+          before: sentinel.hidden ? "" : (sentinel.dataset.playerEventsBefore || ""),
+          scrollTop: Math.round(grid.scrollTop),
+          cards: grid.querySelectorAll("a.player-event").length,
+          end: !!sentinel.hidden
+        }));
+      } catch (error) {
+        // приватный режим или переполнение квоты — состояние просто не сохранится
+      }
+    }
+
+    function dayKeyOf(date) {
+      return date.getFullYear() + "-" + String(date.getMonth() + 1).padStart(2, "0") + "-" + String(date.getDate()).padStart(2, "0");
+    }
+
+    function dayLabelOfDay(date) {
+      const key = dayKeyOf(date);
+      const now = new Date();
+      const messages = window.SESAME_I18N || {};
+      if (key === dayKeyOf(now)) return messages.eventsToday || key;
+      const yesterday = new Date(now.getTime() - 86400000);
+      if (key === dayKeyOf(yesterday)) return messages.eventsYesterday || key;
+      try {
+        return date.toLocaleDateString(undefined, { day: "numeric", month: "long", year: "numeric" });
+      } catch (error) {
+        return key;
+      }
+    }
+
+    function clockOf(date) {
+      try {
+        return date.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+      } catch (error) {
+        return "";
+      }
+    }
+
+    function lastDayKey() {
+      const headers = grid.querySelectorAll(".player-events-day");
+      const last = headers[headers.length - 1];
+      return last ? last.dataset.dayKey || last.textContent : "";
+    }
+
+    // Сервер рисует дни/время в своей таймзоне; перегруппируем под устройство.
+    function regroupToDeviceTime() {
+      const cards = Array.from(grid.querySelectorAll("a.player-event"));
+      if (!cards.length) return;
+      grid.querySelectorAll(".player-events-day").forEach((header) => header.remove());
+      let key = "";
+      cards.forEach((card) => {
+        const clockEl = card.querySelector(".player-event-time time");
+        if (!clockEl) return;
+        const when = new Date(clockEl.getAttribute("datetime") || "");
+        if (Number.isNaN(when.getTime())) return;
+        clockEl.textContent = clockOf(when);
+        const k = dayKeyOf(when);
+        if (k !== key) {
+          key = k;
+          const header = document.createElement("div");
+          header.className = "player-events-day";
+          header.dataset.dayKey = k;
+          header.textContent = dayLabelOfDay(when);
+          grid.insertBefore(header, card);
+        }
+      });
+    }
+
+    regroupToDeviceTime();
+
+    function appendEvent(event) {
+      const when = new Date(event.iso || "");
+      if (Number.isNaN(when.getTime())) return;
+      const key = dayKeyOf(when);
+      if (key !== lastDayKey()) {
+        const header = document.createElement("div");
+        header.className = "player-events-day";
+        header.dataset.dayKey = key;
+        header.textContent = dayLabelOfDay(when);
+        grid.appendChild(header);
+      }
+      const link = document.createElement("a");
+      link.className = "player-event";
+      link.href = event.href || "#";
+      const img = document.createElement("img");
+      img.src = event.preview || "";
+      img.alt = "";
+      img.loading = "lazy";
+      img.decoding = "async";
+      const clock = document.createElement("span");
+      clock.className = "player-event-time";
+      const timeEl = document.createElement("time");
+      timeEl.setAttribute("datetime", event.iso || "");
+      timeEl.textContent = clockOf(when) || event.timeLabel || "";
+      clock.appendChild(timeEl);
+      link.append(img, clock);
+      grid.appendChild(link);
+    }
+
+    function sentinelInZone() {
+      if (sentinel.hidden) return false;
+      const rect = sentinel.getBoundingClientRect();
+      if (rect.height <= 0) return false; // display:none даёт rect 0x0
+      return rect.top < window.innerHeight + 120 && rect.bottom > -120;
+    }
+
+    // Лента скроллится внутри .player-events-grid (overflow-y: auto), а sentinel
+    // стоит после грида и всегда виден у нижнего края панели — IntersectionObserver
+    // на нём срабатывает один раз при появлении секции. Поэтому основная подгрузка —
+    // по скроллу самого грида, а IO лишь запускает первые порции.
+    let chainedBatches = 0;
+    const CHAIN_MAX = 3;
+
+    async function loadMore() {
+      if (busy || !hasMore) return;
+      busy = true;
+      try {
+        const url = new URL(sentinel.dataset.playerEventsUrl, window.location.origin);
+        url.searchParams.set("before", sentinel.dataset.playerEventsBefore || "");
+        const response = await fetch(url, { headers: { Accept: "application/json" } });
+        const data = await response.json();
+        if (!data || !data.ok) throw new Error("player events unavailable");
+        (Array.isArray(data.events) ? data.events : []).forEach(appendEvent);
+        sentinel.dataset.playerEventsBefore = String(data.nextBefore || "");
+        hasMore = !!data.hasMore && Array.isArray(data.events) && data.events.length > 0;
+        if (!hasMore) sentinel.hidden = true;
+      } catch (error) {
+        hasMore = false;
+        sentinel.hidden = true;
+      } finally {
+        busy = false;
+      }
+      // Догоняем до края видимой зоны, но не бесконечно: scroll anchoring
+      // и прибитый sentinel могут держать его "в зоне" постоянно.
+      if (restoring) {
+        // Режим восстановления: грузим до сохранённого курсора без лимита цепочки
+        // (ограничено самим целевым курсором), затем возвращаем позицию скролла.
+        // Курсор уходит в прошлое и уменьшается: продолжаем, пока он больше целевого.
+        const cursor = parseInt(sentinel.dataset.playerEventsBefore || "0", 10);
+        const target = parseInt(restoring.before || "0", 10);
+        if (hasMore && !sentinel.hidden && cursor > target) {
+          loadMore();
+        } else {
+          try {
+            grid.scrollTop = Math.max(0, restoring.scrollTop | 0);
+          } catch (error) {
+            // позиция не критична
+          }
+          restoring = null;
+          saveState();
+        }
+        return;
+      }
+      if (hasMore && !sentinel.hidden && chainedBatches < CHAIN_MAX && sentinelInZone()) {
+        chainedBatches++;
+        loadMore();
+      }
+    }
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting && !restoring) {
+            chainedBatches = 0;
+            loadMore();
+          }
+        });
+      },
+      { rootMargin: "120px" }
+    );
+    observer.observe(sentinel);
+
+    // Основной триггер: пользователь доскроллил ленту грида до низа.
+    let saveTimer = 0;
+    grid.addEventListener(
+      "scroll",
+      () => {
+        if (!restoring) {
+          clearTimeout(saveTimer);
+          saveTimer = setTimeout(saveState, 300);
+        }
+        if (busy || !hasMore || sentinel.hidden) return;
+        if (grid.scrollTop + grid.clientHeight >= grid.scrollHeight - 120) loadMore();
+      },
+      { passive: true }
+    );
+
+    // Перед уходом по ссылке (клик по событию) — сохраняем состояние без задержки.
+    grid.addEventListener(
+      "click",
+      () => {
+        if (!restoring) saveState();
+      },
+      { capture: true }
+    );
+
+    // Восстановление ленты после перехода/возврата.
+    const saved = readState();
+    if (saved && !saved.end && saved.before) {
+      const currentCards = grid.querySelectorAll("a.player-event").length;
+      const currentBefore = parseInt(sentinel.dataset.playerEventsBefore || "0", 10);
+      const savedBefore = parseInt(saved.before, 10);
+      const needDepth = Number.isFinite(savedBefore) && Number.isFinite(currentBefore) && savedBefore < currentBefore;
+      const needScroll = (saved.scrollTop | 0) > 0 || (saved.cards || 0) > currentCards;
+      if (needDepth || needScroll) {
+        restoring = saved;
+        if (!needDepth) {
+          // Курсор уже на месте — достаточно вернуть позицию скролла.
+          try {
+            grid.scrollTop = Math.max(0, saved.scrollTop | 0);
+          } catch (error) {
+            // позиция не критична
+          }
+          restoring = null;
+          saveState();
+        } else {
+          loadMore();
+        }
+      }
+    }
   }
 
   function initPlayerBackBridge() {

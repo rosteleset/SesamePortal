@@ -84,6 +84,8 @@ final class I18n
             'cancel' => self::t('action.cancel', 'Отменить'),
             'fullscreen' => self::t('player.fullscreen', 'На весь экран'),
             'collapse' => self::t('player.collapse', 'Свернуть'),
+            'eventsToday' => self::t('player.eventsToday', 'Сегодня'),
+            'eventsYesterday' => self::t('player.eventsYesterday', 'Вчера'),
             'staticTokenReveal' => self::t('token.staticReveal', 'Показать и скопировать'),
             'staticTokenCopied' => self::t('token.staticCopied', 'Скопировано'),
             'confirm' => self::t('js.confirm', 'Подтвердить'),
@@ -315,6 +317,9 @@ final class I18n
                 'events.days7' => '7 дней',
                 'events.motion' => 'Движение',
                 'events.duration' => '%d с.',
+                'player.eventsTitle' => 'События',
+                'player.eventsToday' => 'Сегодня',
+                'player.eventsYesterday' => 'Вчера',
                 'events.openArchive' => 'Открыть в архиве',
                 'events.empty' => 'Нет событий движения за выбранный период',
                 'events.date' => 'Дата',
@@ -654,6 +659,9 @@ final class I18n
                 'events.days7' => '7 days',
                 'events.motion' => 'Motion',
                 'events.duration' => '%d s',
+                'player.eventsTitle' => 'Events',
+                'player.eventsToday' => 'Today',
+                'player.eventsYesterday' => 'Yesterday',
                 'events.openArchive' => 'Open in archive',
                 'events.empty' => 'No motion events in the selected period',
                 'events.date' => 'Date',
@@ -2700,6 +2708,10 @@ final class I18n
             $messages[$locale]['profile.shareArchiveNotAvailable'] = 'Archive is not available for one of the selected cameras';
             $messages[$locale]['users.subPill'] = 'sub';
             $messages[$locale]['column.sub_owner_login'] = 'Sub-user';
+            // Лента событий в плеере (PWA): для остальных языков — английский.
+            $messages[$locale]['player.eventsTitle'] = 'Events';
+            $messages[$locale]['player.eventsToday'] = 'Today';
+            $messages[$locale]['player.eventsYesterday'] = 'Yesterday';
         }
 
         if (!$includeFallback) {

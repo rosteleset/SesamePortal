@@ -209,7 +209,12 @@ trait AppViewerTrait
         );
         $watermarkLogin = (int)($camera['watermark_enabled'] ?? 0) === 1 ? (string)$user['login'] : '';
         $watermarkAlpha = number_format(self::watermarkIntensity($camera['watermark_intensity'] ?? 16) / 100, 2, '.', '');
-        self::layout(self::t('player.title', 'Плеер'), function () use ($embed, $watermarkLogin, $watermarkAlpha) {
+        $playerEventsHtml = '';
+        if (self::playerEventsStrip($user, $cameraId, $camera) !== null) {
+            [$events, $hasMore, $nextBefore] = self::playerEventBatch($camera, 0, self::PLAYER_EVENTS_PAGE);
+            $playerEventsHtml = self::renderPlayerEvents($events, $cameraId, $hasMore, $nextBefore);
+        }
+        self::layout(self::t('player.title', 'Плеер'), function () use ($embed, $watermarkLogin, $watermarkAlpha, $playerEventsHtml) {
             echo '<section class="player-page">';
             echo '<div class="player-stage"><iframe class="player-frame" src="' . Util::h($embed) . '" allow="autoplay; fullscreen; picture-in-picture" allowfullscreen webkitallowfullscreen referrerpolicy="no-referrer-when-downgrade"></iframe>';
             if ($watermarkLogin !== '') {
@@ -221,7 +226,202 @@ trait AppViewerTrait
             }
             echo '</div>';
             echo '</section>';
+            echo $playerEventsHtml;
         }, [], 'player-view', false);
+    }
+
+    /**
+     * Показывать ли ленту событий под плеером (PWA-вертикаль рисует её только через CSS).
+     * null = нет прав архива или нет связки сервер/поток.
+     */
+    private static function playerEventsStrip(array $user, int $cameraId, array $camera): bool
+    {
+        if (Repo::cameraArchiveHiddenForUser($user, $cameraId)) {
+            return false;
+        }
+        return (int)($camera['server_id'] ?? 0) > 0 && trim((string)($camera['dvr_stream_name'] ?? '')) !== '';
+    }
+
+    private const PLAYER_EVENTS_PAGE = 16;
+    private const PLAYER_EVENTS_LIMIT_MAX = 32;
+    private const PLAYER_EVENTS_WINDOW = 86400;
+    private const PLAYER_EVENTS_MAX_WINDOWS = 7;
+
+    /**
+     * Порция событий движения одной камеры, идя назад от $before (исключительно).
+     * Каждый батч сканирует окна по 24ч (до 7 суток), пока не наберётся $limit.
+     * @return array{0: list<array{from:int,to:int,duration:int}>, 1: bool, 2: int}
+     */
+    private static function playerEventBatch(array $camera, int $before, int $limit): array
+    {
+        $limit = max(1, min(self::PLAYER_EVENTS_LIMIT_MAX, $limit));
+        $cursor = $before > 0 ? $before : time();
+        $events = [];
+        $scannedLow = $cursor;
+        $window = 0;
+        while (count($events) < $limit && $window < self::PLAYER_EVENTS_MAX_WINDOWS) {
+            $to = $cursor - $window * self::PLAYER_EVENTS_WINDOW;
+            if ($to <= 0) {
+                break;
+            }
+            $from = max(0, $to - self::PLAYER_EVENTS_WINDOW);
+            $scannedLow = $from;
+            $window++;
+            $result = DvrClient::motionEvents(
+                (int)$camera['server_id'],
+                (string)$camera['dvr_stream_name'],
+                $from,
+                $to
+            );
+            if (empty($result['ok']) || !is_array($result['intervals'] ?? null)) {
+                continue;
+            }
+            $intervals = $result['intervals'];
+            usort($intervals, static fn(array $a, array $b): int => (int)($b['from'] ?? 0) <=> (int)($a['from'] ?? 0));
+            foreach ($intervals as $interval) {
+                $eventFrom = (int)($interval['from'] ?? 0);
+                if ($eventFrom <= 0 || $eventFrom < $from || $eventFrom >= $to) {
+                    continue;
+                }
+                if (count($events) >= $limit) {
+                    break;
+                }
+                $events[] = [
+                    'from' => $eventFrom,
+                    'to' => (int)($interval['to'] ?? $eventFrom),
+                    'duration' => (int)($interval['duration'] ?? 0),
+                ];
+            }
+        }
+
+        $hasMore = count($events) >= $limit && $scannedLow > 0;
+        $nextBefore = $events ? $events[count($events) - 1]['from'] : $scannedLow;
+        return [$events, $hasMore, $nextBefore];
+    }
+
+    /**
+     * Карточка события: ссылки/подписи для HTML-рендера и JSON — единый источник.
+     * @return array{from:int,to:int,duration:int,href:string,preview:string,iso:string,timeLabel:string,dayLabel:string,dayKey:string}
+     */
+    private static function playerEventCardData(array $camera, array $event): array
+    {
+        $from = (int)$event['from'];
+        $timezone = (string)Config::get('timezone', 'UTC');
+        $timeLabel = '';
+        $dayLabel = '';
+        $dayKey = '';
+        try {
+            $moment = (new \DateTimeImmutable('@' . $from))->setTimezone(new \DateTimeZone($timezone));
+            $timeLabel = $moment->format('H:i');
+            $dayKey = $moment->format('Y-m-d');
+            $dayLabel = self::playerEventDayLabel($moment);
+        } catch (\Throwable) {
+        }
+        return [
+            'from' => $from,
+            'to' => (int)($event['to'] ?? $from),
+            'duration' => (int)($event['duration'] ?? 0),
+            'href' => '/viewer/player?' . http_build_query([
+                'id' => (int)$camera['id'],
+                'back' => '/viewer/player?' . http_build_query(['id' => $camera['id']]),
+                'start' => gmdate('Y-m-d\TH:i:s\Z', $from),
+            ]),
+            'preview' => '/viewer/preview?' . http_build_query(['id' => (int)$camera['id'], 'ts' => $from]),
+            'iso' => gmdate('Y-m-d\TH:i:s\Z', $from),
+            'timeLabel' => $timeLabel,
+            'dayKey' => $dayKey,
+            'dayLabel' => $dayLabel,
+        ];
+    }
+
+    /**
+     * День группы карточек: «Сегодня», «Вчера» либо дата.
+     */
+    private static function playerEventDayLabel(\DateTimeImmutable $moment): string
+    {
+        $today = new \DateTimeImmutable('now', $moment->getTimezone());
+        $yesterday = $today->modify('-1 day');
+        if ($today->format('Y-m-d') === $moment->format('Y-m-d')) {
+            return self::t('player.eventsToday', 'Сегодня');
+        }
+        if ($yesterday->format('Y-m-d') === $moment->format('Y-m-d')) {
+            return self::t('player.eventsYesterday', 'Вчера');
+        }
+        return $moment->format('d.m.Y');
+    }
+
+    /**
+     * HTML полосы событий под плеером; '' = полосы нет. Карточка — только
+     * превью с плашкой «чч:мм», группы разделены заголовками по дням.
+     */
+    private static function renderPlayerEvents(array $events, int $cameraId, bool $hasMore, int $nextBefore): string
+    {
+        if (!$events) {
+            return '';
+        }
+        $sentinel = $hasMore
+            ? '<div class="player-events-sentinel" data-player-events-sentinel data-player-events-url="/viewer/player/events?' . http_build_query(['id' => $cameraId]) . '" data-player-events-before="' . $nextBefore . '"></div>'
+            : '';
+        $html = '<section class="player-events" data-player-events>';
+        $html .= '<h2 class="player-events-title">' . Util::h(self::t('player.eventsTitle', 'События')) . '</h2>';
+        $html .= '<div class="player-events-grid">';
+        $dayKey = '';
+        foreach ($events as $event) {
+            $card = self::playerEventCardData(['id' => $cameraId], $event);
+            if ((string)$card['dayKey'] !== $dayKey) {
+                $dayKey = (string)$card['dayKey'];
+                $html .= '<div class="player-events-day">' . Util::h((string)$card['dayLabel']) . '</div>';
+            }
+            $html .= '<a class="player-event" href="' . Util::h((string)$card['href']) . '">';
+            $html .= '<img src="' . Util::h((string)$card['preview']) . '" alt="" loading="lazy" decoding="async">';
+            $html .= '<span class="player-event-time"><time datetime="' . Util::h((string)$card['iso']) . '">' . Util::h((string)$card['timeLabel']) . '</time></span>';
+            $html .= '</a>';
+        }
+        $html .= '</div>' . $sentinel . '</section>';
+        return $html;
+    }
+
+    /**
+     * JSON-батч для Infinity-scroll ленты в плеере PWA.
+     */
+    private static function playerEventsJson(): void
+    {
+        $user = Auth::requireLogin();
+        $cameraId = (int)($_GET['id'] ?? 0);
+        if (!Repo::cameraAllowedForUser($user, $cameraId)) {
+            self::apiError(403, 'forbidden', 'Camera access denied');
+            return;
+        }
+        $stmt = DB::pdo()->prepare(
+            'SELECT c.*, s.name AS server_name, s.base_url AS server_url
+             FROM cameras c
+             LEFT JOIN dvr_servers s ON s.id = c.server_id
+             WHERE c.id = ? AND c.blocked = 0'
+        );
+        $stmt->execute([$cameraId]);
+        $camera = $stmt->fetch();
+        if (!$camera) {
+            self::apiError(404, 'not_found', 'Camera not found');
+            return;
+        }
+        if (Repo::cameraArchiveHiddenForUser($user, $cameraId)) {
+            self::apiError(404, 'not_found', 'Camera archive not available');
+            return;
+        }
+        $before = (int)($_GET['before'] ?? 0);
+        $limit = (int)($_GET['limit'] ?? self::PLAYER_EVENTS_PAGE);
+        [$events, $hasMore, $nextBefore] = self::playerEventBatch($camera, $before, $limit);
+        $cards = [];
+        foreach ($events as $event) {
+            $cards[] = self::playerEventCardData($camera, $event);
+        }
+        self::apiJson([
+            'ok' => true,
+            'cameraId' => $cameraId,
+            'events' => $cards,
+            'hasMore' => $hasMore,
+            'nextBefore' => $nextBefore,
+        ]);
     }
 
     private static function previewProxy(): void
