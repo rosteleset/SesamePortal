@@ -104,21 +104,23 @@ final class TokenService
 
     public static function userByToken(string $token): ?array
     {
+        return self::userByDailyToken($token) ?? self::userByStaticToken($token);
+    }
+
+    public static function userByDailyToken(string $token): ?array
+    {
         if ($token === '') {
             return null;
         }
 
-        $stmt = DB::pdo()->query('SELECT * FROM users WHERE blocked = 0');
-        foreach ($stmt->fetchAll() as $user) {
-            if (hash_equals((string)$user['daily_token'], $token)) {
-                return $user;
-            }
-
-            if (self::isOverlapWindow() && $user['previous_daily_token'] && hash_equals($user['previous_daily_token'], $token)) {
-                return $user;
-            }
-
-            if ($user['static_token_hash'] && password_verify($token, $user['static_token_hash'])) {
+        $overlap = self::isOverlapWindow();
+        $condition = $overlap ? 'daily_token = ? OR previous_daily_token = ?' : 'daily_token = ?';
+        $stmt = DB::pdo()->prepare("SELECT * FROM users WHERE blocked = 0 AND ($condition)");
+        $stmt->execute($overlap ? [$token, $token] : [$token]);
+        while ($user = $stmt->fetch()) {
+            // A database collation may compare tokens case-insensitively.
+            if (hash_equals((string)$user['daily_token'], $token)
+                || ($overlap && hash_equals((string)$user['previous_daily_token'], $token))) {
                 return $user;
             }
         }

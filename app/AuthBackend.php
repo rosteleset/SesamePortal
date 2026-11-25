@@ -17,8 +17,9 @@ trait AuthBackend
             return;
         }
         $cameraName = self::cameraNameFromAuthRequest();
-        $staticUser = TokenService::userByStaticToken($token);
-        $user = $staticUser ?: TokenService::userByToken($token);
+        $dailyUser = TokenService::userByDailyToken($token);
+        $staticUser = $dailyUser === null ? TokenService::userByStaticToken($token) : null;
+        $user = $dailyUser ?? $staticUser;
         if (!$user || $cameraName === '') {
             http_response_code(403);
             echo "denied\n";
