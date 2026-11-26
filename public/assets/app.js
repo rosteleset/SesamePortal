@@ -84,6 +84,8 @@
   initPlayer();
   initPreviewRefresh();
   initPlayerEvents();
+  initPlayerEventNavigation();
+  initPlayerOrientationVisibility();
   initDensitySwitch();
   initGroupTreePickers();
   initCameraFormVisibility();
@@ -96,6 +98,7 @@
   initLocalTimes();
   initPlayerBackBridge();
   initPlayerSafeArea();
+  initPlayerOrientationFullscreen();
   initThemeToggle();
   initStaticTokens();
   initInstallPrompt();
@@ -684,7 +687,14 @@
       timeEl.setAttribute("datetime", event.iso || "");
       timeEl.textContent = clockOf(when) || event.timeLabel || "";
       clock.appendChild(timeEl);
-      link.append(img, clock);
+      const downloadButton = document.createElement("button");
+      downloadButton.type = "button";
+      downloadButton.className = "player-event-download";
+      downloadButton.dataset.downloadUrl = event.download || "";
+      downloadButton.setAttribute("aria-label", "Скачать отрезок");
+      downloadButton.title = "Скачать отрезок";
+      downloadButton.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" d="M12 3v12M7 10l5 5 5-5M5 21h14"/></svg>';
+      link.append(img, clock, downloadButton);
       grid.appendChild(link);
     }
 
@@ -824,12 +834,35 @@
       if (!targetUrl) return;
 
       event.source?.postMessage({ type: "sesame-dvr:player-back-ack", id: data.id || "" }, event.origin || "*");
+      // Возврат из плеера должен уводить на главную вкладку «Камеры»
+      // (цель обычно «/»), а не отматывать только один шаг истории,
+      // особенно после обновления плеера по событиям через replaceState.
+      if (targetUrl.pathname === "/") {
+        window.location.assign(relativeUrl(targetUrl));
+        return;
+      }
+
       if (history.length > 1 && referrerMatches(targetUrl)) {
         history.back();
         return;
       }
 
       window.location.assign(relativeUrl(targetUrl));
+    });
+
+  }
+
+  if (document.body.classList.contains("player-view")) {
+    let guardHandled = false;
+    try {
+      history.pushState({ sesamePlayerGuard: true }, "", location.href);
+    } catch (_error) {
+      // История недоступна — экранная кнопка всё равно ведёт на «/».
+    }
+    window.addEventListener("popstate", () => {
+      if (guardHandled) return;
+      guardHandled = true;
+      window.location.assign("/");
     });
   }
 
@@ -876,6 +909,183 @@
     }
     window.addEventListener("resize", updateAppHeight);
     window.addEventListener("orientationchange", () => setTimeout(updateAppHeight, 150));
+  }
+
+  function initPlayerOrientationFullscreen() {
+    const stage = document.querySelector(".player-page .player-stage");
+    if (!stage || !document.body.classList.contains("player-view")) return;
+    if (stage.dataset.orientationFullscreenBound === "1") return;
+    stage.dataset.orientationFullscreenBound = "1";
+
+    // Только standalone (PWA): в браузерной вкладке fullscreen при повороте не включаем.
+    let standalone = false;
+    try {
+      standalone = window.matchMedia("(display-mode: standalone)").matches || window.navigator.standalone === true;
+    } catch (_error) {
+      standalone = false;
+    }
+    if (!standalone) return;
+
+    const fullscreenTarget = (stage.requestFullscreen || stage.webkitRequestFullscreen) ? stage : document.documentElement;
+    const requestFullscreen = fullscreenTarget?.requestFullscreen || fullscreenTarget?.webkitRequestFullscreen;
+    const exitFullscreen = document.exitFullscreen || document.webkitExitFullscreen;
+    const fullscreenElement = () => document.fullscreenElement || document.webkitFullscreenElement;
+    let fullscreenOwned = false;
+
+    // Полноэкранный режим, открытый вручную (кнопкой или системой), не «наш» —
+    // при возврате в вертикаль его не закрываем.
+    document.addEventListener("fullscreenchange", () => {
+      if (!fullscreenElement()) fullscreenOwned = false;
+    });
+    document.addEventListener("webkitfullscreenchange", () => {
+      if (!fullscreenElement()) fullscreenOwned = false;
+    });
+
+    async function applyOrientation() {
+      const landscape = window.matchMedia("(orientation: landscape)").matches || window.innerWidth > window.innerHeight;
+      try {
+        if (landscape && !fullscreenElement() && requestFullscreen) {
+          await requestFullscreen.call(fullscreenTarget);
+          fullscreenOwned = true;
+        } else if (!landscape && fullscreenElement() && fullscreenOwned && exitFullscreen) {
+          fullscreenOwned = false;
+          await exitFullscreen.call(document);
+        }
+      } catch (_error) {
+        // Без свежего жеста пользователя браузер может отклонить запрос —
+        // молча остаёмся на CSS-варианте (stage растянут правилами @media).
+        if (!fullscreenElement()) fullscreenOwned = false;
+      }
+    }
+
+    const orientationQuery = window.matchMedia("(orientation: landscape)");
+    const onOrientationChange = () => {
+      applyOrientation();
+    };
+    if (orientationQuery.addEventListener) orientationQuery.addEventListener("change", onOrientationChange);
+    else if (orientationQuery.addListener) orientationQuery.addListener(onOrientationChange);
+    window.addEventListener("orientationchange", onOrientationChange);
+    window.addEventListener("resize", onOrientationChange);
+    if (window.visualViewport) {
+      window.visualViewport.addEventListener("resize", onOrientationChange);
+    }
+
+    // Первичная синхронизация: страница может открыться уже в горизонтали.
+    if (orientationQuery.matches) applyOrientation();
+  }
+
+  function initPlayerEventNavigation() {
+    const frame = document.querySelector(".player-frame");
+    if (!frame || !document.body.classList.contains("player-view")) return;
+    if (frame.dataset.playerEventNavBound === "1") return;
+    frame.dataset.playerEventNavBound = "1";
+
+    let standalone = false;
+    try {
+      standalone = window.matchMedia("(display-mode: standalone)").matches || window.navigator.standalone === true;
+    } catch (_error) {
+      standalone = false;
+    }
+    if (!standalone) return;
+
+    let loadingPlayerUrl = null;
+
+    async function updatePlayer(playerUrl) {
+      if (loadingPlayerUrl === playerUrl) return;
+      loadingPlayerUrl = playerUrl;
+      try {
+        const response = await fetch(playerUrl, {
+          credentials: "same-origin",
+          headers: { Accept: "text/html" }
+        });
+        if (!response.ok) throw new Error("player page unavailable");
+
+        const html = await response.text();
+        const doc = new DOMParser().parseFromString(html, "text/html");
+        const nextFrame = doc.querySelector(".player-frame");
+        const nextSrc = nextFrame ? nextFrame.getAttribute("src") : null;
+        if (!nextSrc) throw new Error("player frame not found");
+
+        frame.src = nextSrc;
+
+        history.replaceState({ playerPageUrl: playerUrl }, "", playerUrl);
+      } catch (_error) {
+        window.location.assign(playerUrl);
+      } finally {
+        loadingPlayerUrl = null;
+      }
+    }
+
+    // Скачивание отрезка видео по кнопке поверх превью.
+    document.addEventListener("click", (event) => {
+      if (event.button !== 0) return;
+      if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
+
+      const downloadButton = event.target && event.target.closest ? event.target.closest(".player-event-download") : null;
+      if (!downloadButton) return;
+
+      const url = downloadButton.dataset.downloadUrl || downloadButton.getAttribute("data-download-url");
+      if (!url) return;
+
+      event.preventDefault();
+      event.stopPropagation();
+
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.rel = "noopener";
+      anchor.style.display = "none";
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+    }, true);
+
+    document.addEventListener("click", (event) => {
+      if (event.defaultPrevented || event.button !== 0) return;
+      if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
+
+      const downloadButton = event.target && event.target.closest ? event.target.closest(".player-event-download") : null;
+      if (downloadButton) return;
+
+      const link = event.target && event.target.closest ? event.target.closest("a.player-event") : null;
+      if (!link) return;
+
+      const href = link.getAttribute("href");
+      if (!href || href === "#") return;
+      const url = safeSameOriginUrl(href);
+      if (!url) return;
+
+      event.preventDefault();
+      updatePlayer(url.href);
+    }, true);
+
+    window.addEventListener("popstate", () => {
+      const url = safeSameOriginUrl(location.href);
+      if (!url || url.pathname !== "/viewer/player") return;
+      updatePlayer(url.href);
+    });
+  }
+
+  function initPlayerOrientationVisibility() {
+    const applyOrientationVisibility = () => {
+      if (!document.body.classList.contains("player-view")) return;
+      const landscape = (() => {
+        try {
+          if (window.matchMedia("(orientation: landscape)").matches) return true;
+        } catch (_error) {
+          // IE/старые WebView могут не поддерживать matchMedia — используем геометрию.
+        }
+        return window.innerWidth > window.innerHeight;
+      })();
+      document.body.classList.toggle("player-landscape", landscape);
+    };
+
+    applyOrientationVisibility();
+    window.addEventListener("orientationchange", applyOrientationVisibility);
+    window.addEventListener("resize", applyOrientationVisibility);
+    if (window.visualViewport) {
+      window.visualViewport.addEventListener("resize", applyOrientationVisibility);
+      window.visualViewport.addEventListener("scroll", applyOrientationVisibility);
+    }
   }
 
   function safeSameOriginUrl(value) {

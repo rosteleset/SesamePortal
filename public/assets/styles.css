@@ -3731,6 +3731,22 @@ span.share-cam-arch{cursor:default}
 .player-events {
   display: none;
 }
+
+/* Запасной путь: ориентация может определяться неверно в WebView/PWA,
+   поэтому дополнительно используем класс, который выставляет app.js. */
+body.player-view.player-landscape .player-events {
+  display: none;
+}
+
+body.player-view.player-landscape .player-page {
+  flex: 1 1 0;
+}
+
+body.player-view.player-landscape .player-stage {
+  flex: 1 1 0;
+  height: auto;
+}
+
 @media (display-mode: standalone) and (orientation: portrait) {
   /* stage (video + DVR bar) остаётся сверху; workspace и лента — grow-only (basis 0) */
   body.player-view .workspace {
@@ -3809,6 +3825,32 @@ span.share-cam-arch{cursor:default}
     padding: 2px 7px;
     border-radius: 6px;
   }
+
+  .player-event-download {
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    width: 26px;
+    height: 26px;
+    border: 0;
+    border-radius: 999px;
+    background: rgba(34, 197, 94, .72) !important;
+    color: #fff;
+    font-size: 15px;
+    line-height: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    z-index: 3;
+    padding: 0;
+  }
+
+  .player-event-download svg {
+    width: 16px;
+    height: 16px;
+    display: block;
+  }
   .player-events-day {
     grid-column: 1 / -1;
     font-size: 12px;
@@ -3828,6 +3870,35 @@ span.share-cam-arch{cursor:default}
     padding: 0;
   }
   .player-events-sentinel[hidden] {
+    display: none;
+  }
+}
+@media (display-mode: standalone) and (orientation: landscape) {
+  /* Горизонталь в PWA: видео на весь вьюпорт, лента событий скрыта.
+     Safe-area-отступы убираем — в fullscreen они нулевые, а без него
+     остаются чёрные полосы сверху/снизу. */
+  body.player-view {
+    padding-top: 0;
+    padding-bottom: 0;
+  }
+  body.player-view .workspace {
+    flex: 1 1 0;
+    min-height: 0;
+  }
+  body.player-view .player-page {
+    flex: 1 1 0;
+  }
+  body.player-view .player-stage {
+    flex: 1 1 0;
+    height: auto;
+  }
+  body.player-view .player-watermark {
+    inset: 0;
+    padding: 4vh 4vw;
+    gap: 3vh 3vw;
+    grid-template-columns: repeat(3, minmax(120px, 1fr));
+  }
+  body.player-view .player-events {
     display: none;
   }
 }

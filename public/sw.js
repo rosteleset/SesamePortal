@@ -1,4 +1,4 @@
-var CACHE = 'artelmik-v4';
+var CACHE = 'artelmik-v10';
 var STATIC_ASSETS = [
   '/assets/styles.css',
   '/assets/app.js',

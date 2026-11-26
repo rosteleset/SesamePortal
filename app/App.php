@@ -79,6 +79,7 @@ final class App
             '/viewer/preview' => self::previewProxy(),
             '/viewer/player' => self::player(),
             '/viewer/player/events' => self::playerEventsJson(),
+            '/viewer/archive' => self::archiveDownload(),
             '/favorite/toggle' => self::toggleFavorite(),
             '/camera/rename' => self::renameCamera(),
             '/theme' => self::updateTheme(),

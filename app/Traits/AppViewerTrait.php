@@ -326,6 +326,7 @@ trait AppViewerTrait
                 'back' => '/viewer/player?' . http_build_query(['id' => $camera['id']]),
                 'start' => gmdate('Y-m-d\TH:i:s\Z', $from),
             ]),
+            'download' => '/viewer/archive?' . http_build_query(['id' => (int)$camera['id'], 'from' => $from, 'to' => (int)($event['to'] ?? $from)]),
             'preview' => '/viewer/preview?' . http_build_query(['id' => (int)$camera['id'], 'ts' => $from]),
             'iso' => gmdate('Y-m-d\TH:i:s\Z', $from),
             'timeLabel' => $timeLabel,
@@ -375,6 +376,7 @@ trait AppViewerTrait
             $html .= '<a class="player-event" href="' . Util::h((string)$card['href']) . '">';
             $html .= '<img src="' . Util::h((string)$card['preview']) . '" alt="" loading="lazy" decoding="async">';
             $html .= '<span class="player-event-time"><time datetime="' . Util::h((string)$card['iso']) . '">' . Util::h((string)$card['timeLabel']) . '</time></span>';
+            $html .= '<button type="button" class="player-event-download" data-download-url="' . Util::h((string)$card['download']) . '" aria-label="' . Util::h(self::t('player.eventDownload', 'Скачать отрезок')) . '" title="' . Util::h(self::t('player.eventDownload', 'Скачать отрезок')) . '">' . self::icon('download') . '</button>';
             $html .= '</a>';
         }
         $html .= '</div>' . $sentinel . '</section>';
@@ -422,6 +424,93 @@ trait AppViewerTrait
             'hasMore' => $hasMore,
             'nextBefore' => $nextBefore,
         ]);
+    }
+
+    private static function archiveDownload(): void
+    {
+        $user = Auth::requireLogin();
+        $cameraId = (int)($_GET['id'] ?? 0);
+        if (!Repo::cameraAllowedForUser($user, $cameraId)) {
+            http_response_code(403);
+            echo 'Forbidden';
+            return;
+        }
+        $stmt = DB::pdo()->prepare(
+            'SELECT c.*, s.name AS server_name, s.base_url AS server_url
+             FROM cameras c
+             LEFT JOIN dvr_servers s ON s.id = c.server_id
+             WHERE c.id = ? AND c.blocked = 0'
+        );
+        $stmt->execute([$cameraId]);
+        $camera = $stmt->fetch();
+        if (!$camera || empty($camera['server_url']) || empty($camera['dvr_stream_name'])) {
+            http_response_code(404);
+            echo 'Not found';
+            return;
+        }
+        if (Repo::cameraArchiveHiddenForUser($user, $cameraId)) {
+            http_response_code(403);
+            echo 'Archive denied';
+            return;
+        }
+
+        $from = (int)($_GET['from'] ?? 0);
+        $to = (int)($_GET['to'] ?? $from);
+        if ($from <= 0) {
+            http_response_code(400);
+            echo 'Bad from';
+            return;
+        }
+        if ($to <= $from) {
+            $to = $from;
+        }
+
+        $segmentStart = max(1, $from - 5);
+        $segmentEnd = max($segmentStart + 1, $to + 5);
+        $segmentDuration = max(15, $segmentEnd - $segmentStart);
+
+        $dailyToken = (string)($user['daily_token'] ?? '');
+        if ($dailyToken === '') {
+            http_response_code(403);
+            echo 'Token missing';
+            return;
+        }
+
+        $stream = trim((string)($camera['dvr_stream_name'] ?? ''));
+        if (!Util::isDvrStreamName($stream)) {
+            http_response_code(400);
+            echo 'Bad stream';
+            return;
+        }
+
+        $url = rtrim((string)$camera['server_url'], '/') . '/' . rawurlencode($stream) . '/'
+            . 'archive-' . $segmentStart . '-' . $segmentDuration . '.mp4'
+            . '?' . http_build_query(['token' => $dailyToken]);
+
+        $filename = sprintf('camera-%d-event-%d.mp4', $cameraId, $from);
+
+        if (ob_get_level() > 0) {
+            ob_end_clean();
+        }
+        header('Content-Type: video/mp4');
+        header('Content-Disposition: attachment; filename="' . $filename . '"');
+        header('Cache-Control: no-store');
+
+        $ch = curl_init($url);
+        curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
+        curl_setopt($ch, CURLOPT_TIMEOUT, 300);
+        curl_setopt($ch, CURLOPT_FILE, fopen('php://output', 'w'));
+        curl_setopt($ch, CURLOPT_FAILONERROR, true);
+        $ok = curl_exec($ch);
+        $err = curl_error($ch);
+        curl_close($ch);
+
+        if (!$ok) {
+            http_response_code(502);
+            echo 'Download failed: ' . $err;
+            return;
+        }
+        return;
     }
 
     private static function previewProxy(): void
