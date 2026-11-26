@@ -20,6 +20,22 @@ final class I18nCatalog
             $messages[$locale] ??= [];
             $messages[$locale] += $items;
         }
+        $nameTaken = [
+            'ru' => 'Камера с таким названием уже есть. Выберите другое название.',
+            'en' => 'A camera with this name already exists. Choose another name.',
+            'de' => 'Eine Kamera mit diesem Namen ist bereits vorhanden. Wählen Sie einen anderen Namen.',
+            'fr' => 'Une caméra porte déjà ce nom. Choisissez un autre nom.',
+            'es' => 'Ya existe una cámara con este nombre. Elija otro nombre.',
+            'it' => 'Esiste già una telecamera con questo nome. Scegli un altro nome.',
+            'pt' => 'Já existe uma câmara com este nome. Escolha outro nome.',
+            'bg' => 'Вече има камера с това име. Изберете друго име.',
+            'pl' => 'Kamera o tej nazwie już istnieje. Wybierz inną nazwę.',
+            'zh' => '已有同名摄像机。请使用其他名称。',
+            'ja' => '同じ名前のカメラが既にあります。別の名前を選んでください。',
+            'ko' => '같은 이름의 카메라가 이미 있습니다. 다른 이름을 선택하세요.',
+            'ar' => 'توجد كاميرا بهذا الاسم بالفعل. اختر اسمًا آخر.',
+            'hy' => 'Այս անունով տեսախցիկ արդեն կա։ Ընտրեք այլ անուն։',
+        ];
         $settingsMessages = [
             'cameras.settingsReloadRequired' => 'Reload the camera settings before saving. No changes were saved.',
             'cameras.settingsUnavailable' => 'DVR settings could not be read. Showing the saved copy; DVR changes cannot be saved.',
@@ -27,6 +43,7 @@ final class I18nCatalog
             'cameras.noDvrChanges' => 'No DVR settings changed',
         ];
         foreach ($messages as $locale => &$items) {
+            $items['cameras.nameTaken'] = $nameTaken[$locale] ?? $nameTaken['en'];
             $items += $locale === 'ru' ? [
                 'cameras.settingsReloadRequired' => 'Перед сохранением заново откройте настройки камеры. Изменения не сохранены.',
                 'cameras.settingsUnavailable' => 'Не удалось прочитать настройки с DVR. Показана сохранённая копия; сохранение изменений на DVR недоступно.',

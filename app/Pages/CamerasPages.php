@@ -94,29 +94,36 @@ trait CamerasPages
                         Util::checkbox('blocked'),
                         $stream,
                     ];
-                    if ($id > 0) {
-                        $resetObserved = (int)$current['server_id'] !== (int)$serverId || $current['dvr_stream_name'] !== $stream
-                            ? ', dvr_retention_days=NULL, dvr_archive_enabled=NULL' : '';
-                        $pdo->prepare('UPDATE cameras SET name=?, source_url=?, server_id=?, server_selection=?, latitude=?, longitude=?, direction_deg=?, view_angle_deg=?, retention_days=?, archive_enabled=?, webrtc_fast_start=?, event_archive_retention_enabled=?, event_archive_max_bytes=?, event_archive_max_duration=?, event_archive_max_age=?, timelapse_enabled=?, timelapse_frames_per_hour=?, timelapse_retention_days=?, timelapse_playback_fps=?, direct_archive_video_timeline_repair_mode=?, audio_codec=?, dvr_control_mode=?, agent_id=?, agent_camera_id=?, onvif_events_requested=?, watermark_enabled=?, watermark_intensity=?, blocked=?, dvr_stream_name=?, updated_at=?' . $resetObserved . ' WHERE id=?')
-                            ->execute([...$values, Util::now(), $id]);
-                    } else {
-                        $pdo->prepare('INSERT INTO cameras(name, source_url, server_id, server_selection, latitude, longitude, direction_deg, view_angle_deg, retention_days, archive_enabled, webrtc_fast_start, event_archive_retention_enabled, event_archive_max_bytes, event_archive_max_duration, event_archive_max_age, timelapse_enabled, timelapse_frames_per_hour, timelapse_retention_days, timelapse_playback_fps, direct_archive_video_timeline_repair_mode, audio_codec, dvr_control_mode, agent_id, agent_camera_id, onvif_events_requested, watermark_enabled, watermark_intensity, blocked, dvr_stream_name, created_at, updated_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
-                            ->execute([...$values, Util::now(), Util::now()]);
-                        $id = DB::lastInsertId('cameras');
+                    try {
+                        if ($id > 0) {
+                            $resetObserved = (int)$current['server_id'] !== (int)$serverId || $current['dvr_stream_name'] !== $stream
+                                ? ', dvr_retention_days=NULL, dvr_archive_enabled=NULL' : '';
+                            $pdo->prepare('UPDATE cameras SET name=?, source_url=?, server_id=?, server_selection=?, latitude=?, longitude=?, direction_deg=?, view_angle_deg=?, retention_days=?, archive_enabled=?, webrtc_fast_start=?, event_archive_retention_enabled=?, event_archive_max_bytes=?, event_archive_max_duration=?, event_archive_max_age=?, timelapse_enabled=?, timelapse_frames_per_hour=?, timelapse_retention_days=?, timelapse_playback_fps=?, direct_archive_video_timeline_repair_mode=?, audio_codec=?, dvr_control_mode=?, agent_id=?, agent_camera_id=?, onvif_events_requested=?, watermark_enabled=?, watermark_intensity=?, blocked=?, dvr_stream_name=?, updated_at=?' . $resetObserved . ' WHERE id=?')
+                                ->execute([...$values, Util::now(), $id]);
+                        } else {
+                            $pdo->prepare('INSERT INTO cameras(name, source_url, server_id, server_selection, latitude, longitude, direction_deg, view_angle_deg, retention_days, archive_enabled, webrtc_fast_start, event_archive_retention_enabled, event_archive_max_bytes, event_archive_max_duration, event_archive_max_age, timelapse_enabled, timelapse_frames_per_hour, timelapse_retention_days, timelapse_playback_fps, direct_archive_video_timeline_repair_mode, audio_codec, dvr_control_mode, agent_id, agent_camera_id, onvif_events_requested, watermark_enabled, watermark_intensity, blocked, dvr_stream_name, created_at, updated_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+                                ->execute([...$values, Util::now(), Util::now()]);
+                            $id = DB::lastInsertId('cameras');
+                        }
+                    } catch (\PDOException $error) {
+                        if (!self::isCameraNameUniqueConstraint($error)) throw $error;
+                        $message = self::t('cameras.nameTaken', 'A camera with this name already exists. Choose another name.');
                     }
-                    self::replaceLinks('camera_groups', 'camera_id', $id, 'group_id', $_POST['group_ids'] ?? []);
-                    $saved = Repo::camera($id);
-                    $changes = $current && $baseline ? DvrClient::cameraSettingsPatch($baseline, $saved) : null;
-                    $sync = DvrClient::syncCamera($id, $changes);
-                    if (empty($sync['ok']) && $baseline) {
-                        $retryForm = $saved;
-                        $settingsLoaded = true;
-                        $_SESSION['camera_edits'][$editToken]['identity'] = self::cameraEditIdentity($saved);
-                    } elseif ($editToken !== '') {
-                        unset($_SESSION['camera_edits'][$editToken]);
+                    if ($message === '') {
+                        self::replaceLinks('camera_groups', 'camera_id', $id, 'group_id', $_POST['group_ids'] ?? []);
+                        $saved = Repo::camera($id);
+                        $changes = $current && $baseline ? DvrClient::cameraSettingsPatch($baseline, $saved) : null;
+                        $sync = DvrClient::syncCamera($id, $changes);
+                        if (empty($sync['ok']) && $baseline) {
+                            $retryForm = $saved;
+                            $settingsLoaded = true;
+                            $_SESSION['camera_edits'][$editToken]['identity'] = self::cameraEditIdentity($saved);
+                        } elseif ($editToken !== '') {
+                            unset($_SESSION['camera_edits'][$editToken]);
+                        }
+                        $message = self::cameraSaveNotice($sync);
+                        Audit::log('camera.save', $name . ' mode=' . $controlMode . ' sync=' . $sync['message']);
                     }
-                    $message = self::cameraSaveNotice($sync);
-                    Audit::log('camera.save', $name . ' mode=' . $controlMode . ' sync=' . $sync['message']);
                 }
             } elseif ($action === 'delete' && $id > 0) {
                 $camera = Repo::camera($id);

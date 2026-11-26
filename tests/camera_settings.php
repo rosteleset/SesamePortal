@@ -356,6 +356,23 @@ try {
     expectSettings(count(writes()) === $beforeWrites + 1 && lastWrite()['body'] === $failedPatch, 'Failed mode change can retry with original baseline and new local identity');
 
     $pdo->exec("UPDATE cameras SET dvr_control_mode='read_only' WHERE id=2");
+    $otherName = $pdo->query('SELECT name FROM cameras WHERE id=1')->fetchColumn();
+    $portalName = $otherName . ' · DVR 2';
+    $pdo->prepare('UPDATE cameras SET name=? WHERE id=2')->execute([$portalName]);
+    fixture(function (&$s) use ($otherName) { $s['servers']['two']['cam']['displayName'] = $otherName; });
+    $readonly = settingsForm(2);
+    $beforeWrites = count(writes());
+    expectSettings($readonly['display_name'] === $portalName, 'Read-only edit shows the local name even when the DVR title belongs to another camera');
+    $readonly['watermark_intensity'] = '27';
+    expectSettings(saveSettings($readonly)[0] === 200, 'Unrelated local edits succeed despite a duplicate DVR title');
+    $localRow = static fn() => $pdo->query('SELECT name, watermark_intensity FROM cameras WHERE id=2')->fetch();
+    expectSettings($localRow()['name'] === $portalName && (int)$localRow()['watermark_intensity'] === 27, 'Local edit saved without renaming the camera');
+    $duplicate = settingsForm(2);
+    $duplicate['display_name'] = $otherName;
+    $duplicate['watermark_intensity'] = '34';
+    [$status, $html] = saveSettings($duplicate);
+    expectSettings($status === 200 && str_contains($html, 'Камера с таким названием уже есть'), 'Duplicate title produces a form validation message instead of HTTP 500');
+    expectSettings($localRow()['name'] === $portalName && (int)$localRow()['watermark_intensity'] === 27 && count(writes()) === $beforeWrites, 'Rejected rename leaves the portal row and DVR unchanged');
     fixture(function (&$s) { $s['errors']['GET /two/api/streams/cam'] = 403; });
     $readonly = settingsForm(2);
     $readonly['display_name'] = 'Read-only local title';
