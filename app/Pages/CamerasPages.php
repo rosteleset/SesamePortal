@@ -58,6 +58,12 @@ trait CamerasPages
                 } else {
                     $maxBytes = self::cameraEventArchiveMaxBytesFromPost();
                     $baseline = $snapshot['camera'] ?? null;
+                    $retentionDays = Util::post('retention_days', $current['retention_days'] ?? '7d');
+                    if ($controlMode === 'read_only' && ($current['dvr_control_mode'] ?? null) === 'read_only'
+                        && $baseline !== null && $retentionDays === $baseline['retention_days']) {
+                        // The submitted value may come from an older form. No edit means keep the stored value.
+                        $retentionDays = $current['retention_days'];
+                    }
                     if ($baseline && array_key_exists('event_archive_max_mb', $_POST)
                         && $maxBytes === self::cameraOptionalMegabytesAsBytes(self::eventArchiveBytesToMegabytesInput($baseline['event_archive_max_bytes'] ?? null))) {
                         // The MB input is rounded for display; an untouched field must retain exact bytes.
@@ -72,7 +78,7 @@ trait CamerasPages
                         self::nullableFloat(Util::post('longitude')),
                         (int)Util::post('direction_deg', 0),
                         (int)Util::post('view_angle_deg', 60),
-                        Util::post('retention_days', '7d'),
+                        $retentionDays,
                         Util::checkbox('archive_enabled'),
                         Util::checkbox('webrtc_fast_start'),
                         Util::checkbox('event_archive_retention_enabled'),

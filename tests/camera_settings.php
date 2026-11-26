@@ -373,6 +373,24 @@ try {
     [$status, $html] = saveSettings($duplicate);
     expectSettings($status === 200 && str_contains($html, 'Камера с таким названием уже есть'), 'Duplicate title produces a form validation message instead of HTTP 500');
     expectSettings($localRow()['name'] === $portalName && (int)$localRow()['watermark_intensity'] === 27 && count(writes()) === $beforeWrites, 'Rejected rename leaves the portal row and DVR unchanged');
+
+    $retention = static fn() => $pdo->query('SELECT retention_days FROM cameras WHERE id=2')->fetchColumn();
+    $pdo->exec("UPDATE cameras SET retention_days='7d' WHERE id=2");
+    foreach ([null, '', '2d'] as $remoteDays) {
+        fixture(function (&$s) use ($remoteDays) { $s['servers']['two']['cam']['retentionDays'] = $remoteDays; });
+        $form = settingsForm(2);
+        expectSettings($form['retention_days'] === '7d', 'Read-only form displays the editable local retention');
+        expectSettings(saveSettings($form)[0] === 200 && $retention() === '7d', 'Unchanged save preserves local retention');
+    }
+    expectSettings($pdo->query('SELECT dvr_retention_days FROM cameras WHERE id=2')->fetchColumn() === '2d', 'DVR retention is still recorded separately');
+    $stale = settingsForm(2);
+    $edit = settingsForm(2);
+    $edit['retention_days'] = '9d';
+    expectSettings(saveSettings($edit)[0] === 200 && $retention() === '9d', 'Explicit read-only retention edit stays local');
+    expectSettings(saveSettings($stale)[0] === 200 && $retention() === '9d', 'Untouched retention in another tab cannot undo the edit');
+    unset($stale['retention_days']);
+    expectSettings(saveSettings($stale)[0] === 200 && $retention() === '9d' && count(writes()) === $beforeWrites, 'Omitted retention preserves the local setting without writing to DVR');
+
     fixture(function (&$s) { $s['errors']['GET /two/api/streams/cam'] = 403; });
     $readonly = settingsForm(2);
     $readonly['display_name'] = 'Read-only local title';

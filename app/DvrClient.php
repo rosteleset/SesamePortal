@@ -36,8 +36,8 @@ final class DvrClient
         self::cacheCameraListSettings($camera, $stream);
         foreach (self::CAMERA_SETTINGS as $field => $remote) {
             if (!array_key_exists($remote, $stream)) continue;
-            // A read-only stream can share its DVR title with another portal camera.
-            if ($field === 'name' && ($camera['dvr_control_mode'] ?? '') === 'read_only') continue;
+            // These are local edits in read-only mode; DVR retention is observed separately.
+            if (($field === 'name' || $field === 'retention_days') && ($camera['dvr_control_mode'] ?? '') === 'read_only') continue;
             $value = $stream[$remote];
             if ($field === 'blocked') $value = $value ? 0 : 1;
             elseif (is_bool($value)) $value = (int)$value;
